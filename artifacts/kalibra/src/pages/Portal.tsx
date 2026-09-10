@@ -31,7 +31,7 @@ export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onTo
   const publicHomeUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
   
   return (
-    <div className={`min-h-[100dvh] flex flex-col font-sans transition-colors ${theme === 'dark' ? 'bg-[#10131a] text-[#f0f0e8] selection:bg-[#283322]' : 'bg-[#f6f8f7] text-[#16232b] selection:bg-[#e5eed5]'}`}>
+    <div className={`k-page-enter min-h-[100dvh] flex flex-col font-sans transition-colors ${theme === 'dark' ? 'bg-[#10131a] text-[#f0f0e8] selection:bg-[#283322]' : 'bg-[#f6f8f7] text-[#16232b] selection:bg-[#e5eed5]'}`}>
       <header className={`flex h-[68px] items-center justify-between px-5 md:px-9 border-b ${theme === 'dark' ? 'border-[#242a34]' : 'border-[#d5dede]'}`}>
         <div className="flex items-center gap-3">
           <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-[#d5f35b] text-[#10131a]">
@@ -66,12 +66,12 @@ export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onTo
         </header>
 
         <h2 className="text-[15px] font-semibold mb-4">Seus programas ativos</h2>
-        <div className="grid sm:grid-cols-2 gap-5">
+        <div className="k-stagger grid sm:grid-cols-2 gap-5">
           {programs.map(program => (
             <Link 
               key={program.slug} 
               href={`/workspace/${program.slug}`}
-              className={`block rounded-[4px] border transition-all duration-200 ${
+              className={`k-interactive-card block rounded-[4px] border ${
                 theme === 'dark' 
                   ? 'bg-[#131821] border-[#29313d] hover:border-[#68788b] hover:bg-[#1a2029]' 
                   : 'bg-white border-[#d5dede] hover:border-[#9eaeaa] hover:bg-[#f5f8f6]'

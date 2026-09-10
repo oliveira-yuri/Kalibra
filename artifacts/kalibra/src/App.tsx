@@ -180,7 +180,7 @@ function Shell({ children, theme, onToggleTheme, workspaceSlug = '' }: { childre
           <div><p className="k-eyebrow mb-1">{current.label}</p><h1 className="text-[15px] font-semibold tracking-[-0.02em]">{current.href === '/' ? 'Seu próximo passo, sem ruído.' : current.label}</h1></div>
           <div className="flex items-center gap-2"><button className="k-button k-button-quiet k-icon-button" data-testid="button-search" aria-label="Buscar"><Search size={16} /></button><button className="k-button k-button-quiet k-icon-button" data-testid="button-notifications" aria-label="Notificações"><CircleDot size={16} /></button><button className="k-button k-button-quiet k-icon-button" onClick={onToggleTheme} data-testid="button-theme-toggle" aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'} title={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><span className="mx-1 h-5 w-px bg-[#29313d]" /><span className="hidden text-right sm:block"><span className="block text-[11px] font-medium">quarta, 17 dez</span><span className="k-mono block text-[9px] text-[#8e98a8]">08:42 BRT</span></span></div>
         </header>
-        <div className="mx-auto max-w-[1440px] p-5 md:p-9">{children}</div>
+        <div key={location} className="k-page-enter mx-auto max-w-[1440px] p-5 md:p-9">{children}</div>
       </main>
     </div>
   );

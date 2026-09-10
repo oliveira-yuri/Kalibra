@@ -563,6 +563,62 @@ html.dark .k-button-primary { color: #10131a; background: #d5f35b; border-color:
 html.dark .k-button-primary:hover { color: #10131a; background: #e2fb78; border-color: #e2fb78; }
 html.dark .k-button-quiet { color: #aeb8c5; }
 html.dark .k-button-quiet:hover { background: #1a202a; color: #f0f0e8; }
+
+@keyframes k-page-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes k-item-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.k-page-enter {
+  animation: k-page-enter .28s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.k-interactive-card {
+  transition: transform .2s cubic-bezier(.22, 1, .36, 1), border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+}
+
+.k-interactive-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgb(20 32 38 / 8%);
+}
+
+html.dark .k-interactive-card:hover {
+  box-shadow: 0 12px 26px rgb(0 0 0 / 22%);
+}
+
+.k-stagger > * {
+  animation: k-item-enter .35s cubic-bezier(.22, 1, .36, 1) backwards;
+}
+
+.k-stagger > *:nth-child(2) { animation-delay: 55ms; }
+.k-stagger > *:nth-child(3) { animation-delay: 110ms; }
+.k-stagger > *:nth-child(4) { animation-delay: 165ms; }
+
+.k-progress > span {
+  transition: width .45s cubic-bezier(.22, 1, .36, 1), background-color .2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k-page-enter,
+  .k-stagger > * {
+    animation: none;
+  }
+
+  .k-interactive-card,
+  .k-button,
+  .k-progress > span {
+    transition-duration: .01ms;
+  }
+
+  .k-interactive-card:hover {
+    transform: none;
+  }
+}
 html.dark .k-nav-item { color: #8e98a8; }
 html.dark .k-nav-item:hover { color: #f0f0e8; background: #151a22; }
 html.dark .k-nav-item-active { color: #d5f35b; background: #171f1e; border-left-color: #d5f35b; }
