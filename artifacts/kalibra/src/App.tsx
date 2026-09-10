@@ -23,6 +23,8 @@ type ReviewCard = { id: string; prompt: string; answer: string; due: string; dif
 type Question = { id: string; stem: string; options: string[]; correct: number; explanation: string; subject: string; topic: string; source: string };
 type ErrorRecord = { id: string; classification: string; subject: string; topic: string; date: string; status: ErrorStatus; severity: 'crítica' | 'alta' | 'média' };
 type Recommendation = { id: string; text: string; rationale: string; impact: string; approved: boolean };
+type Note = { id: string; title: string; subject: string; updatedAt: string; content: string };
+type PlanItem = { id: string; weekday: string; date: string; label: string; subject: string; duration: string; kind: 'prática' | 'revisão' | 'teoria' | 'simulado'; tone: 'focus' | 'review' | 'quiet' };
 type Theme = 'light' | 'dark';
 
 const subjects: Subject[] = [
@@ -67,6 +69,40 @@ const initialRecommendations: Recommendation[] = [
   { id: 'rec3', text: 'Trocar o próximo bloco de teoria por 12 questões de interpretação.', rationale: 'Português já possui cobertura suficiente; prática contextualizada deve reduzir distrações de leitura.', impact: 'Substitui 25 min · hoje', approved: true },
 ];
 
+const initialPlan: PlanItem[] = [
+  { id: 'p1', weekday: 'quarta-feira', date: '17 dez', label: 'Resolver 8 questões de porcentagem', subject: 'Matemática', duration: '25 min', kind: 'prática', tone: 'focus' },
+  { id: 'p2', weekday: 'quinta-feira', date: '18 dez', label: 'Revisar Lei de Acesso à Informação', subject: 'Conhecimentos Específicos', duration: '20 min', kind: 'revisão', tone: 'review' },
+  { id: 'p3', weekday: 'sexta-feira', date: '19 dez', label: 'Praticar interpretação de textos', subject: 'Português', duration: '30 min', kind: 'prática', tone: 'focus' },
+  { id: 'p4', weekday: 'sábado', date: '20 dez', label: 'Revisar razão e proporção', subject: 'Matemática', duration: '20 min', kind: 'revisão', tone: 'review' },
+  { id: 'p5', weekday: 'domingo', date: '21 dez', label: 'Estudar concordância e regência', subject: 'Português', duration: '25 min', kind: 'teoria', tone: 'quiet' },
+  { id: 'p6', weekday: 'segunda-feira', date: '22 dez', label: 'Simulado misto · bloco 04', subject: 'Todas as matérias', duration: '45 min', kind: 'simulado', tone: 'focus' },
+  { id: 'p7', weekday: 'terça-feira', date: '23 dez', label: 'Revisar pontos fracos do ciclo', subject: 'Diagnóstico', duration: '30 min', kind: 'revisão', tone: 'review' },
+];
+
+const initialNotes: Note[] = [
+  {
+    id: 'n1',
+    title: 'Porcentagem e juros simples',
+    subject: 'Matemática',
+    updatedAt: 'há 12 min',
+    content: '# Porcentagem e juros simples\n\n## Regra principal\n\nPorcentagem é uma razão com denominador 100. Para evitar erro de operação, transforme a taxa em fator antes de calcular.\n\n`valor final = valor inicial × (1 ± taxa/100)`\n\n## Lembretes\n\n- aumento de 18% → fator **1,18**\n- redução de 20% → fator **0,80**\n- em variações sucessivas, aplique um fator depois do outro\n\n> Em uma redução, o resultado precisa ser menor que o valor inicial.',
+  },
+  {
+    id: 'n2',
+    title: 'Lei de Acesso à Informação',
+    subject: 'Conhecimentos Específicos',
+    updatedAt: 'ontem',
+    content: '# Lei de Acesso à Informação\n\nA publicidade é o preceito geral e o sigilo é a exceção, nos casos previstos em lei.\n\n## Para revisar\n\n- transparência ativa e passiva\n- hipóteses legais de sigilo\n- prazo e recurso do pedido de acesso',
+  },
+  {
+    id: 'n3',
+    title: 'Interpretação: inferência x explícito',
+    subject: 'Português',
+    updatedAt: 'há 3 dias',
+    content: '# Interpretação de textos\n\n**Informação explícita** está declarada diretamente no texto.\n\n**Inferência** é construída a partir de pistas e relações presentes no texto. Não é opinião livre: precisa ser sustentada por evidências do enunciado.',
+  },
+];
+
 const queryClient = new QueryClient();
 const today = '17 dez 2025';
 
@@ -78,6 +114,7 @@ const navItems = [
   { href: '/', label: 'Visão geral', icon: Gauge },
   { href: '/edital', label: 'Edital', icon: ListChecks },
   { href: '/estudo', label: 'Estudo', icon: BookOpen },
+  { href: '/notas', label: 'Notas', icon: NotebookPen },
   { href: '/revisao', label: 'Revisão', icon: RotateCcw },
   { href: '/questoes', label: 'Questões', icon: FileText },
   { href: '/erros', label: 'Erros', icon: ShieldAlert },
@@ -197,9 +234,119 @@ function Errors({ errors }: { errors: ErrorRecord[] }) {
   return <div className="space-y-5"><div><p className="k-eyebrow mb-2">memória de erro · 4 registros</p><h2 className="text-[27px] font-semibold tracking-[-.05em]">O caderno que muda seu próximo bloco.</h2><p className="mt-2 text-[12px] text-[#8e98a8]">Erros permanecem visíveis até que a evidência de correção seja registrada.</p></div><div className="grid gap-3 sm:grid-cols-3"><Metric label="abertos" value="02" note="exigem nova tentativa" accent /><Metric label="em revisão" value="01" note="aguardando confirmação" /><Metric label="resolvidos" value="01" note="nos últimos 14 dias" /></div><div className="k-card flex flex-col gap-3 p-3 md:flex-row"><div className="relative flex-1 md:max-w-[280px]"><Search size={14} className="absolute left-3 top-2.5 text-[#6f7b8b]" /><input className="k-input pl-9" placeholder="Buscar tópico ou causa" value={search} onChange={(event) => setSearch(event.target.value)} data-testid="input-search-errors" /></div><select className="k-input md:w-[155px]" value={status} onChange={(event) => setStatus(event.target.value)} data-testid="select-error-status"><option value="todos">Todos os status</option><option value="aberto">Aberto</option><option value="em revisão">Em revisão</option><option value="resolvido">Resolvido</option></select><select className="k-input md:w-[135px]" value={severity} onChange={(event) => setSeverity(event.target.value)} data-testid="select-error-severity"><option value="todas">Severidade</option><option value="crítica">Crítica</option><option value="alta">Alta</option><option value="média">Média</option></select><span className="hidden items-center gap-2 px-2 text-[10px] text-[#8e98a8] md:flex"><Filter size={13} /> {filtered.length} registros</span></div><div className="k-card overflow-hidden"><div className="hidden grid-cols-[1.25fr_1fr_.75fr_.8fr_.8fr] gap-4 bg-[#131820] px-5 py-3 text-[10px] uppercase tracking-[.1em] text-[#697587] md:grid"><span>causa do erro</span><span>tópico</span><span>data</span><span>severidade</span><span>status</span></div>{filtered.length === 0 ? <div className="flex flex-col items-center gap-2 p-12 text-center"><Search size={20} className="text-[#68788b]" /><p className="text-[13px] font-medium">Nenhum erro corresponde ao recorte</p><p className="text-[11px] text-[#8e98a8]">Tente remover um filtro ou buscar por outra causa.</p></div> : filtered.map((error) => <div key={error.id} className="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.25fr_1fr_.75fr_.8fr_.8fr] md:items-center md:gap-4" data-testid={`row-error-${error.id}`}><div><p className="text-[12px] font-medium">{error.classification}</p><p className="mt-1 text-[10px] text-[#8e98a8]">{error.subject}</p></div><p className="text-[11px] text-[#c6ced8]">{error.topic}</p><p className="k-mono text-[10px] text-[#8e98a8]">{error.date}</p><span className={`w-fit k-chip ${error.severity === 'crítica' ? 'border-[#75433e] text-[#ff907d]' : error.severity === 'alta' ? 'border-[#73553e] text-[#ffb28a]' : ''}`}>{error.severity}</span><span className={`text-[10px] ${error.status === 'aberto' ? 'text-[#ff907d]' : error.status === 'em revisão' ? 'text-[#d5f35b]' : 'text-[#8ed9ae]'}`}>{error.status}</span></div>)}</div></div>;
 }
 
-function Recommendations({ recommendations, onApprove }: { recommendations: Recommendation[]; onApprove: (id: string) => void }) {
+function StudyCalendar({ plan }: { plan: PlanItem[] }) {
+  return <section className="k-card p-5" data-testid="section-study-calendar">
+    <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+      <div>
+        <p className="k-eyebrow mb-2">plano da semana · atualizado pelo diagnóstico</p>
+        <h3 className="text-[18px] font-semibold tracking-[-.04em]">O que estudar em cada dia</h3>
+        <p className="mt-2 max-w-[620px] text-[12px] leading-5 text-[#8e98a8]">Aprovações recalibram os próximos blocos sem apagar o histórico do que já foi estudado.</p>
+      </div>
+      <span className="k-chip">{plan.length} blocos planejados</span>
+    </div>
+    <div className="k-plan-grid">
+      {plan.map((item) => <article key={item.id} className={`k-plan-item k-plan-${item.tone}`} data-testid={`plan-item-${item.id}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="k-eyebrow">{item.weekday}</p><p className="k-mono mt-1 text-[17px] font-medium">{item.date}</p></div>
+          <span className="k-plan-dot" />
+        </div>
+        <p className="mt-5 text-[12px] font-semibold leading-5">{item.label}</p>
+        <div className="mt-3 flex items-center justify-between gap-2 text-[10px] text-[#8e98a8]"><span>{item.subject}</span><span className="k-mono">{item.duration}</span></div>
+        <span className="k-plan-kind mt-3 inline-flex">{item.kind}</span>
+      </article>)}
+    </div>
+    <div className="k-card-soft mt-4 flex items-start gap-3 p-4"><CalendarDays size={15} className="k-focus mt-0.5 shrink-0" /><p className="text-[11px] leading-5 text-[#aeb8c5]">O calendário é uma proposta de ciclo. Nada muda automaticamente sem sua aprovação.</p></div>
+  </section>;
+}
+
+function Recommendations({ recommendations, plan, onApprove }: { recommendations: Recommendation[]; plan: PlanItem[]; onApprove: (id: string) => void }) {
   const pending = recommendations.filter((recommendation) => !recommendation.approved);
-  return <div className="space-y-5"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="k-eyebrow mb-2">ajustes do ciclo · aprovação manual</p><h2 className="text-[27px] font-semibold tracking-[-.05em]">Recomendações com freio.</h2><p className="mt-2 max-w-[650px] text-[12px] leading-5 text-[#8e98a8]">O diagnóstico pode sugerir mudanças, mas nada entra no seu calendário sem sua aprovação.</p></div><span className="k-chip k-chip-active">{pending.length} aguardando decisão</span></div><div className="k-card border-[#39452f] bg-[#151d18] p-4"><div className="flex gap-3"><Lightbulb size={17} className="k-focus mt-0.5 shrink-0" /><div><p className="text-[12px] font-semibold text-[#d5f35b]">Como o ajuste funciona</p><p className="mt-1 text-[11px] leading-5 text-[#aeb8c5]">Aprovar altera somente o próximo ciclo. Histórico e cartões anteriores permanecem intactos.</p></div></div></div><div className="space-y-3">{recommendations.map((recommendation) => <article key={recommendation.id} className={`k-card p-5 ${recommendation.approved ? 'border-[#354a3c]' : ''}`} data-testid={`card-recommendation-${recommendation.id}`}><div className="flex flex-col justify-between gap-4 md:flex-row"><div className="flex gap-4"><span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm ${recommendation.approved ? 'bg-[#243329] text-[#8ed9ae]' : 'bg-[#2b3024] text-[#d5f35b]'}`}>{recommendation.approved ? <Check size={16} /> : <Zap size={16} />}</span><div><div className="flex flex-wrap items-center gap-2"><p className="text-[14px] font-semibold">{recommendation.text}</p>{recommendation.approved && <span className="k-chip border-[#42604b] text-[#8ed9ae]">aprovada</span>}</div><p className="mt-2 max-w-[700px] text-[12px] leading-5 text-[#aeb8c5]">{recommendation.rationale}</p><p className="k-mono mt-3 text-[10px] text-[#7e8998]">impacto · {recommendation.impact}</p></div></div>{!recommendation.approved && <button className="k-button k-button-primary self-start whitespace-nowrap" onClick={() => onApprove(recommendation.id)} data-testid={`button-approve-${recommendation.id}`}><Check size={14} /> Aprovar ajuste</button>}</div></article>)}</div><div className="k-card-soft flex items-start gap-3 p-4"><ShieldAlert size={15} className="k-coral mt-0.5" /><p className="text-[11px] leading-5 text-[#aeb8c5]">Aprovação é reversível no histórico do ciclo. Se o contexto mudar, você pode revisar a decisão antes da próxima sessão.</p></div></div>;
+  return <div className="space-y-5">
+    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="k-eyebrow mb-2">ajustes do ciclo · aprovação manual</p><h2 className="text-[27px] font-semibold tracking-[-.05em]">Recomendações com freio.</h2><p className="mt-2 max-w-[650px] text-[12px] leading-5 text-[#8e98a8]">O diagnóstico pode sugerir mudanças, mas nada entra no seu calendário sem sua aprovação.</p></div><span className="k-chip k-chip-active">{pending.length} aguardando decisão</span></div>
+    <div className="k-card border-[#39452f] bg-[#151d18] p-4"><div className="flex gap-3"><Lightbulb size={17} className="k-focus mt-0.5 shrink-0" /><div><p className="text-[12px] font-semibold text-[#d5f35b]">Como o ajuste funciona</p><p className="mt-1 text-[11px] text-[#aeb8c5] leading-5">Aprovar altera somente o próximo ciclo. Histórico e cartões anteriores permanecem intactos.</p></div></div></div>
+    <div className="space-y-3">{recommendations.map((recommendation) => <article key={recommendation.id} className={`k-card p-5 ${recommendation.approved ? 'border-[#354a3c]' : ''}`} data-testid={`card-recommendation-${recommendation.id}`}><div className="flex flex-col justify-between gap-4 md:flex-row"><div className="flex gap-4"><span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm ${recommendation.approved ? 'bg-[#243329] text-[#8ed9ae]' : 'bg-[#2b3024] text-[#d5f35b]'}`}>{recommendation.approved ? <Check size={16} /> : <Zap size={16} />}</span><div><div className="flex flex-wrap items-center gap-2"><p className="text-[14px] font-semibold">{recommendation.text}</p>{recommendation.approved && <span className="k-chip border-[#42604b] text-[#8ed9ae]">aprovada</span>}</div><p className="mt-2 max-w-[700px] text-[12px] leading-5 text-[#aeb8c5]">{recommendation.rationale}</p><p className="k-mono mt-3 text-[10px] text-[#7e8998]">impacto · {recommendation.impact}</p>{recommendation.approved && recommendation.id !== 'rec3' && <p className="mt-3 text-[10px] text-[#23824d]">Calendário atualizado com este ajuste.</p>}</div></div>{!recommendation.approved && <button className="k-button k-button-primary self-start whitespace-nowrap" onClick={() => onApprove(recommendation.id)} data-testid={`button-approve-${recommendation.id}`}><Check size={14} /> Aprovar ajuste</button>}</div></article>)}</div>
+    <div className="k-card-soft flex items-start gap-3 p-4"><ShieldAlert size={15} className="k-coral mt-0.5" /><p className="text-[11px] leading-5 text-[#aeb8c5]">Aprovação é reversível no histórico do ciclo. Se o contexto mudar, você pode revisar a decisão antes da próxima sessão.</p></div>
+    <StudyCalendar plan={plan} />
+  </div>;
+}
+
+function loadNotes() {
+  if (typeof window === 'undefined') return initialNotes;
+  try {
+    const saved = window.localStorage.getItem('kalibra-notes');
+    if (saved) {
+      const parsed: unknown = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed as Note[];
+    }
+  } catch {
+    return initialNotes;
+  }
+  return initialNotes;
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  return <div className="k-markdown-preview" data-testid="notes-markdown-preview">
+    {content.split('\n').map((line, index) => {
+      if (!line.trim()) return <div className="h-3" key={`space-${index}`} />;
+      if (line.startsWith('### ')) return <h4 key={index}>{line.slice(4)}</h4>;
+      if (line.startsWith('## ')) return <h3 key={index}>{line.slice(3)}</h3>;
+      if (line.startsWith('# ')) return <h2 key={index}>{line.slice(2)}</h2>;
+      if (line.startsWith('- ')) return <li key={index}>{line.slice(2)}</li>;
+      if (line.startsWith('> ')) return <blockquote key={index}>{line.slice(2)}</blockquote>;
+      if (line.startsWith('`') && line.endsWith('`')) return <pre key={index}><code>{line.slice(1, -1)}</code></pre>;
+      return <p key={index}>{line}</p>;
+    })}
+  </div>;
+}
+
+function Notes({ notes, onCreateNote, onSaveNote }: { notes: Note[]; onCreateNote: () => string; onSaveNote: (id: string, title: string, content: string) => void }) {
+  const [selectedId, setSelectedId] = useState(notes[0]?.id ?? '');
+  const [draftTitle, setDraftTitle] = useState(notes[0]?.title ?? '');
+  const [draftContent, setDraftContent] = useState(notes[0]?.content ?? '');
+  const [view, setView] = useState<'edit' | 'preview'>('edit');
+  const [saved, setSaved] = useState(false);
+  const selectedNote = notes.find((note) => note.id === selectedId);
+
+  useEffect(() => {
+    const note = notes.find((item) => item.id === selectedId);
+    if (!note) return;
+    setDraftTitle(note.title);
+    setDraftContent(note.content);
+    setView('edit');
+    setSaved(false);
+  }, [selectedId]);
+
+  const selectNote = (id: string) => {
+    setSelectedId(id);
+    setSaved(false);
+  };
+  const createNote = () => {
+    const id = onCreateNote();
+    setSelectedId(id);
+  };
+  const saveNote = () => {
+    if (!selectedNote) return;
+    onSaveNote(selectedNote.id, draftTitle.trim() || 'Sem título', draftContent);
+    setSaved(true);
+  };
+
+  return <div className="space-y-5" data-testid="page-notes">
+    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div><p className="k-eyebrow mb-2">caderno pessoal · markdown</p><h2 className="text-[27px] font-semibold tracking-[-.05em]">Notas para pensar antes de praticar.</h2><p className="mt-2 max-w-[650px] text-[12px] leading-5 text-[#8e98a8]">Escreva explicações, fórmulas e conexões. O conteúdo fica junto do seu ciclo de estudo.</p></div>
+      <button className="k-button k-button-primary" onClick={createNote} data-testid="button-new-note"><NotebookPen size={14} /> Nova nota</button>
+    </div>
+    <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="k-card overflow-hidden">
+        <div className="border-b border-[#29313d] px-4 py-3"><p className="k-eyebrow">suas notas</p><p className="mt-1 text-[11px] text-[#8e98a8]">{notes.length} documentos no workspace</p></div>
+        <div className="k-notes-list">
+          {notes.map((note) => <button key={note.id} className={`k-note-row ${selectedId === note.id ? 'k-note-row-active' : ''}`} onClick={() => selectNote(note.id)} data-testid={`button-note-${note.id}`}><span className="flex min-w-0 items-start gap-3"><NotebookPen size={14} className="mt-0.5 shrink-0" /><span className="min-w-0 text-left"><span className="block truncate text-[12px] font-semibold">{note.title}</span><span className="mt-1 block text-[10px] text-[#8e98a8]">{note.subject} · {note.updatedAt}</span></span></span></button>)}
+        </div>
+      </aside>
+      <section className="k-card overflow-hidden">
+        {!selectedNote ? <div className="flex min-h-[480px] flex-col items-center justify-center p-8 text-center"><NotebookPen size={22} className="k-focus" /><p className="mt-4 text-[14px] font-semibold">Comece uma nota</p><p className="mt-2 max-w-[340px] text-[11px] leading-5 text-[#8e98a8]">Registre uma ideia ou transforme um tópico do edital em explicação.</p><button className="k-button k-button-primary mt-5" onClick={createNote}>Criar primeira nota</button></div> : <><div className="flex flex-col gap-3 border-b border-[#29313d] p-4 md:flex-row md:items-center md:justify-between"><input className="k-note-title flex-1" value={draftTitle} onChange={(event) => { setDraftTitle(event.target.value); setSaved(false); }} aria-label="Título da nota" /><div className="flex items-center gap-2"><div className="k-note-view-toggle"><button className={view === 'edit' ? 'active' : ''} onClick={() => setView('edit')} data-testid="button-note-edit">Editar</button><button className={view === 'preview' ? 'active' : ''} onClick={() => setView('preview')} data-testid="button-note-preview">Visualizar</button></div><button className="k-button k-button-primary" onClick={saveNote} data-testid="button-save-note"><Check size={14} /> {saved ? 'Salvo' : 'Salvar'}</button></div></div><div className="border-b border-[#29313d] px-4 py-2"><span className="k-mono text-[10px] text-[#8e98a8]">Markdown · {selectedNote.subject}</span></div>{view === 'edit' ? <textarea className="k-markdown-editor" value={draftContent} onChange={(event) => { setDraftContent(event.target.value); setSaved(false); }} aria-label="Conteúdo da nota" data-testid="textarea-note-content" /> : <div className="min-h-[470px] p-5 md:p-8"><MarkdownPreview content={draftContent} /></div>}<div className="flex items-center justify-between border-t border-[#29313d] px-4 py-3 text-[10px] text-[#8e98a8]"><span>Salvo localmente no navegador</span><span>{draftContent.length} caracteres</span></div></>}
+      </section>
+    </div>
+  </div>;
 }
 
 function NotFound() {
@@ -210,10 +357,29 @@ function Router({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => v
   const [cards, setCards] = useState(initialCards);
   const [errors, setErrors] = useState(initialErrors);
   const [recommendations, setRecommendations] = useState(initialRecommendations);
+  const [plan, setPlan] = useState(initialPlan);
+  const [notes, setNotes] = useState(loadNotes);
   const gradeCard = (id: string, difficulty: Difficulty) => setCards((current) => current.map((card) => card.id === id ? { ...card, difficulty, due: difficulty === 'errei' ? 'Hoje' : difficulty === 'difícil' ? 'Amanhã' : difficulty === 'bom' ? '20 dez' : '24 dez' } : card));
   const registerError = (question: Question) => setErrors((current) => current.some((error) => error.topic === question.topic && error.date === today) ? current : [{ id: `e${current.length + 1}`, classification: 'falha de procedimento', subject: question.subject, topic: question.topic, date: today, status: 'aberto', severity: 'alta' }, ...current]);
-  const approveRecommendation = (id: string) => setRecommendations((current) => current.map((recommendation) => recommendation.id === id ? { ...recommendation, approved: true } : recommendation));
-  return <Shell theme={theme} onToggleTheme={onToggleTheme}><Switch><Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} /><Route path="/edital" component={Edital} /><Route path="/estudo" component={Study} /><Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} /><Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} /><Route path="/erros" component={() => <Errors errors={errors} />} /><Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} onApprove={approveRecommendation} />} /><Route component={NotFound} /></Switch></Shell>;
+  useEffect(() => {
+    window.localStorage.setItem('kalibra-notes', JSON.stringify(notes));
+  }, [notes]);
+  const createNote = () => {
+    const id = `n${Date.now()}`;
+    setNotes((current) => [{ id, title: 'Nova nota', subject: 'Rascunho', updatedAt: 'agora', content: '# Nova nota\n\n' }, ...current]);
+    return id;
+  };
+  const saveNote = (id: string, title: string, content: string) => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, content, updatedAt: 'agora' } : note));
+  const approveRecommendation = (id: string) => {
+    setRecommendations((current) => current.map((recommendation) => recommendation.id === id ? { ...recommendation, approved: true } : recommendation));
+    if (id === 'rec1') {
+      setPlan((current) => current.some((item) => item.id === 'p8') ? current : [...current, { id: 'p8', weekday: 'quinta-feira', date: '18 dez', label: 'Bloco extra · porcentagem e juros', subject: 'Matemática', duration: '40 min', kind: 'prática', tone: 'focus' }]);
+    }
+    if (id === 'rec2') {
+      setPlan((current) => current.map((item) => item.id === 'p2' ? { ...item, weekday: 'quarta-feira', date: '17 dez', label: 'Revisão antecipada · Lei de Acesso à Informação' } : item));
+    }
+  };
+  return <Shell theme={theme} onToggleTheme={onToggleTheme}><Switch><Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} /><Route path="/edital" component={Edital} /><Route path="/estudo" component={Study} /><Route path="/notas" component={() => <Notes notes={notes} onCreateNote={createNote} onSaveNote={saveNote} />} /><Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} /><Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} /><Route path="/erros" component={() => <Errors errors={errors} />} /><Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} /><Route component={NotFound} /></Switch></Shell>;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
