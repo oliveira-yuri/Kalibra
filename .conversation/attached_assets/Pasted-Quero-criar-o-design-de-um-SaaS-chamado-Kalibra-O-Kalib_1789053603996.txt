@@ -1,0 +1,112 @@
+Quero criar o design de um SaaS chamado Kalibra.
+
+O Kalibra é uma plataforma de estudos focada em retenção, revisão ativa e preparação para provas/concursos. Não é um clone do Notion, não é só um app de anotações e não é só um planner. O valor principal é ajudar o estudante a transformar conteúdo em prática real.
+
+Contexto do produto:
+O usuário cria um workspace de estudo para uma prova, concurso ou objetivo de aprendizagem. Dentro desse workspace ele cadastra o edital, matérias, tópicos, peso das disciplinas, data da prova e progresso. A plataforma ajuda o usuário a estudar com base em diagnóstico, revisão espaçada, questões, flashcards, erros e recomendações.
+
+Exemplo de caso inicial:
+Concurso SETEC Campinas:
+- Prova em 17 de janeiro.
+- 10 questões de Matemática.
+- 10 questões de Português.
+- 20 questões de Conhecimentos Específicos.
+- O usuário precisa estudar por tópicos do edital, revisar, fazer simulados e atacar pontos fracos.
+
+Core loop do produto:
+1. O usuário importa ou cadastra o edital.
+2. O sistema transforma isso em uma checklist de tópicos.
+3. O usuário estuda um tópico.
+4. O sistema gera ou organiza perguntas, flashcards e exercícios.
+5. O usuário pratica.
+6. Os erros são registrados.
+7. O sistema agenda revisões espaçadas.
+8. O dashboard mostra pontos fortes, pontos fracos e prioridade do próximo estudo.
+9. O usuário aprova ajustes no ciclo de estudos.
+
+Design direction:
+Quero uma interface séria, moderna e produtiva. Não quero visual infantil de app educacional. Também não quero uma landing page genérica de SaaS.
+
+Referências visuais:
+- Linear: pela densidade, precisão e dark mode.
+- Obsidian: pela sensação de workspace de conhecimento.
+- Anki moderno: pela revisão ativa e flashcards.
+- Notion apenas na organização de conteúdo, mas não como identidade principal.
+- Superhuman/Raycast: pela sensação de produtividade rápida.
+
+Estilo visual:
+- Dark mode first.
+- Interface densa, limpa e profissional.
+- Poucas cores, com uma cor de destaque.
+- Tipografia forte e legível.
+- Sidebar fixa.
+- Cards só quando fizerem sentido.
+- Nada de gradientes genéricos.
+- Nada de ilustrações infantis.
+- Nada de hero section de marketing.
+- Nada de dashboard fake cheio de números aleatórios.
+- A interface deve parecer uma ferramenta real de estudo intensivo.
+
+Tipo de superfície:
+Esse produto é principalmente uma superfície de Operate + Monitor.
+O usuário está operando estudos, revisões, questões e erros, enquanto monitora desempenho e próximos passos.
+Não desenhe como landing page.
+
+Quero que você crie um protótipo visual navegável com as principais telas:
+
+1. Dashboard do workspace
+- Nome do objetivo/prova.
+- Data da prova.
+- Dias restantes.
+- Progresso geral.
+- Matérias.
+- Tópicos pendentes.
+- Revisões vencidas.
+- Pontos fracos.
+- Próxima ação recomendada.
+- Botão “Estudar agora”.
+
+2. Tela do edital/checklist
+- Lista de matérias.
+- Tópicos por matéria.
+- Status de cada tópico:
+  - não iniciado;
+  - estudando;
+  - revisando;
+  - dominado;
+  - fraco.
+- Peso da matéria na prova.
+- Filtro por prioridade.
+
+3. Tela de estudo ativo
+- Área de nota/explicação em Markdown.
+- Painel lateral com:
+  - flashcards gerados;
+  - perguntas;
+  - resumo;
+  - erros anteriores;
+  - próxima revisão.
+- Botões:
+  - gerar flashcards;
+  - criar questão;
+  - marcar como estudado;
+  - agendar revisão.
+
+4. Tela de revisão
+- Flashcard ou pergunta ativa.
+- Botões:
+  - errei;
+  - difícil;
+  - bom;
+  - fácil.
+- Mostrar próxima data de revisão.
+- Layout limpo, focado, sem distração.
+
+5. Tela de questões/simulado
+- Questão no centro.
+- Alternativas.
+- Cronômetro opcional.
+- Matéria/tópico relacionados.
+- Após responder:
+  - correto/incorreto;
+  - explicação;

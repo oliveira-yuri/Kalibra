@@ -1,0 +1,75 @@
+- registrar erro;
+  - próxima questão.
+
+6. Caderno de erros
+- Lista de erros.
+- Classificação do erro:
+  - conceito;
+  - interpretação;
+  - fórmula;
+  - distração;
+  - falta de revisão.
+- Matéria.
+- Tópico.
+- Data.
+- Status:
+  - aberto;
+  - revisado;
+  - resolvido.
+- Filtros por matéria e gravidade.
+
+7. Tela de recomendações
+- Mostrar sugestões de ajuste no ciclo.
+- Exemplo:
+  - “Português: aumentar revisão de crase.”
+  - “Matemática: praticar porcentagem antes de avançar.”
+  - “Conhecimentos Específicos: revisar legislação X amanhã.”
+- Importante: o usuário precisa aprovar recomendações antes do sistema alterar o plano.
+
+Componentes necessários:
+- Sidebar principal.
+- Topbar com busca, workspace ativo e botão de ação.
+- Cards de progresso.
+- Lista de tópicos.
+- Tabela/lista de erros.
+- Editor Markdown.
+- Flashcard.
+- Question card.
+- Modal de recomendação.
+- Empty states.
+- Loading states.
+- Estados de erro.
+- Estados ativos/selecionados.
+
+Dados mockados:
+Pode usar dados fictícios, mas realistas, baseados no concurso SETEC Campinas.
+Não use números aleatórios sem sentido. Os dados devem ajudar a demonstrar o produto.
+
+Tom do produto:
+- Sério.
+- Técnico.
+- Produtivo.
+- Focado em aprovação.
+- Sem gamificação infantil.
+- Sem mascote.
+- Sem linguagem motivacional exagerada.
+
+Paleta sugerida:
+- Fundo: quase preto ou grafite.
+- Superfícies: cinza escuro.
+- Texto principal: branco suave.
+- Texto secundário: cinza claro.
+- Destaque: azul, roxo discreto ou verde técnico.
+- Alertas: vermelho/laranja para revisões vencidas ou pontos fracos.
+- Sucesso: verde sóbrio.
+
+Objetivo do design:
+Criar uma primeira versão visual forte do Kalibra, como se fosse um produto SaaS real. Quero enxergar claramente:
+- o dashboard;
+- o fluxo de estudo;
+- a revisão espaçada;
+- o caderno de erros;
+- a lógica de recomendações.
+
+Primeira entrega:
+Crie uma aplicação/protótipo frontend com layout completo e navegação entre as telas principais. O foco é design e UX, não backend ainda.

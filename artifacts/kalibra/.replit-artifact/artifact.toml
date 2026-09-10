@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Kalibra"
+description = "Workspace interno de estudos para preparação de provas e concursos, com prática ativa, revisão espaçada, questões, caderno de erros e recomendações baseadas em desempenho."
+version = "1.0.0"
+id = "artifacts/kalibra"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23401
+
+[services.development]
+run = "pnpm --filter @workspace/kalibra run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kalibra", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/kalibra/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23401"
+BASE_PATH = "/"

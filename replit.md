@@ -1,6 +1,6 @@
-# [Project name]
+# Kalibra
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Workspace interno de estudos para preparação de provas e concursos, com prática ativa, revisão espaçada, questões, caderno de erros e recomendações.
 
 ## Run & Operate
 
@@ -22,23 +22,29 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/kalibra/src/App.tsx` — frontend navegável e estado mockado do workspace.
+- `artifacts/kalibra/src/index.css` — tokens e estilos visuais do produto.
+- `artifacts/kalibra` — app React + Vite servido na raiz.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- A primeira entrega é frontend-only, com estado local para demonstrar o ciclo completo antes do backend.
+- O produto é estruturado ao redor de prática, revisão, questões, erros e diagnóstico; notas aparecem como apoio no estudo.
+- A navegação é client-side e mantém o shell do workspace fixo entre as telas.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Dashboard do concurso SETEC Campinas com contagem regressiva, progresso, pontos fracos e próxima ação.
+- Edital/checklist por matéria e tópico, estudo ativo, revisão espaçada, questões/simulado, caderno de erros e recomendações aprováveis.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Interface interna de produto; não construir landing page.
+- Evitar clone do Notion, visual infantil, mascotes, gamificação exagerada e números sem sentido.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- A prévia é uma aplicação de demonstração com dados locais; persistência e backend ainda não fazem parte desta entrega.
 
 ## Pointers
 
