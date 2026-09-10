@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -8,7 +8,7 @@ import {
   Check, CheckCircle2, ChevronDown, CircleAlert, CircleDot, Clock3, FileText,
   Filter, Flag, Gauge, GraduationCap, Layers3, Lightbulb, ListChecks, Menu,
   MoreHorizontal, NotebookPen, Play, RotateCcw, Search, Settings2, ShieldAlert,
-  Timer, TrendingDown, X, Zap,
+  Timer, TrendingDown, X, Zap, Moon, Sun,
 } from 'lucide-react';
 import { Link, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 
@@ -23,6 +23,7 @@ type ReviewCard = { id: string; prompt: string; answer: string; due: string; dif
 type Question = { id: string; stem: string; options: string[]; correct: number; explanation: string; subject: string; topic: string; source: string };
 type ErrorRecord = { id: string; classification: string; subject: string; topic: string; date: string; status: ErrorStatus; severity: 'crítica' | 'alta' | 'média' };
 type Recommendation = { id: string; text: string; rationale: string; impact: string; approved: boolean };
+type Theme = 'light' | 'dark';
 
 const subjects: Subject[] = [
   { id: 'mat', name: 'Matemática', weight: 35, progress: 48, color: '#d5f35b', questions: 34 },
@@ -83,7 +84,7 @@ const navItems = [
   { href: '/recomendacoes', label: 'Recomendações', icon: Lightbulb },
 ];
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, theme, onToggleTheme }: { children: ReactNode; theme: Theme; onToggleTheme: () => void }) {
   const [location] = useLocation();
   const current = navItems.find((item) => item.href === location) ?? navItems[0];
   return (
@@ -116,7 +117,7 @@ function Shell({ children }: { children: ReactNode }) {
       <main className="k-main min-h-[calc(100dvh-115px)] flex-1 md:ml-[224px] md:min-h-dvh">
         <header className="flex min-h-[68px] items-center justify-between border-b border-[#242a34] px-5 md:px-9">
           <div><p className="k-eyebrow mb-1">{current.label}</p><h1 className="text-[15px] font-semibold tracking-[-0.02em]">{location === '/' ? 'Seu próximo passo, sem ruído.' : current.label}</h1></div>
-          <div className="flex items-center gap-2"><button className="k-button k-button-quiet k-icon-button" data-testid="button-search" aria-label="Buscar"><Search size={16} /></button><button className="k-button k-button-quiet k-icon-button" data-testid="button-notifications" aria-label="Notificações"><CircleDot size={16} /></button><span className="mx-1 h-5 w-px bg-[#29313d]" /><span className="hidden text-right sm:block"><span className="block text-[11px] font-medium">quarta, 17 dez</span><span className="k-mono block text-[9px] text-[#8e98a8]">08:42 BRT</span></span></div>
+          <div className="flex items-center gap-2"><button className="k-button k-button-quiet k-icon-button" data-testid="button-search" aria-label="Buscar"><Search size={16} /></button><button className="k-button k-button-quiet k-icon-button" data-testid="button-notifications" aria-label="Notificações"><CircleDot size={16} /></button><button className="k-button k-button-quiet k-icon-button" onClick={onToggleTheme} data-testid="button-theme-toggle" aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'} title={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><span className="mx-1 h-5 w-px bg-[#29313d]" /><span className="hidden text-right sm:block"><span className="block text-[11px] font-medium">quarta, 17 dez</span><span className="k-mono block text-[9px] text-[#8e98a8]">08:42 BRT</span></span></div>
         </header>
         <div className="mx-auto max-w-[1440px] p-5 md:p-9">{children}</div>
       </main>
@@ -205,14 +206,14 @@ function NotFound() {
   return <div className="flex min-h-[70vh] flex-col items-center justify-center text-center"><span className="k-mono text-[52px] text-[#d5f35b]">404</span><h2 className="mt-4 text-xl font-semibold">Página fora do ciclo</h2><p className="mt-2 text-[12px] text-[#8e98a8]">Este caminho não existe no workspace atual.</p><Link href="/" className="k-button k-button-primary mt-6" data-testid="link-back-dashboard">Voltar à visão geral</Link></div>;
 }
 
-function Router() {
+function Router({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const [cards, setCards] = useState(initialCards);
   const [errors, setErrors] = useState(initialErrors);
   const [recommendations, setRecommendations] = useState(initialRecommendations);
   const gradeCard = (id: string, difficulty: Difficulty) => setCards((current) => current.map((card) => card.id === id ? { ...card, difficulty, due: difficulty === 'errei' ? 'Hoje' : difficulty === 'difícil' ? 'Amanhã' : difficulty === 'bom' ? '20 dez' : '24 dez' } : card));
   const registerError = (question: Question) => setErrors((current) => current.some((error) => error.topic === question.topic && error.date === today) ? current : [{ id: `e${current.length + 1}`, classification: 'falha de procedimento', subject: question.subject, topic: question.topic, date: today, status: 'aberto', severity: 'alta' }, ...current]);
   const approveRecommendation = (id: string) => setRecommendations((current) => current.map((recommendation) => recommendation.id === id ? { ...recommendation, approved: true } : recommendation));
-  return <Shell><Switch><Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} /><Route path="/edital" component={Edital} /><Route path="/estudo" component={Study} /><Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} /><Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} /><Route path="/erros" component={() => <Errors errors={errors} />} /><Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} onApprove={approveRecommendation} />} /><Route component={NotFound} /></Switch></Shell>;
+  return <Shell theme={theme} onToggleTheme={onToggleTheme}><Switch><Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} /><Route path="/edital" component={Edital} /><Route path="/estudo" component={Study} /><Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} /><Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} /><Route path="/erros" component={() => <Errors errors={errors} />} /><Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} onApprove={approveRecommendation} />} /><Route component={NotFound} /></Switch></Shell>;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
@@ -221,7 +222,18 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RoutedErrorBoundary><Router /></RoutedErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'light';
+    return window.localStorage.getItem('kalibra-theme') === 'dark' ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem('kalibra-theme', theme);
+  }, [theme]);
+
+  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RoutedErrorBoundary><Router theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /></RoutedErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
 }
 
 export default App;
