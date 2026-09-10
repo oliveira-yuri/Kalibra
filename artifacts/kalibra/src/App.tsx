@@ -150,6 +150,9 @@ function Shell({ children, theme, onToggleTheme, workspaceSlug = '' }: { childre
           <p className="k-eyebrow mb-2">workspace ativo</p>
           <p className="text-[12px] font-medium text-[#e9e9e0]">{workspaceSlug === 'setec-campinas' ? 'Concurso SETEC Campinas' : 'Workspace'}</p>
           <div className="mt-3 flex items-center gap-2 text-[10px] text-[#8e98a8]"><CalendarDays size={12} /><span className="k-mono">17 JAN 2026</span><span className="ml-auto k-focus k-mono">D−42</span></div>
+          <Link href={`~${basePath}/portal`} className="k-button k-button-quiet mt-4 w-full justify-start !px-0 text-[11px]" data-testid="link-back-to-portal">
+            <ArrowLeft size={14} /> Voltar aos concursos
+          </Link>
         </div>
         <nav className="k-mobile-nav flex-1 gap-1 px-2 pb-2 md:block md:px-3 md:py-3">
           <p className="k-eyebrow hidden px-3 pb-2 pt-1 md:block">navegação</p>
