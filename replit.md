@@ -29,6 +29,7 @@ Workspace interno de estudos para preparação de provas e concursos, com práti
 ## Architecture decisions
 
 - A primeira entrega é frontend-only, com estado local para demonstrar o ciclo completo antes do backend.
+- A criação de workspace e a entrada do edital são protótipos locais; o backend real deverá substituir essa persistência e processar os documentos sem alterar o fluxo da interface.
 - O produto é estruturado ao redor de prática, revisão, questões, erros e diagnóstico; notas aparecem como apoio no estudo.
 - A navegação é client-side e mantém o shell do workspace fixo entre as telas.
 
@@ -39,6 +40,7 @@ Workspace interno de estudos para preparação de provas e concursos, com práti
 - Calendário semanal abaixo das recomendações, recalculado quando um ajuste é aprovado.
 - Caderno de notas em Markdown com múltiplas notas, edição, visualização e salvamento local.
 - Autenticação real com cadastro e login, portal pessoal de processos seletivos e entrada em workspaces separados.
+- Novo workspace coleta dados da prova e recebe o edital por PDF, DOCX, TXT ou texto colado; a página Edital permite enviar versões atualizadas.
 
 ## User preferences
 

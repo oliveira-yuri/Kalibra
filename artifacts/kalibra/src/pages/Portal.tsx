@@ -1,34 +1,14 @@
 import { Link } from 'wouter';
 import { Activity, Plus, MoreHorizontal, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/react';
-
-const programs = [
-  {
-    slug: 'setec-campinas',
-    title: 'Concurso SETEC Campinas',
-    type: 'Concurso Público',
-    institution: 'SETEC',
-    examDate: '17 JAN 2026',
-    progress: 47.2,
-    nextAction: 'Resolver 8 questões de porcentagem',
-    active: true
-  },
-  {
-    slug: 'bb-escriturario',
-    title: 'Banco do Brasil - Escriturário',
-    type: 'Concurso Público',
-    institution: 'Banco do Brasil',
-    examDate: 'A definir',
-    progress: 12.5,
-    nextAction: 'Leitura inicial: Sistema Financeiro',
-    active: false
-  }
-];
+import { useWorkspaces } from '@/store/workspaces';
 
 export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { workspaces: programs } = useWorkspaces(user?.id);
   const publicHomeUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
+
   
   return (
     <div className={`k-page-enter min-h-[100dvh] flex flex-col font-sans transition-colors ${theme === 'dark' ? 'bg-[#10131a] text-[#f0f0e8] selection:bg-[#283322]' : 'bg-[#f6f8f7] text-[#16232b] selection:bg-[#e5eed5]'}`}>
@@ -60,9 +40,9 @@ export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onTo
               Bem-vinda, {user?.firstName || 'estudante'}.
             </h1>
           </div>
-          <button className="k-button" disabled>
+          <Link href="/portal/novo-workspace" className="k-button k-button-primary">
             <Plus size={14} /> Novo workspace
-          </button>
+          </Link>
         </header>
 
         <h2 className="text-[15px] font-semibold mb-4">Seus programas ativos</h2>
