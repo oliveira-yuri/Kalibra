@@ -41,6 +41,10 @@ Workspace interno de estudos para preparação de provas e concursos, com práti
 - Caderno de notas em Markdown com múltiplas notas, edição, visualização e salvamento local.
 - Autenticação real com cadastro e login, portal pessoal de processos seletivos e entrada em workspaces separados.
 - Novo workspace coleta dados da prova e recebe o edital por PDF, DOCX, TXT ou texto colado; a página Edital permite enviar versões atualizadas.
+- O workspace permite alternar cargos do mesmo concurso, preservando a rota e usando data/período específicos do cargo.
+- Questões capturam confiança antes do gabarito; revisão usa recuperação escrita; Estudo inclui treino dissertativo e seleção de cards para exportação ao Anki.
+- Há registro rápido de prática externa, revisão humana da estrutura extraída do edital, comparação de versões e estados explícitos de processamento.
+- A prova diagnóstica possui preparação, modo foco com confiança por resposta e relatório de desempenho por seção e por confiança.
 
 ## User preferences
 

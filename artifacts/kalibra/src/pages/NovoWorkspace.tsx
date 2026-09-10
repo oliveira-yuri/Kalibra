@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { useWorkspaces, WorkspaceDraft } from '@/store/workspaces';
+import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft } from '@/store/workspaces';
+import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
   const [, setLocation] = useLocation();
-  const { workspaces, addWorkspace } = useWorkspaces(user?.id);
+  const { workspaces } = useWorkspaces(user?.id);
 
   const [title, setTitle] = useState('');
   const [institution, setInstitution] = useState('');
@@ -17,6 +18,8 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [sourceFileName, setSourceFileName] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [error, setError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [createdSlug, setCreatedSlug] = useState('');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -63,17 +66,24 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       institution,
       type,
       examDate,
+      cargos: [{ id: 'c1', name: 'Cargo Único', examDate }],
+      selectedCargoId: 'c1',
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceText: sourceMode === 'text' ? sourceText : undefined,
       importStatus: 'pending',
       progress: 0,
-      nextAction: 'Edital recebido · processamento aguardando backend',
+      nextAction: 'Edital em processamento',
       active: true
     };
 
-    addWorkspace(newWorkspace);
-    setLocation('/portal');
+    stageWorkspaceImport(slug, { isNew: true, workspace: newWorkspace }, user?.id);
+    setCreatedSlug(slug);
+    setIsProcessing(true);
+  };
+
+  const handleReady = () => {
+    setLocation(`/workspace/${createdSlug}/edital/revisar/1`);
   };
 
   return (
@@ -116,9 +126,14 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <section className={`p-6 md:p-8 rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
-            <h2 className="text-[15px] font-semibold mb-6 flex items-center gap-2">
+        {isProcessing ? (
+          <div className={`rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
+            <EditalUploadProgress onReady={handleReady} onCancel={() => setIsProcessing(false)} />
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <section className={`p-6 md:p-8 rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
+              <h2 className="text-[15px] font-semibold mb-6 flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e5eed5] dark:bg-[#202b20] text-[#5f7900] dark:text-[#d5f35b] text-[10px] font-bold">1</span>
               Informações Gerais
             </h2>
@@ -242,6 +257,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
             </button>
           </div>
         </form>
+        )}
       </main>
     </div>
   );

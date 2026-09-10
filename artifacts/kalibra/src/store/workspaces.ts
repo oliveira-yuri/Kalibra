@@ -3,12 +3,21 @@ import { useState, useEffect } from 'react';
 export type SourceMode = 'file' | 'text';
 export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
 
+export interface Cargo {
+  id: string;
+  name: string;
+  examDate: string;
+  period?: string;
+}
+
 export interface WorkspaceDraft {
   slug: string;
   title: string;
   institution: string;
   type: string;
-  examDate: string;
+  examDate: string; // default date
+  cargos?: Cargo[];
+  selectedCargoId?: string;
   sourceMode: SourceMode;
   sourceFileName?: string;
   sourceText?: string;
@@ -18,16 +27,41 @@ export interface WorkspaceDraft {
   active: boolean;
 }
 
+export interface PendingWorkspaceImport {
+  isNew: boolean;
+  workspace?: WorkspaceDraft;
+  updates?: Partial<WorkspaceDraft>;
+}
+
 const STORAGE_KEY = 'kalibra_workspaces';
 const storageKeyFor = (userId?: string) => `${STORAGE_KEY}:${userId || 'anonymous'}`;
+const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital:${userId || 'anonymous'}:${slug}`;
 
-const defaultPrograms = [
+export function stageWorkspaceImport(slug: string, pending: PendingWorkspaceImport, userId?: string) {
+  sessionStorage.setItem(pendingKeyFor(slug, userId), JSON.stringify(pending));
+}
+
+export function getPendingWorkspaceImport(slug: string, userId?: string): PendingWorkspaceImport | null {
+  const saved = sessionStorage.getItem(pendingKeyFor(slug, userId));
+  return saved ? JSON.parse(saved) : null;
+}
+
+export function clearPendingWorkspaceImport(slug: string, userId?: string) {
+  sessionStorage.removeItem(pendingKeyFor(slug, userId));
+}
+
+const defaultPrograms: WorkspaceDraft[] = [
   {
     slug: 'setec-campinas',
     title: 'Concurso SETEC Campinas',
     type: 'Concurso Público',
     institution: 'SETEC',
-    examDate: '17 JAN 2026',
+    examDate: '2026-01-17',
+    cargos: [
+      { id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' },
+      { id: 'c2', name: 'Agente de Suporte Técnico', examDate: '2027-01-17', period: 'B' }
+    ],
+    selectedCargoId: 'c1',
     progress: 47.2,
     nextAction: 'Resolver 8 questões de porcentagem',
     active: true,
@@ -39,7 +73,7 @@ const defaultPrograms = [
     title: 'Banco do Brasil - Escriturário',
     type: 'Concurso Público',
     institution: 'Banco do Brasil',
-    examDate: 'A definir',
+    examDate: '2026-06-01',
     progress: 12.5,
     nextAction: 'Leitura inicial: Sistema Financeiro',
     active: false,
