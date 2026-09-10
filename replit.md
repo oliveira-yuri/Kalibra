@@ -38,6 +38,7 @@ Workspace interno de estudos para preparação de provas e concursos, com práti
 - Edital/checklist por matéria e tópico, estudo ativo, revisão espaçada, questões/simulado, caderno de erros e recomendações aprováveis.
 - Calendário semanal abaixo das recomendações, recalculado quando um ajuste é aprovado.
 - Caderno de notas em Markdown com múltiplas notas, edição, visualização e salvamento local.
+- Autenticação real com cadastro e login, portal pessoal de processos seletivos e entrada em workspaces separados.
 
 ## User preferences
 

@@ -1,0 +1,1 @@
+- [Clerk e caminhos-base](clerk-base-path.md) — preserve o proxy gerenciado e inclua o BASE_PATH ao escapar de roteadores aninhados.

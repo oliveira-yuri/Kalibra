@@ -11,6 +11,14 @@ import {
   Timer, TrendingDown, X, Zap, Moon, Sun,
 } from 'lucide-react';
 import { Link, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
+import { ClerkProvider, SignIn, SignUp, Show, useClerk, useUser } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
+import { ptBR } from '@clerk/localizations';
+import { Home } from './pages/Home';
+import { Portal } from './pages/Portal';
+import { Redirect, useRoute } from 'wouter';
+
 
 type TopicStatus = 'dominar' | 'em andamento' | 'não iniciado';
 type Priority = 'alta' | 'média' | 'baixa';
@@ -121,14 +129,18 @@ const navItems = [
   { href: '/recomendacoes', label: 'Recomendações', icon: Lightbulb },
 ];
 
-function Shell({ children, theme, onToggleTheme }: { children: ReactNode; theme: Theme; onToggleTheme: () => void }) {
+function Shell({ children, theme, onToggleTheme, workspaceSlug = '' }: { children: ReactNode; theme: Theme; onToggleTheme: () => void; workspaceSlug?: string }) {
   const [location] = useLocation();
-  const current = navItems.find((item) => item.href === location) ?? navItems[0];
+  const { user } = useUser();
+  const current = navItems.find((item) => {
+    return item.href === '/' ? location === '/' : location.startsWith(item.href);
+  }) ?? navItems[0];
+  
   return (
     <div className="kalibra-shell flex flex-col md:flex-row">
       <aside className="k-sidebar flex w-full flex-col md:fixed md:inset-y-0 md:w-[224px]">
         <div className="flex h-[68px] items-center justify-between border-b border-[#242a34] px-5">
-          <Link href="/" className="flex items-center gap-3" data-testid="link-brand">
+          <Link href={`~${basePath}/portal`} className="flex items-center gap-3" data-testid="link-brand">
             <span className="flex h-7 w-7 items-center justify-center rounded-sm bg-[#d5f35b] text-[#10131a]"><Activity size={16} strokeWidth={2.6} /></span>
             <span className="text-[15px] font-bold tracking-[-0.04em]">kalibra<span className="text-[#d5f35b]">.</span></span>
           </Link>
@@ -136,24 +148,33 @@ function Shell({ children, theme, onToggleTheme }: { children: ReactNode; theme:
         </div>
         <div className="hidden px-4 py-5 md:block">
           <p className="k-eyebrow mb-2">workspace ativo</p>
-          <p className="text-[12px] font-medium text-[#e9e9e0]">Concurso SETEC Campinas</p>
+          <p className="text-[12px] font-medium text-[#e9e9e0]">{workspaceSlug === 'setec-campinas' ? 'Concurso SETEC Campinas' : 'Workspace'}</p>
           <div className="mt-3 flex items-center gap-2 text-[10px] text-[#8e98a8]"><CalendarDays size={12} /><span className="k-mono">17 JAN 2026</span><span className="ml-auto k-focus k-mono">D−42</span></div>
         </div>
         <nav className="k-mobile-nav flex-1 gap-1 px-2 pb-2 md:block md:px-3 md:py-3">
           <p className="k-eyebrow hidden px-3 pb-2 pt-1 md:block">navegação</p>
           {navItems.map((item) => {
-            const active = item.href === '/' ? location === '/' : location.startsWith(item.href);
-            return <Link key={item.href} href={item.href} className={`k-nav-item ${active ? 'k-nav-item-active' : ''}`} data-testid={`link-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`}><item.icon size={16} /><span>{item.label}</span>{item.href === '/revisao' && <span className="ml-auto rounded-sm bg-[#ff907d] px-1.5 py-0.5 text-[9px] font-bold text-[#171416]">3</span>}</Link>;
+             const active = item.href === '/' ? location === '/' : location.startsWith(item.href);
+             return <Link key={item.href} href={item.href} className={`k-nav-item ${active ? 'k-nav-item-active' : ''}`} data-testid={`link-nav-${item.label.toLowerCase().replaceAll(' ', '-')}`}><item.icon size={16} /><span>{item.label}</span>{item.href === '/revisao' && <span className="ml-auto rounded-sm bg-[#ff907d] px-1.5 py-0.5 text-[9px] font-bold text-[#171416]">3</span>}</Link>;
           })}
         </nav>
         <div className="hidden border-t border-[#242a34] p-4 md:block">
-          <div className="mb-3 flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#27352a] text-[10px] font-bold text-[#d5f35b]">MS</span><div><p className="text-[11px] font-semibold">Marina S.</p><p className="text-[10px] text-[#8e98a8]">sessão de estudos</p></div><MoreHorizontal className="ml-auto text-[#8e98a8]" size={15} /></div>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#27352a] text-[10px] font-bold text-[#d5f35b]">
+              {user?.firstName?.[0]?.toUpperCase() || 'E'}
+            </span>
+            <div>
+              <p className="text-[11px] font-semibold">{user?.firstName || 'Estudante'}</p>
+              <p className="text-[10px] text-[#8e98a8]">sessão de estudos</p>
+            </div>
+            <MoreHorizontal className="ml-auto text-[#8e98a8]" size={15} />
+          </div>
           <button className="k-button k-button-quiet w-full justify-start px-1 text-[11px]" data-testid="button-settings"><Settings2 size={14} /> Preferências</button>
         </div>
       </aside>
       <main className="k-main min-h-[calc(100dvh-115px)] flex-1 md:ml-[224px] md:min-h-dvh">
         <header className="flex min-h-[68px] items-center justify-between border-b border-[#242a34] px-5 md:px-9">
-          <div><p className="k-eyebrow mb-1">{current.label}</p><h1 className="text-[15px] font-semibold tracking-[-0.02em]">{location === '/' ? 'Seu próximo passo, sem ruído.' : current.label}</h1></div>
+          <div><p className="k-eyebrow mb-1">{current.label}</p><h1 className="text-[15px] font-semibold tracking-[-0.02em]">{current.href === '/' ? 'Seu próximo passo, sem ruído.' : current.label}</h1></div>
           <div className="flex items-center gap-2"><button className="k-button k-button-quiet k-icon-button" data-testid="button-search" aria-label="Buscar"><Search size={16} /></button><button className="k-button k-button-quiet k-icon-button" data-testid="button-notifications" aria-label="Notificações"><CircleDot size={16} /></button><button className="k-button k-button-quiet k-icon-button" onClick={onToggleTheme} data-testid="button-theme-toggle" aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'} title={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><span className="mx-1 h-5 w-px bg-[#29313d]" /><span className="hidden text-right sm:block"><span className="block text-[11px] font-medium">quarta, 17 dez</span><span className="k-mono block text-[9px] text-[#8e98a8]">08:42 BRT</span></span></div>
         </header>
         <div className="mx-auto max-w-[1440px] p-5 md:p-9">{children}</div>
@@ -353,7 +374,8 @@ function NotFound() {
   return <div className="flex min-h-[70vh] flex-col items-center justify-center text-center"><span className="k-mono text-[52px] text-[#d5f35b]">404</span><h2 className="mt-4 text-xl font-semibold">Página fora do ciclo</h2><p className="mt-2 text-[12px] text-[#8e98a8]">Este caminho não existe no workspace atual.</p><Link href="/" className="k-button k-button-primary mt-6" data-testid="link-back-dashboard">Voltar à visão geral</Link></div>;
 }
 
-function Router({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+
+function WorkspaceApp({ theme, onToggleTheme, slug }: { theme: Theme; onToggleTheme: () => void; slug: string }) {
   const [cards, setCards] = useState(initialCards);
   const [errors, setErrors] = useState(initialErrors);
   const [recommendations, setRecommendations] = useState(initialRecommendations);
@@ -379,12 +401,182 @@ function Router({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => v
       setPlan((current) => current.map((item) => item.id === 'p2' ? { ...item, weekday: 'quarta-feira', date: '17 dez', label: 'Revisão antecipada · Lei de Acesso à Informação' } : item));
     }
   };
-  return <Shell theme={theme} onToggleTheme={onToggleTheme}><Switch><Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} /><Route path="/edital" component={Edital} /><Route path="/estudo" component={Study} /><Route path="/notas" component={() => <Notes notes={notes} onCreateNote={createNote} onSaveNote={saveNote} />} /><Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} /><Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} /><Route path="/erros" component={() => <Errors errors={errors} />} /><Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} /><Route component={NotFound} /></Switch></Shell>;
+  return (
+    <Shell theme={theme} onToggleTheme={onToggleTheme} workspaceSlug={slug}>
+      <Switch>
+        <Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} />
+        <Route path="/edital" component={Edital} />
+        <Route path="/estudo" component={Study} />
+        <Route path="/notas" component={() => <Notes notes={notes} onCreateNote={createNote} onSaveNote={saveNote} />} />
+        <Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} />
+        <Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} />
+        <Route path="/erros" component={() => <Errors errors={errors} />} />
+        <Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} />
+        <Route component={NotFound} />
+      </Switch>
+    </Shell>
+  );
+}
+
+function WorkspaceRouter({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+  const [match, params] = useRoute('/workspace/:slug/*?');
+  if (!match) return null;
+  const slug = params?.slug || 'setec-campinas';
+  return (
+    <WouterRouter base={`/workspace/${slug}`}>
+      <WorkspaceApp theme={theme} onToggleTheme={onToggleTheme} slug={slug} />
+    </WouterRouter>
+  );
+}
+
+function HomeRedirect({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
+  return (
+    <>
+      <Show when="signed-in">
+        <Redirect to="/portal" />
+      </Show>
+      <Show when="signed-out">
+        <Home theme={theme} onToggleTheme={onToggleTheme} />
+      </Show>
+    </>
+  );
+}
+
+function PortalRedirect({ theme, onToggleTheme }: { theme: Theme, onToggleTheme: () => void }) {
+  return (
+    <>
+      <Show when="signed-in">
+        <Portal theme={theme} onToggleTheme={onToggleTheme} />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/" />
+      </Show>
+    </>
+  );
+}
+
+function WorkspaceRedirect({ theme, onToggleTheme }: { theme: Theme, onToggleTheme: () => void }) {
+  return (
+    <>
+      <Show when="signed-in">
+        <WorkspaceRouter theme={theme} onToggleTheme={onToggleTheme} />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/" />
+      </Show>
+    </>
+  );
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
+}
+
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function stripBase(path: string): string {
+  return basePath && path.startsWith(basePath)
+    ? path.slice(basePath.length) || "/"
+    : path;
+}
+
+function ClerkProviderWithRoutes({ theme, onToggleTheme }: { theme: Theme, onToggleTheme: () => void }) {
+  const [, setLocation] = useLocation();
+  
+  if (!clerkPubKey) {
+    return <div className="p-8 text-center text-[#ff907d]">Missing VITE_CLERK_PUBLISHABLE_KEY in environment variables.</div>;
+  }
+
+  const clerkAppearance = {
+    theme: theme === 'dark' ? shadcn : undefined,
+    cssLayerName: "clerk",
+    options: {
+      logoPlacement: "inside" as const,
+      logoLinkUrl: basePath || "/",
+      logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+    },
+    variables: {
+      colorPrimary: "#6b8d00",
+      colorBackground: theme === 'dark' ? "#131821" : "#ffffff",
+      colorForeground: theme === 'dark' ? "#f0f0e8" : "#16232b",
+      colorMutedForeground: theme === 'dark' ? "#8e98a8" : "#6f7b85",
+      colorDanger: theme === 'dark' ? "#ff907d" : "#c94f45",
+      colorInput: theme === 'dark' ? "#11161d" : "#ffffff",
+      colorInputForeground: theme === 'dark' ? "#f0f0e8" : "#16232b",
+      colorNeutral: theme === 'dark' ? "#34404d" : "#c4d0ce",
+      fontFamily: "var(--app-font-sans)",
+      borderRadius: "3px",
+    },
+    elements: {
+      rootBox: "w-full flex justify-center",
+      cardBox: theme === 'dark' 
+        ? "bg-[#131821] rounded-[3px] border border-[#29313d] w-[440px] max-w-full overflow-hidden" 
+        : "bg-white rounded-[3px] border border-[#d5dede] w-[440px] max-w-full overflow-hidden",
+      card: "!shadow-none !border-0 !bg-transparent !rounded-none",
+      footer: "!shadow-none !border-0 !bg-transparent !rounded-none",
+      headerTitle: "text-[27px] font-semibold tracking-[-.05em]",
+      headerSubtitle: "text-[12px] leading-5 text-[#8e98a8]",
+      socialButtonsBlockButtonText: "font-semibold text-[13px]",
+      formFieldLabel: "text-[12px] font-medium mb-1",
+      footerActionLink: "text-[#6b8d00] hover:text-[#5f7900]",
+      footerActionText: "text-[12px]",
+      dividerText: "text-[11px] uppercase tracking-wider",
+      identityPreviewEditButton: "text-[#6b8d00]",
+      formFieldSuccessText: "text-[#80d8a5]",
+      alertText: "text-[#ff907d]",
+      logoBox: "mb-6 justify-center",
+      logoImage: "w-8 h-8",
+      socialButtonsBlockButton: `!border ${theme === 'dark' ? '!border-[#34404d] hover:!bg-[#212a36]' : '!border-[#c4d0ce] hover:!bg-[#e9efed]'}`,
+      formButtonPrimary: theme === 'dark' ? "!bg-[#d5f35b] hover:!bg-[#e2fb78] !text-[#10131a] !border-none" : "!bg-[#6b8d00] hover:!bg-[#587700] !text-white !border-none",
+      formFieldInput: `!border ${theme === 'dark' ? '!border-[#34404d] !bg-[#11161d] focus:!border-[#d5f35b]' : '!border-[#c4d0ce] !bg-white focus:!border-[#6b8d00]'}`,
+      footerAction: "mt-4",
+      dividerLine: `${theme === 'dark' ? '!bg-[#29313d]' : '!bg-[#d5dede]'}`,
+      alert: "border border-[#ff907d]",
+      otpCodeFieldInput: `!border ${theme === 'dark' ? '!border-[#34404d] !bg-[#11161d]' : '!border-[#c4d0ce] !bg-white'}`,
+      formFieldRow: "mb-4",
+      main: "gap-4",
+    },
+  };
+
+  return (
+    <ClerkProvider
+      publishableKey={clerkPubKey}
+      proxyUrl={clerkProxyUrl}
+      appearance={clerkAppearance}
+      signInUrl={`${basePath}/sign-in`}
+      signUpUrl={`${basePath}/sign-up`}
+      localization={ptBR}
+      routerPush={(to) => setLocation(stripBase(to))}
+      routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
+    >
+      <Switch>
+        <Route path="/" component={() => <HomeRedirect theme={theme} onToggleTheme={onToggleTheme} />} />
+        <Route path="/sign-in/*?">
+          <div className={`flex min-h-[100dvh] items-center justify-center px-4 ${theme === 'dark' ? 'bg-[#10131a] text-[#f0f0e8]' : 'bg-[#f6f8f7] text-[#16232b]'}`}>
+            <SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} />
+          </div>
+        </Route>
+        <Route path="/sign-up/*?">
+          <div className={`flex min-h-[100dvh] items-center justify-center px-4 ${theme === 'dark' ? 'bg-[#10131a] text-[#f0f0e8]' : 'bg-[#f6f8f7] text-[#16232b]'}`}>
+            <SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} />
+          </div>
+        </Route>
+        <Route path="/portal">
+          <PortalRedirect theme={theme} onToggleTheme={onToggleTheme} />
+        </Route>
+        <Route path="/workspace/:slug/*?">
+          <WorkspaceRedirect theme={theme} onToggleTheme={onToggleTheme} />
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
+    </ClerkProvider>
+  );
 }
 
 function App() {
@@ -399,7 +591,17 @@ function App() {
     window.localStorage.setItem('kalibra-theme', theme);
   }, [theme]);
 
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><RoutedErrorBoundary><Router theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /></RoutedErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <WouterRouter base={basePath}>
+          <RoutedErrorBoundary>
+            <ClerkProviderWithRoutes theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
+          </RoutedErrorBoundary>
+        </WouterRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
 export default App;
