@@ -10,13 +10,19 @@ vi.mock('@clerk/react/internal', () => ({
 vi.mock('@clerk/themes', () => ({ shadcn: {} }));
 vi.mock('@clerk/localizations', () => ({ ptBR: {} }));
 
-// Data e hora reais tornariam o snapshot instável.
-vi.mock('../lib/date-utils', () => ({
-  getDaysRemaining: () => 'D−129',
-  formatShortDate: () => '17 jan 2027',
-  getCurrentDateFormatted: () => 'sexta, 12 set',
-  getCurrentTimeFormatted: () => '16:20 BRT',
-}));
+// Data e hora reais tornariam o snapshot instável. `getDaysRemaining` fica com a
+// implementação real: com o relógio congelado (vi.setSystemTime abaixo) ela é
+// determinística, e mocá-la escondia a regressão I1 (Portal e barra lateral
+// calculando a contagem regressiva de dois jeitos diferentes) — ver date-utils.test.ts.
+vi.mock('../lib/date-utils', async () => {
+  const real = await vi.importActual<typeof import('../lib/date-utils')>('../lib/date-utils');
+  return {
+    ...real,
+    formatShortDate: () => '17 jan 2027',
+    getCurrentDateFormatted: () => 'sexta, 12 set',
+    getCurrentTimeFormatted: () => '16:20 BRT',
+  };
+});
 
 const ROTAS = [
   '/portal',

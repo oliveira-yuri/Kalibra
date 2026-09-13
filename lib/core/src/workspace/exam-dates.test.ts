@@ -30,26 +30,52 @@ describe('data efetiva da prova', () => {
 });
 
 describe('dias restantes', () => {
+  // `today` é sempre construído com o construtor local (`new Date(ano, mês, dia, ...)`),
+  // nunca com uma string ISO em UTC: é exatamente essa mistura entre UTC e calendário
+  // local que causava o card do Portal e a barra lateral mostrarem números diferentes
+  // para a mesma prova (ver o teste de consistência ao final deste arquivo).
   it('conta os dias até a prova', () => {
-    expect(daysUntil('2026-01-17', new Date('2026-01-01T12:00:00Z'))).toBe(16);
+    expect(daysUntil('2026-01-17', new Date(2026, 0, 1, 12, 0))).toBe(16);
   });
 
   it('devolve zero no dia da prova', () => {
-    expect(daysUntil('2026-01-17', new Date('2026-01-17T23:00:00Z'))).toBe(0);
+    expect(daysUntil('2026-01-17', new Date(2026, 0, 17, 23, 0))).toBe(0);
   });
 
   it('devolve negativo depois da prova', () => {
-    expect(daysUntil('2026-01-17', new Date('2026-01-20T00:00:00Z'))).toBe(-3);
+    expect(daysUntil('2026-01-17', new Date(2026, 0, 20, 0, 0))).toBe(-3);
   });
 
   it('ignora a hora do dia', () => {
-    const cedo = daysUntil('2026-01-17', new Date('2026-01-01T00:01:00Z'));
-    const tarde = daysUntil('2026-01-17', new Date('2026-01-01T23:59:00Z'));
+    const cedo = daysUntil('2026-01-17', new Date(2026, 0, 1, 0, 1));
+    const tarde = daysUntil('2026-01-17', new Date(2026, 0, 1, 23, 59));
     expect(cedo).toBe(tarde);
   });
 
   it('devolve null para data ausente ou inválida', () => {
-    expect(daysUntil('', new Date('2026-01-01T00:00:00Z'))).toBeNull();
-    expect(daysUntil('não é data', new Date('2026-01-01T00:00:00Z'))).toBeNull();
+    expect(daysUntil('', new Date(2026, 0, 1))).toBeNull();
+    expect(daysUntil('não é data', new Date(2026, 0, 1))).toBeNull();
+  });
+
+  it('devolve null para uma data de calendário que não existe', () => {
+    expect(daysUntil('2026-02-30', new Date(2026, 0, 1))).toBeNull();
+  });
+
+  it('trata a string da prova como um calendário local, nunca como um instante UTC', () => {
+    // Regressão: `new Date('2026-01-17')` é meia-noite UTC. Em America/Sao_Paulo
+    // (UTC-3) isso é 16/jan 21h local — se a data da prova fosse lida via
+    // `Date.parse` + `getFullYear`/`getMonth`/`getDate` locais, a prova "voltaria"
+    // um dia para quem está nesse fuso, e a contagem regressiva erraria por 1.
+    expect(daysUntil('2026-01-17', new Date(2026, 0, 17))).toBe(0);
+  });
+
+  it('é determinística: o mesmo isoDate e o mesmo today sempre produzem o mesmo resultado', () => {
+    // Base da regressão I1: o card do Portal e a barra lateral agora chamam a mesma
+    // função pura com o mesmo `today`. Sendo pura e determinística, os dois nunca mais
+    // podem divergir — a divergência só era possível quando cada tela tinha sua própria
+    // conta (uma em UTC, outra em calendário local).
+    const hoje = new Date(2026, 8, 13, 11, 45);
+    expect(daysUntil('2026-01-17', hoje)).toBe(daysUntil('2026-01-17', hoje));
+    expect(daysUntil('2026-01-17', hoje)).toBe(-239);
   });
 });
