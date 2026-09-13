@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
 import { emptyAvailability } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
+import { CargoFields } from '@/components/CargoFields';
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
@@ -15,6 +16,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [institution, setInstitution] = useState('');
   const [type, setType] = useState('Concurso Público');
   const [examDate, setExamDate] = useState('');
+  const [cargos, setCargos] = useState<Cargo[]>([{ id: 'c1', name: '', examDate: '', period: '' }]);
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
   const [sourceText, setSourceText] = useState('');
@@ -61,14 +63,16 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       ? `${baseSlug}-${Date.now().toString().slice(-6)}`
       : baseSlug;
 
+    const validCargos = cargos.filter((cargo) => cargo.name.trim());
+
     const newWorkspace: WorkspaceDraft = {
       slug,
       title,
       institution,
       type,
       examDate,
-      cargos: [{ id: 'c1', name: 'Cargo Único', examDate }],
-      selectedCargoId: 'c1',
+      cargos: validCargos,
+      selectedCargoId: (validCargos[0] ?? cargos[0]).id,
       availability: emptyAvailability(),
       status: 'aguardando_revisao_edital',
       hasEdital: Boolean(sourceFileName || sourceText),
@@ -185,6 +189,13 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                   <option value="Certificação">Certificação</option>
                 </select>
               </div>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <label className="text-[11px] font-medium uppercase tracking-wider text-[#6f7b85] dark:text-[#8e98a8]">
+                Cargos
+              </label>
+              <CargoFields cargos={cargos} onChange={setCargos} />
             </div>
           </section>
 
