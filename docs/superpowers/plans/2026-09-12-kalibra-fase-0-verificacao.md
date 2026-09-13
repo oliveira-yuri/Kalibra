@@ -246,5 +246,27 @@ razão registrada na seção 4.
   consegue atestar — conferência de estilo computado e interação real em navegador **não** foi
   possível neste ambiente (ver seção 4).
 
+## 8. Risco conhecido para a Fase 2 — `BASE_PATH`
+
+**⚠ Ação necessária na Fase 2, não nesta fase.** `artifacts/kalibra/vite.config.ts` e
+`artifacts/mockup-sandbox/vite.config.ts` default `BASE_PATH` para `'/'` quando a variável não
+está definida. Isso é deliberado e **não** foi endurecido para falhar sem `BASE_PATH`: a Fase 2
+coloca um Caddy na frente do Kalibra, e se o deploy servir a aplicação sob um sub-path (ex.:
+`/kalibra/`) sem definir `BASE_PATH` explicitamente, o build vai emitir URLs de asset baseadas na
+raiz (`/assets/...` em vez de `/kalibra/assets/...`), quebrando em produção de forma silenciosa —
+sem nenhum erro no build, só uma tela em branco ou assets 404 no navegador.
+
+A correção certa é **o pipeline de deploy exigir e passar `BASE_PATH` explicitamente**, não o
+`vite.config.ts` lançar erro quando ausente. Uma tentativa anterior de endurecer isso no config
+(lançar erro quando `NODE_ENV === 'production'` e `BASE_PATH` ausente) foi revertida nesta fase
+porque o Vite força `process.env.NODE_ENV = 'production'` internamente para **qualquer** comando
+`vite build` (não só deploys reais) sempre que o shell não define `NODE_ENV` antes — isso faria
+até `pnpm run build` local e o build de CI, sem nenhuma relação com deploy atrás de proxy, falhar
+sem configuração extra. Como esse comando é o portão de verificação usado depois de cada uma das
+16 tasks desta fase e será o mesmo usado na Fase 1, um valor obrigatório no config quebraria a
+verificação de todo mundo, todo build, não só o caso real que o risco descreve. Enforcement
+pertence ao script/pipeline de deploy da Fase 2 (que já sabe, por construção, se está publicando
+sob um sub-path), não ao valor padrão do config.
+
 **Próximo plano:** Fase 1A — `lib/core` com testes (FSRS, deduplicação, priorização) e workspace
 multi-cargo.
