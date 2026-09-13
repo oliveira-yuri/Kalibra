@@ -5,3 +5,4 @@ export * from './workspace/exam-dates';
 export * from './fsrs/schedule';
 export * from './syllabus/concept';
 export * from './syllabus/syllabus';
+export * from './syllabus/dedup';
