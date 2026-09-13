@@ -62,7 +62,14 @@ describe('validação', () => {
 
   it('recusa sessão máxima não positiva', () => {
     const a: WeeklyAvailability = { days: [], maxSessionMinutes: 0 };
-    expect(validateAvailability(a)).toContain('A sessão máxima precisa ser maior que zero.');
+    expect(validateAvailability(a)).toContain('A sessão máxima precisa ser de pelo menos 5 minutos.');
+  });
+
+  it('recusa sessão máxima abaixo do mínimo mesmo sendo positiva', () => {
+    // Mesmo mínimo anunciado pelo campo (min={5} em AvailabilityFields.tsx) — um valor
+    // como 3 passava despercebido porque a checagem só recusava <= 0.
+    const a: WeeklyAvailability = { days: [], maxSessionMinutes: 3 };
+    expect(validateAvailability(a)).toContain('A sessão máxima precisa ser de pelo menos 5 minutos.');
   });
 
   it('ignora dias zerados ao comparar com a sessão máxima', () => {

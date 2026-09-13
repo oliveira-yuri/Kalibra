@@ -50,7 +50,7 @@ describe('telas do Kalibra', () => {
     window.sessionStorage.clear();
     document.documentElement.className = '';
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-13T12:00:00Z'));
+    vi.setSystemTime(new Date(2026, 8, 13, 12, 0));
   });
 
   afterAll(() => {

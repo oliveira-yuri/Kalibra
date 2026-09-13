@@ -23,6 +23,8 @@ export const WEEKDAY_LABELS: Record<Weekday, string> = {
 const ALL_WEEKDAYS: readonly Weekday[] = [0, 1, 2, 3, 4, 5, 6];
 const MINUTES_IN_A_DAY = 24 * 60;
 const DEFAULT_MAX_SESSION_MINUTES = 50;
+// Mesmo mínimo anunciado pelo campo "Sessão máxima" (min={5} em AvailabilityFields.tsx).
+const MIN_SESSION_MINUTES = 5;
 
 export function emptyAvailability(): WeeklyAvailability {
   return {
@@ -50,8 +52,8 @@ export function validateAvailability(availability: WeeklyAvailability): string[]
     problems.push('Um dia não pode ter mais de 24 horas.');
   }
 
-  if (availability.maxSessionMinutes <= 0) {
-    problems.push('A sessão máxima precisa ser maior que zero.');
+  if (availability.maxSessionMinutes < MIN_SESSION_MINUTES) {
+    problems.push(`A sessão máxima precisa ser de pelo menos ${MIN_SESSION_MINUTES} minutos.`);
   }
 
   // Um dia zerado significa indisponível, não um dia curto — não conflita.
