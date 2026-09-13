@@ -6,6 +6,16 @@ import { useWorkspaces } from '@/domain/useWorkspaces';
 import { daysUntil, effectiveExamDate, nextActionFor } from '@workspace/core';
 import { WorkspaceStatusChip } from '@/components/WorkspaceStatusChip';
 
+// Mesma convenção de três vias que `getDaysRemaining` (src/lib/date-utils.ts) já usa na
+// sidebar (Shell.tsx): D−n para o futuro, HOJE para hoje, D+n para o passado. Sem essa
+// distinção, uma prova já ocorrida vira "D−-104" — um sinal duplo que pode ser lido como
+// "104 dias para a prova" quando na verdade ela já passou há 104 dias.
+function formatCountdown(dias: number): string {
+  if (dias > 0) return `D−${dias}`;
+  if (dias === 0) return 'HOJE';
+  return `D+${Math.abs(dias)}`;
+}
+
 export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -129,7 +139,7 @@ export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onTo
                   )}
                   <p className={`text-[12px] ${theme === 'dark' ? 'text-[#8e98a8]' : 'text-[#6f7b85]'}`}>
                     {program.institution} · Prova: {effectiveExamDate(program.cargos, program.selectedCargoId, program.examDate)}
-                    {dias !== null && <span className="k-mono k-focus ml-2">D−{dias}</span>}
+                    {dias !== null && <span className="k-mono k-focus ml-2">{formatCountdown(dias)}</span>}
                   </p>
                 </div>
                 <div className="p-5 flex flex-col justify-between min-h-[140px]">
