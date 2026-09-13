@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft } from '@/store/workspaces';
+import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft } from '@/domain/useWorkspaces';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {

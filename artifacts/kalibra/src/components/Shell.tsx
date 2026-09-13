@@ -5,7 +5,7 @@ import {
   Activity, ArrowLeft, CalendarDays, CheckCircle2, ChevronDown, CircleDot,
   Menu, MoreHorizontal, Moon, Search, Settings2, Sun,
 } from 'lucide-react';
-import { useWorkspaces } from '@/store/workspaces';
+import { useWorkspaces } from '@/domain/useWorkspaces';
 import { topics } from '@/data';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { useToast } from '@/hooks/use-toast';

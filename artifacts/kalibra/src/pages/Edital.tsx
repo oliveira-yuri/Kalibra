@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
-import { stageWorkspaceImport } from '@/store/workspaces';
+import { stageWorkspaceImport } from '@/domain/useWorkspaces';
 import { subjects, topics } from '@/data';
 import { useToast } from '@/hooks/use-toast';
 

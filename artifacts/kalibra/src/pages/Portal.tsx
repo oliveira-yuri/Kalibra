@@ -1,7 +1,7 @@
 import { Link } from 'wouter';
 import { Activity, Plus, MoreHorizontal, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/react';
-import { useWorkspaces } from '@/store/workspaces';
+import { useWorkspaces } from '@/domain/useWorkspaces';
 
 export function Portal({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
