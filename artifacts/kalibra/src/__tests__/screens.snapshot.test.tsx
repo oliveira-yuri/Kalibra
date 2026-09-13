@@ -51,3 +51,26 @@ describe('telas do Kalibra', () => {
     expect(container.innerHTML).toMatchSnapshot();
   });
 });
+
+describe('tema padrão', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    document.documentElement.className = '';
+  });
+
+  it('abre em dark quando não há preferência salva', async () => {
+    window.history.replaceState({}, '', '/portal');
+    const { default: App } = await import('../App');
+    render(<App />);
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  it('respeita a preferência salva pelo usuário', async () => {
+    window.localStorage.setItem('kalibra-theme', 'light');
+    window.history.replaceState({}, '', '/portal');
+    const { default: App } = await import('../App');
+    render(<App />);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+  });
+});

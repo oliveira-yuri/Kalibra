@@ -4,8 +4,9 @@ import type { Theme } from '@/types';
 const STORAGE_KEY = 'kalibra-theme';
 
 function loadTheme(): Theme {
-  if (typeof window === 'undefined') return 'light';
-  return window.localStorage.getItem(STORAGE_KEY) === 'dark' ? 'dark' : 'light';
+  if (typeof window === 'undefined') return 'dark';
+  // Dark é o padrão do Kalibra; só o valor explícito 'light' muda isso.
+  return window.localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark';
 }
 
 export function useTheme() {
