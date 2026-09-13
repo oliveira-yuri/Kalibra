@@ -42,42 +42,7 @@ import { MarkdownPreview } from '@/components/MarkdownPreview';
 import { Revisao } from '@/pages/Revisao';
 import { Questoes } from '@/pages/Questoes';
 import { Erros } from '@/pages/Erros';
-
-function StudyCalendar({ plan }: { plan: PlanItem[] }) {
-  return <section className="k-card p-5" data-testid="section-study-calendar">
-    <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
-      <div>
-        <p className="k-eyebrow mb-2">plano da semana · atualizado pelo diagnóstico</p>
-        <h3 className="text-[18px] font-semibold tracking-[-.04em]">O que estudar em cada dia</h3>
-        <p className="mt-2 max-w-[620px] text-[12px] leading-5 text-[#8e98a8]">Aprovações recalibram os próximos blocos sem apagar o histórico do que já foi estudado.</p>
-      </div>
-      <span className="k-chip">{plan.length} blocos planejados</span>
-    </div>
-    <div className="k-plan-grid">
-      {plan.map((item) => <article key={item.id} className={`k-plan-item k-plan-${item.tone}`} data-testid={`plan-item-${item.id}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="k-eyebrow">{item.weekday}</p><p className="k-mono mt-1 text-[17px] font-medium">{item.date}</p></div>
-          <span className="k-plan-dot" />
-        </div>
-        <p className="mt-5 text-[12px] font-semibold leading-5">{item.label}</p>
-        <div className="mt-3 flex items-center justify-between gap-2 text-[10px] text-[#8e98a8]"><span>{item.subject}</span><span className="k-mono">{item.duration}</span></div>
-        <span className="k-plan-kind mt-3 inline-flex">{item.kind}</span>
-      </article>)}
-    </div>
-    <div className="k-card-soft mt-4 flex items-start gap-3 p-4"><CalendarDays size={15} className="k-focus mt-0.5 shrink-0" /><p className="text-[11px] leading-5 text-[#aeb8c5]">O calendário é uma proposta de ciclo. Nada muda automaticamente sem sua aprovação.</p></div>
-  </section>;
-}
-
-function Recommendations({ recommendations, plan, onApprove }: { recommendations: Recommendation[]; plan: PlanItem[]; onApprove: (id: string) => void }) {
-  const pending = recommendations.filter((recommendation) => !recommendation.approved);
-  return <div className="space-y-5">
-    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="k-eyebrow mb-2">ajustes do ciclo · aprovação manual</p><h2 className="text-[27px] font-semibold tracking-[-.05em]">Recomendações com freio.</h2><p className="mt-2 max-w-[650px] text-[12px] leading-5 text-[#8e98a8]">O diagnóstico pode sugerir mudanças, mas nada entra no seu calendário sem sua aprovação.</p></div><span className="k-chip k-chip-active">{pending.length} aguardando decisão</span></div>
-    <div className="k-card border-[#39452f] bg-[#151d18] p-4"><div className="flex gap-3"><Lightbulb size={17} className="k-focus mt-0.5 shrink-0" /><div><p className="text-[12px] font-semibold text-[#d5f35b]">Como o ajuste funciona</p><p className="mt-1 text-[11px] text-[#aeb8c5] leading-5">Aprovar altera somente o próximo ciclo. Histórico e cartões anteriores permanecem intactos.</p></div></div></div>
-    <div className="space-y-3">{recommendations.map((recommendation) => <article key={recommendation.id} className={`k-card p-5 ${recommendation.approved ? 'border-[#354a3c]' : ''}`} data-testid={`card-recommendation-${recommendation.id}`}><div className="flex flex-col justify-between gap-4 md:flex-row"><div className="flex gap-4"><span className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm ${recommendation.approved ? 'bg-[#243329] text-[#8ed9ae]' : 'bg-[#2b3024] text-[#d5f35b]'}`}>{recommendation.approved ? <Check size={16} /> : <Zap size={16} />}</span><div><div className="flex flex-wrap items-center gap-2"><p className="text-[14px] font-semibold">{recommendation.text}</p>{recommendation.approved && <span className="k-chip border-[#42604b] text-[#8ed9ae]">aprovada</span>}</div><p className="mt-2 max-w-[700px] text-[12px] leading-5 text-[#aeb8c5]">{recommendation.rationale}</p><p className="k-mono mt-3 text-[10px] text-[#7e8998]">impacto · {recommendation.impact}</p>{recommendation.approved && recommendation.id !== 'rec3' && <p className="mt-3 text-[10px] text-[#23824d]">Calendário atualizado com este ajuste.</p>}</div></div>{!recommendation.approved && <button className="k-button k-button-primary self-start whitespace-nowrap" onClick={() => onApprove(recommendation.id)} data-testid={`button-approve-${recommendation.id}`}><Check size={14} /> Aprovar ajuste</button>}</div></article>)}</div>
-    <div className="k-card-soft flex items-start gap-3 p-4"><ShieldAlert size={15} className="k-coral mt-0.5" /><p className="text-[11px] leading-5 text-[#aeb8c5]">Aprovação é reversível no histórico do ciclo. Se o contexto mudar, você pode revisar a decisão antes da próxima sessão.</p></div>
-    <StudyCalendar plan={plan} />
-  </div>;
-}
+import { Recomendacoes } from '@/pages/Recomendacoes';
 
 function loadNotes() {
   if (typeof window === 'undefined') return initialNotes;
@@ -188,7 +153,7 @@ function WorkspaceApp({ theme, onToggleTheme, slug }: { theme: Theme; onToggleTh
         <Route path="/revisao" component={() => <Revisao cards={cards} onGrade={gradeCard} />} />
         <Route path="/questoes" component={() => <Questoes onRegisterError={registerError} />} />
         <Route path="/erros" component={() => <Erros errors={errors} />} />
-        <Route path="/recomendacoes" component={() => <Recommendations recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} />
+        <Route path="/recomendacoes" component={() => <Recomendacoes recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} />
         <Route path="/diagnostico" component={() => <Diagnostico workspaceSlug={slug} />} />
         <Route component={NotFound} />
       </Switch>
