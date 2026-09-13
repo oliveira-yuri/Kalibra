@@ -9,21 +9,27 @@ export type { FsrsState, RecallRating, ReviewItemKind } from './types';
 // intermitentes. Fica desligado aqui de propósito; a Fase 1D decide se volta
 // na configuração real.
 //
-// enable_short_term: false — divergência descoberta ao inspecionar
-// node_modules/ts-fsrs/dist/index.d.ts: por padrão o FSRS mantém um estágio
-// de "Learning" de curto prazo (minutos) antes de promover o item ao ciclo
-// normal de revisão ("Review"). Este wrapper serializa o estado do FSRS em
-// FsrsState (o contrato público) e não carrega o campo `state` do Card da
-// biblioteca entre chamadas — de propósito, para não vazar um conceito da
-// biblioteca para o contrato. Sem desligar os passos de curto prazo, uma
-// única revisão "boa" deixaria o card em "Learning", e reconstruir o Card a
-// partir de FsrsState não teria como saber disso; a próxima chamada trataria
-// o item como se estivesse sempre em "Review", divergindo do comportamento
-// real da biblioteca (por exemplo, o teste de contagem de lapso falharia:
-// uma "Learning" que falha não conta lapso, só uma "Review" que falha conta).
-// Desligando learning/relearning steps, o FSRS vai direto de "New" para
-// "Review" já na primeira nota, o que casa exatamente com a regra que
-// reconstruímos abaixo em `toCard` (reps === 0 → New, caso contrário Review).
+// enable_short_term: false — decisão de produto, não workaround técnico. Os
+// itens que passam por aqui (active_recall, question, topic) não têm a
+// propriedade de repetição barata do flashcard — flashcard é Anki, fora de
+// escopo. Reescrever uma resposta 10 minutos depois testa memorização de
+// transcrição, não recuperação; refazer uma questão logo após a explicação
+// testa reconhecimento e contamina as estatísticas de acerto. A tela
+// /revisoes é uma previsão de carga por dia contra os minutos disponíveis do
+// usuário — itens vencendo em 1 ou 10 minutos não cabem num balde diário. E,
+// de forma mais concreta: `previewIntervals` existe para mostrar quantos DIAS
+// cada botão custa; com learning steps ligados (1m/6m/10m), os quatro
+// arredondariam para "0 dias". Por isso o menor intervalo aqui é sempre >= 1
+// dia — ver o teste "nunca agenda no mesmo dia" em schedule.test.ts.
+//
+// Nota de suporte: desligar isso também mantém a reconstrução do Card em
+// `toCard` simples. FsrsState não guarda o `state` (New/Learning/Review/
+// Relearning) do Card da biblioteca de propósito, para não vazar esse
+// conceito no contrato público. Sem learning steps, o FSRS só transita entre
+// New e Review, o que a regra abaixo (reps === 0 → New, senão Review)
+// reconstrói fielmente — se algum dia "resolver" isso adicionando `state` a
+// FsrsState, o motivo de produto acima continua de pé; a trava não pode ser
+// reaberta assumindo que o problema era só de serialização.
 const scheduler = fsrs(generatorParameters({ enable_fuzz: false, enable_short_term: false }));
 
 const RATING_MAP: Record<RecallRating, Grade> = {

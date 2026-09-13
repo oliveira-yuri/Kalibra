@@ -71,11 +71,11 @@ describe('vencimento', () => {
 });
 
 describe('prévia de intervalos', () => {
-  it('dá um intervalo para cada nota, em ordem crescente', () => {
+  it('dá um intervalo para cada nota, em ordem estritamente crescente', () => {
     const preview = previewIntervals(newFsrsState(NOW), NOW);
-    expect(preview.nada).toBeLessThanOrEqual(preview.parcial);
-    expect(preview.parcial).toBeLessThanOrEqual(preview.bom);
-    expect(preview.bom).toBeLessThanOrEqual(preview.completo);
+    expect(preview.nada).toBeLessThan(preview.parcial);
+    expect(preview.parcial).toBeLessThan(preview.bom);
+    expect(preview.bom).toBeLessThan(preview.completo);
   });
 
   it('devolve dias inteiros não negativos', () => {
@@ -84,5 +84,11 @@ describe('prévia de intervalos', () => {
       expect(Number.isInteger(dias)).toBe(true);
       expect(dias).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('nunca agenda no mesmo dia: sem learning steps de curto prazo, o menor intervalo é de pelo menos 1 dia', () => {
+    const preview = previewIntervals(newFsrsState(NOW), NOW);
+    const menorIntervalo = Math.min(...Object.values(preview));
+    expect(menorIntervalo).toBeGreaterThanOrEqual(1);
   });
 });

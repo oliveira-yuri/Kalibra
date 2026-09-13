@@ -150,6 +150,10 @@ review_event   id, review_item_id, workspace_id, session_id, rating,
 
 Estado global por item reutilizável; eventos carregam o workspace e a sessão onde ocorreram.
 
+O FSRS do Kalibra opera sem learning steps de curto prazo: o menor intervalo entre revisões é de um dia. Repetição na mesma sessão não é trabalho da fila de FSRS — é trabalho do bloco `questoes` e do caderno de erros.
+
+`review_event.state_before` e `state_after` são o snapshot de `fsrs_state` (os seis campos: difficulty, stability, reps, lapses, due_at, last_review_at), não o `ReviewLog` da biblioteca FSRS.
+
 Flashcard **não** é um `kind` de `review_item` — ele vai para o Anki.
 
 ### 4.4 Documentos e extração
