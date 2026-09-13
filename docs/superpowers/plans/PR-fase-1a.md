@@ -58,9 +58,14 @@ imediatamente se alguém revertê-lo.
 
 ```
 pnpm run typecheck   # 5 projetos
-pnpm run test        # 121 testes (57 lib/core + 64 frontend)
+pnpm run test        # 122 testes (58 lib/core + 64 frontend)
 pnpm run build       # 3 artifacts
 ```
+
+A suíte foi executada em `TZ=UTC`, `America/Sao_Paulo` e `Pacific/Kiritimati`
+(UTC+14), com o mesmo resultado e zero snapshots reescritos — o relógio de teste
+é congelado por construtor local, então a contagem regressiva não depende do fuso
+de quem roda.
 
 Design system: `index.css` **não foi tocado**. Nenhuma cor, raio, fonte, sombra
 ou tipo novo. Os três componentes novos compõem só de classes `k-*` existentes,
@@ -68,13 +73,6 @@ e o menu de ações é cópia literal do padrão que `EditalRevisar` já usava.
 
 ## Limites conhecidos
 
-- **A suíte ficou dependente de fuso horário.** O relógio de teste é congelado
-  num instante UTC enquanto o cálculo lê partes locais da data; em UTC+12 ou
-  mais, dois snapshots falham. Correção de uma linha, não aplicada porque
-  apareceu depois da rodada final de revisão.
-- **`noValidate` no formulário** removeu a checagem nativa de mínimo da sessão
-  máxima; a validação em `lib/core` só rejeita valores ≤ 0, então um `3`
-  digitado passa. Consequência trivial.
 - **Verificação manual no navegador não foi feita** — faltou
   `VITE_CLERK_PUBLISHABLE_KEY`. Estilos computados, widgets reais do Clerk e o
   menu de ações seguem sem conferência visual direta.
