@@ -5,7 +5,7 @@ import {
   type WorkspaceStatus,
 } from '@workspace/core';
 
-export type SourceMode = 'file' | 'text';
+export type SourceMode = 'file' | 'text' | 'none';
 export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
 
 export interface Cargo {
@@ -58,7 +58,7 @@ const VALID_STATUSES: readonly WorkspaceStatus[] = [
 ];
 
 const VALID_IMPORT_STATUSES: readonly ImportStatus[] = ['pending', 'parsing', 'completed', 'error'];
-const VALID_SOURCE_MODES: readonly SourceMode[] = ['file', 'text'];
+const VALID_SOURCE_MODES: readonly SourceMode[] = ['file', 'text', 'none'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

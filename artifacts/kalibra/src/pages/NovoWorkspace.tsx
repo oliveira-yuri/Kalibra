@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
-import { emptyAvailability, validateAvailability } from '@workspace/core';
+import { emptyAvailability, validateAvailability, nextActionFor, uniqueSlug } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
 import { AvailabilityFields } from '@/components/AvailabilityFields';
@@ -11,7 +11,7 @@ import { AvailabilityFields } from '@/components/AvailabilityFields';
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
   const [, setLocation] = useLocation();
-  const { workspaces } = useWorkspaces(user?.id);
+  const { workspaces, addWorkspace } = useWorkspaces(user?.id);
 
   const [title, setTitle] = useState('');
   const [institution, setInstitution] = useState('');
@@ -19,7 +19,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [examDate, setExamDate] = useState('');
   const [cargos, setCargos] = useState<Cargo[]>([{ id: 'c1', name: '', examDate: '', period: '' }]);
   const [availability, setAvailability] = useState(emptyAvailability());
-  const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
+  const [sourceMode, setSourceMode] = useState<'file' | 'text' | 'none'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [error, setError] = useState('');
@@ -30,9 +30,9 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
+      if (file.size > 20 * 1024 * 1024) {
         setSourceFileName('');
-        setError('O arquivo deve ter no máximo 5 MB.');
+        setError('O arquivo deve ter no máximo 20 MB.');
         e.target.value = '';
         return;
       }
@@ -63,17 +63,10 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     }
     setAvailabilityProblems([]);
 
-    const baseSlug = title
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    const slug = workspaces.some((workspace) => workspace.slug === baseSlug)
-      ? `${baseSlug}-${Date.now().toString().slice(-6)}`
-      : baseSlug;
+    const slug = uniqueSlug(title, workspaces.map((workspace) => workspace.slug));
 
     const validCargos = cargos.filter((cargo) => cargo.name.trim());
+    const status = sourceMode === 'none' ? 'sem_edital' : 'aguardando_revisao_edital';
 
     const newWorkspace: WorkspaceDraft = {
       slug,
@@ -84,16 +77,22 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       cargos: validCargos,
       selectedCargoId: (validCargos[0] ?? cargos[0]).id,
       availability,
-      status: 'aguardando_revisao_edital',
-      hasEdital: Boolean(sourceFileName || sourceText),
+      status,
+      hasEdital: sourceMode !== 'none',
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceText: sourceMode === 'text' ? sourceText : undefined,
       importStatus: 'pending',
       progress: 0,
-      nextAction: 'Edital em processamento',
+      nextAction: nextActionFor(status),
       active: true
     };
+
+    if (sourceMode === 'none') {
+      addWorkspace(newWorkspace);
+      setLocation(`/workspace/${slug}`);
+      return;
+    }
 
     stageWorkspaceImport(slug, { isNew: true, workspace: newWorkspace }, user?.id);
     setCreatedSlug(slug);
@@ -235,9 +234,23 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
               >
                 Colar Texto
               </button>
+              <button
+                type="button"
+                onClick={() => setSourceMode('none')}
+                className={`flex-1 flex justify-center py-2 text-[12px] font-medium rounded-[3px] transition-colors ${sourceMode === 'none' ? 'bg-white dark:bg-[#202b20] text-[#16232b] dark:text-[#d5f35b] shadow-sm border border-[#d5dede] dark:border-[#35404e]' : 'text-[#6f7b85] dark:text-[#8e98a8] hover:text-[#16232b] dark:hover:text-[#f0f0e8]'}`}
+              >
+                Ainda não tenho
+              </button>
             </div>
 
-            {sourceMode === 'file' ? (
+            {sourceMode === 'none' ? (
+              <div className="k-card-soft p-4 flex items-start gap-3">
+                <FileText size={16} className="k-muted shrink-0 mt-0.5" />
+                <p className="text-[12px] leading-5 k-muted">
+                  O workspace será criado com status "sem edital". Você pode importar o edital depois, a qualquer momento, pela tela Edital.
+                </p>
+              </div>
+            ) : sourceMode === 'file' ? (
               <div className="relative">
                 <input 
                   type="file" 
@@ -257,7 +270,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                     <>
                       <UploadCloud size={32} className="text-[#8e98a8] mb-3" />
                       <p className="text-[14px] font-medium mb-1">Selecione ou arraste o arquivo do edital</p>
-                      <p className="text-[11px] text-[#6f7b85] dark:text-[#8e98a8]">Aceita PDF, DOCX ou TXT (Max 5MB)</p>
+                      <p className="text-[11px] text-[#6f7b85] dark:text-[#8e98a8]">Aceita PDF, DOCX ou TXT (Max 20MB)</p>
                     </>
                   )}
                 </div>
