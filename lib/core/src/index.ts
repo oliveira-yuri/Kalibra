@@ -1,1 +1,1 @@
-export const CORE_PACKAGE = 'core';
+export * from './workspace/status';
