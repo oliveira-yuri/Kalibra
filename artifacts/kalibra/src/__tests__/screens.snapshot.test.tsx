@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { clerkReactMock } from '../test/clerk-mock';
 
@@ -42,6 +42,12 @@ describe('telas do Kalibra', () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     document.documentElement.className = '';
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-13T12:00:00Z'));
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
   });
 
   it.each(ROTAS)('renderiza %s de forma estável', async (rota) => {
