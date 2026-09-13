@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, useWorkspaces, defaultCargo, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
 import { emptyAvailability, validateAvailability, nextActionFor, uniqueSlug } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
@@ -45,14 +45,17 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     e.preventDefault();
     if (!title || !institution || !examDate) {
       setError('Preencha os campos obrigatórios (título, instituição, data).');
+      setAvailabilityProblems([]);
       return;
     }
     if (sourceMode === 'file' && !sourceFileName) {
       setError('Selecione o arquivo do edital.');
+      setAvailabilityProblems([]);
       return;
     }
     if (sourceMode === 'text' && !sourceText.trim()) {
       setError('Cole o texto do edital.');
+      setAvailabilityProblems([]);
       return;
     }
 
@@ -65,7 +68,13 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
 
     const slug = uniqueSlug(title, workspaces.map((workspace) => workspace.slug));
 
-    const validCargos = cargos.filter((cargo) => cargo.name.trim());
+    // O estado inicial é um único cargo em branco, e nada exige que o campo Nome seja
+    // preenchido — então "ignorar a seção Cargos" é o caminho mais comum, não uma
+    // exceção. Sem isto, `cargos` ficava vazio e `selectedCargoId` apontava para um id
+    // inexistente, quebrando o invariante que `migrateWorkspace` garante (ao menos um
+    // cargo sempre) — ver regressão I3.
+    const namedCargos = cargos.filter((cargo) => cargo.name.trim());
+    const finalCargos = namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)];
     const status = sourceMode === 'none' ? 'sem_edital' : 'aguardando_revisao_edital';
 
     const newWorkspace: WorkspaceDraft = {
@@ -74,8 +83,8 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       institution,
       type,
       examDate,
-      cargos: validCargos,
-      selectedCargoId: (validCargos[0] ?? cargos[0]).id,
+      cargos: finalCargos,
+      selectedCargoId: finalCargos[0].id,
       availability,
       status,
       hasEdital: sourceMode !== 'none',
@@ -153,7 +162,12 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
             <EditalUploadProgress onReady={handleReady} onCancel={() => setIsProcessing(false)} />
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-8">
+          // `noValidate`: os campos de disponibilidade têm `step` (ligado à sessão máxima —
+          // ver AvailabilityFields/M2) e, sem isto, o navegador bloqueia o evento de submit
+          // por completo quando um valor digitado não é múltiplo exato do step, sem mostrar
+          // nenhuma mensagem — a própria validação customizada (`validateAvailability`,
+          // renderizada em `availabilityProblems`) é quem deve decidir o que é um erro.
+          <form onSubmit={handleSubmit} noValidate className="space-y-8">
             <section className={`p-6 md:p-8 rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
               <h2 className="text-[15px] font-semibold mb-6 flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e5eed5] dark:bg-[#202b20] text-[#5f7900] dark:text-[#d5f35b] text-[10px] font-bold">1</span>

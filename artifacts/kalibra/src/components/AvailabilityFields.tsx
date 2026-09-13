@@ -6,13 +6,28 @@ import {
 const WEEKDAYS: Weekday[] = [1, 2, 3, 4, 5, 6, 0];
 
 export function AvailabilityFields({ value, onChange }: { value: WeeklyAvailability; onChange: (value: WeeklyAvailability) => void }) {
+  // Atualiza a entrada existente no lugar (ou acrescenta, se o dia realmente não
+  // existir em `value.days`) em vez de reconstruir o array a partir de `WEEKDAYS`
+  // (que só define a ordem de exibição, domingo-primeiro vira segunda-primeiro).
+  // Reconstruir a partir de `WEEKDAYS` reordenava o array salvo e descartava qualquer
+  // entrada com um weekday fora dessa lista — aqui a ordem e qualquer entrada
+  // desconhecida sobrevivem intactas.
   const setMinutes = (weekday: Weekday, minutes: number) =>
     onChange({
       ...value,
-      days: WEEKDAYS.map((day) => ({ weekday: day, minutes: day === weekday ? minutes : minutesFor(value, day) })),
+      days: value.days.some((day) => day.weekday === weekday)
+        ? value.days.map((day) => (day.weekday === weekday ? { ...day, minutes } : day))
+        : [...value.days, { weekday, minutes }],
     });
 
   const total = totalWeeklyMinutes(value);
+  // O incremento de cada campo de dia acompanha a sessão máxima atual: assim, o
+  // primeiro valor não-zero que alguém digita clicando na seta (= maxSessionMinutes)
+  // nunca é menor que a própria sessão máxima, e nunca dispara "a sessão máxima é
+  // maior que a disponibilidade de <dia>" na primeira tentativa. `emptyAvailability()`
+  // parte de maxSessionMinutes: 50 — um passo fixo de 15 exigia 4 cliques (até 60)
+  // antes do erro sumir.
+  const dayStep = Math.max(value.maxSessionMinutes, 5);
 
   return (
     <div className="space-y-3" data-testid="fields-disponibilidade">
@@ -24,7 +39,7 @@ export function AvailabilityFields({ value, onChange }: { value: WeeklyAvailabil
               <input
                 type="number"
                 min={0}
-                step={15}
+                step={dayStep}
                 className="k-input"
                 value={minutesFor(value, weekday)}
                 onChange={(event) => setMinutes(weekday, Number(event.target.value) || 0)}

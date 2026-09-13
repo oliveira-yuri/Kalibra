@@ -16,6 +16,18 @@ export interface Cargo {
   period?: string;
 }
 
+/**
+ * Cargo sintético usado sempre que um workspace precisa existir sem nenhum cargo
+ * nomeado — seja migrando um registro antigo sem `cargos`, seja criando um workspace
+ * novo em que ninguém preencheu a seção Cargos. `WorkspaceDraft.cargos` é obrigatório
+ * (não-opcional) e não pode ficar vazio: um array vazio deixaria `selectedCargoId`
+ * apontando para nada. Centralizado aqui para que `migrateWorkspace` e `NovoWorkspace`
+ * nunca possam divergir sobre o que "sem cargo" significa (ver regressão I3).
+ */
+export function defaultCargo(examDate: string): Cargo {
+  return { id: 'c1', name: 'Cargo único', examDate };
+}
+
 export interface WorkspaceDraft {
   slug: string;
   title: string;
@@ -116,7 +128,7 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
   const validCargos = Array.isArray(raw.cargos) ? raw.cargos.filter(isValidCargo) : [];
   const cargos = validCargos.length > 0
     ? validCargos
-    : [{ id: 'c1', name: 'Cargo único', examDate: str(raw.examDate, '') }];
+    : [defaultCargo(str(raw.examDate, ''))];
 
   return {
     slug: raw.slug,

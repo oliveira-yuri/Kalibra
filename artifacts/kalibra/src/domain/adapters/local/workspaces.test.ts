@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { migrateWorkspace, getWorkspaces } from './workspaces';
+import { migrateWorkspace, getWorkspaces, defaultCargo } from './workspaces';
 
 const ANTIGO = {
   slug: 'setec-campinas',
@@ -213,6 +213,17 @@ describe('migração de workspace', () => {
         nextAction: () => 'função não é dado',
       })).not.toThrow();
     });
+  });
+});
+
+describe('defaultCargo — regressão I3 (fonte única do cargo sintético)', () => {
+  it('gera um único cargo chamado "Cargo único" com a data informada', () => {
+    expect(defaultCargo('2027-05-10')).toEqual({ id: 'c1', name: 'Cargo único', examDate: '2027-05-10' });
+  });
+
+  it('migrateWorkspace usa exatamente o mesmo formato para o cargo padrão', () => {
+    const migrado = migrateWorkspace({ ...ANTIGO, cargos: undefined, selectedCargoId: undefined });
+    expect(migrado?.cargos[0]).toEqual(defaultCargo(ANTIGO.examDate));
   });
 });
 
