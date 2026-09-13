@@ -30,6 +30,10 @@ const ROTAS = [
   '/workspace/setec-campinas/erros',
   '/workspace/setec-campinas/recomendacoes',
   '/workspace/setec-campinas/diagnostico',
+  '/',
+  '/sign-in',
+  '/sign-up',
+  '/rota-inexistente',
 ];
 
 describe('telas do Kalibra', () => {
