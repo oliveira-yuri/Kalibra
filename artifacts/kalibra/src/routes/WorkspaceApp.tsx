@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Route, Router as WouterRouter, Switch, useRoute } from 'wouter';
 import { Shell } from '@/components/Shell';
 import { Dashboard } from '@/pages/Dashboard';
@@ -12,49 +11,13 @@ import { Erros } from '@/pages/Erros';
 import { Recomendacoes } from '@/pages/Recomendacoes';
 import { Diagnostico } from '@/pages/Diagnostico';
 import { NotFound } from '@/pages/NotFound';
-import { initialCards, initialErrors, initialRecommendations, initialPlan, initialNotes, today } from '@/data';
-import type { Difficulty, Note, Question, Theme } from '@/types';
-
-function loadNotes() {
-  if (typeof window === 'undefined') return initialNotes;
-  try {
-    const saved = window.localStorage.getItem('kalibra-notes');
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed as Note[];
-    }
-  } catch {
-    return initialNotes;
-  }
-  return initialNotes;
-}
+import { useStudyState } from '@/domain/useStudyState';
+import { useNotes } from '@/domain/useNotes';
+import type { Theme } from '@/types';
 
 export function WorkspaceApp({ theme, onToggleTheme, slug }: { theme: Theme; onToggleTheme: () => void; slug: string }) {
-  const [cards, setCards] = useState(initialCards);
-  const [errors, setErrors] = useState(initialErrors);
-  const [recommendations, setRecommendations] = useState(initialRecommendations);
-  const [plan, setPlan] = useState(initialPlan);
-  const [notes, setNotes] = useState(loadNotes);
-  const gradeCard = (id: string, difficulty: Difficulty) => setCards((current) => current.map((card) => card.id === id ? { ...card, difficulty, due: difficulty === 'errei' ? 'Hoje' : difficulty === 'difícil' ? 'Amanhã' : difficulty === 'bom' ? '20 dez' : '24 dez' } : card));
-  const registerError = (question: Question) => setErrors((current) => current.some((error) => error.topic === question.topic && error.date === today) ? current : [{ id: `e${current.length + 1}`, classification: 'falha de procedimento', subject: question.subject, topic: question.topic, date: today, status: 'aberto', severity: 'alta' }, ...current]);
-  useEffect(() => {
-    window.localStorage.setItem('kalibra-notes', JSON.stringify(notes));
-  }, [notes]);
-  const createNote = () => {
-    const id = `n${Date.now()}`;
-    setNotes((current) => [{ id, title: 'Nova nota', subject: 'Rascunho', updatedAt: 'agora', content: '# Nova nota\n\n' }, ...current]);
-    return id;
-  };
-  const saveNote = (id: string, title: string, content: string) => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, content, updatedAt: 'agora' } : note));
-  const approveRecommendation = (id: string) => {
-    setRecommendations((current) => current.map((recommendation) => recommendation.id === id ? { ...recommendation, approved: true } : recommendation));
-    if (id === 'rec1') {
-      setPlan((current) => current.some((item) => item.id === 'p8') ? current : [...current, { id: 'p8', weekday: 'quinta-feira', date: '18 dez', label: 'Bloco extra · porcentagem e juros', subject: 'Matemática', duration: '40 min', kind: 'prática', tone: 'focus' }]);
-    }
-    if (id === 'rec2') {
-      setPlan((current) => current.map((item) => item.id === 'p2' ? { ...item, weekday: 'quarta-feira', date: '17 dez', label: 'Revisão antecipada · Lei de Acesso à Informação' } : item));
-    }
-  };
+  const { cards, errors, recommendations, plan, gradeCard, registerError, approveRecommendation } = useStudyState();
+  const { notes, createNote, saveNote } = useNotes();
   return (
     <Shell theme={theme} onToggleTheme={onToggleTheme} workspaceSlug={slug}>
       <Switch>
