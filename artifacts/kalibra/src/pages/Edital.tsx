@@ -95,9 +95,9 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
                   <input type="file" accept=".pdf,.docx,.txt" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
-                    if (file.size > 5 * 1024 * 1024) {
+                    if (file.size > 20 * 1024 * 1024) {
                       setSourceFileName('');
-                      setUpdateError('O arquivo deve ter no máximo 5 MB.');
+                      setUpdateError('O arquivo deve ter no máximo 20 MB.');
                       e.target.value = '';
                       return;
                     }
