@@ -134,9 +134,11 @@ explicitamente evita fazer.
 Verificação que **foi** feita como substituto parcial:
 - `pnpm run dev` sobe corretamente (Vite pronto em ~300ms, servindo em `http://localhost:5173/`),
   confirmando que a aplicação compila e inicializa em modo dev sem erros de build.
-- Os 16 snapshots de tela (HTML renderizado via `@testing-library/react` com `@clerk/react`
-  mockado) cobrem a árvore DOM completa de cada rota, incluindo todas as classes Tailwind
-  aplicadas condicionalmente por tema.
+- Os 16 snapshots de rota (HTML renderizado via `@testing-library/react` com `@clerk/react`
+  mockado) cobrem a árvore DOM completa de 13 telas distintas, incluindo todas as classes
+  Tailwind aplicadas condicionalmente por tema — **não 16 telas**; ver a correção na seção 5
+  (`/` e `/portal` são idênticos, e `/sign-in`/`/sign-up` só provam que o wrapper de tema
+  renderiza, pois o mock do Clerk resolve os widgets de auth como `null`).
 
 **O que NÃO foi coberto, por causa dessa lacuna:**
 - Estilos computados reais (o snapshot cobre `class="..."`, não o CSS calculado depois de aplicado
@@ -152,7 +154,8 @@ Verificação que **foi** feita como substituto parcial:
   de componente em vez de rota).
 
 A evidência de "zero mudança visual além do tema padrão" descansa inteiramente sobre a suíte de
-snapshots (16 telas × HTML completo) e sobre a auditoria manual do diff de snapshot feita na
+snapshots (16 rotas × HTML completo, cobrindo 13 telas distintas — ver seção 5) e sobre a
+auditoria manual do diff de snapshot feita na
 Task 15 (todas as 15 diferenças foram trocas de classe entre pares claro/escuro já existentes no
 código-fonte, sem classe nova, elemento removido ou mudança de texto fora do previsto pelos
 ternários pré-existentes de tema/ícone do botão de alternância). Essa auditoria está detalhada em
@@ -160,28 +163,48 @@ ternários pré-existentes de tema/ícone do botão de alternância). Essa audit
 
 ## 5. Telas cobertas pela suíte automatizada (substituto do Step 3)
 
-As 16 rotas abaixo são renderizadas e comparadas por snapshot a cada execução de teste,
-cobrindo o HTML de cada uma (mas não o CSS computado nem a interação — ver seção 4):
+**Correção (pós-revisão final da fase):** esta seção originalmente apresentava as 16 rotas abaixo
+como "16 telas cobertas". Isso superestima a cobertura real. As 16 rotas produzem apenas **13
+telas distintas** genuinamente verificadas por snapshot — os outros 3 casos não testam o que
+parecem testar:
 
-1. `/portal`
-2. `/portal/novo-workspace`
+- `/` e `/portal` produzem o **mesmo HTML, byte a byte** (confirmado comparando as duas entradas
+  do arquivo de snapshot: são idênticas, char por char), porque `/` apenas redireciona para
+  `/portal`. Isso significa que **`src/pages/Home.tsx` tem cobertura de snapshot zero** — o teste
+  da rota `/` na prática re-testa `Portal.tsx`, não `Home.tsx`.
+- `/sign-in` e `/sign-up` produzem snapshots de ~102 caracteres, ambos idênticos ao wrapper vazio
+  `<div class="flex min-h-[100dvh] items-center justify-center px-4 bg-[#10131a] text-[#f0f0e8]"></div>`.
+  O mock do Clerk (`clerkReactMock`) renderiza apenas o branch autenticado e resolve os widgets de
+  auth (`SignIn`, `SignUp`) como `null`, então **esses dois testes não afirmam nada sobre o
+  conteúdo real dessas páginas** — só que o wrapper externo (tema) renderiza.
+
+Das 16 rotas listadas, as **telas genuinamente cobertas** (HTML de conteúdo real comparado por
+snapshot) são as 13 abaixo:
+
+1. `/portal` (Portal)
+2. `/portal/novo-workspace` (NovoWorkspace)
 3. `/workspace/setec-campinas` (Dashboard)
-4. `/workspace/setec-campinas/edital`
-5. `/workspace/setec-campinas/edital/revisar/1`
-6. `/workspace/setec-campinas/estudo`
-7. `/workspace/setec-campinas/notas`
-8. `/workspace/setec-campinas/revisao`
-9. `/workspace/setec-campinas/questoes`
-10. `/workspace/setec-campinas/erros`
-11. `/workspace/setec-campinas/recomendacoes`
-12. `/workspace/setec-campinas/diagnostico`
-13. `/` (Home)
-14. `/sign-in`
-15. `/sign-up`
-16. `/rota-inexistente` (404)
+4. `/workspace/setec-campinas/edital` (Edital)
+5. `/workspace/setec-campinas/edital/revisar/1` (EditalRevisar)
+6. `/workspace/setec-campinas/estudo` (Estudo)
+7. `/workspace/setec-campinas/notas` (Notas)
+8. `/workspace/setec-campinas/revisao` (Revisao)
+9. `/workspace/setec-campinas/questoes` (Questoes)
+10. `/workspace/setec-campinas/erros` (Erros)
+11. `/workspace/setec-campinas/recomendacoes` (Recomendacoes)
+12. `/workspace/setec-campinas/diagnostico` (Diagnostico)
+13. `/rota-inexistente` (NotFound/404)
+
+As telas **não cobertas por conteúdo real**, apesar de terem uma linha no suite:
+
+- `Home.tsx` — a rota `/` só prova que o redirecionamento para `/portal` acontece; o componente
+  `Home` em si nunca é exercitado pelo snapshot.
+- `sign-in` e `sign-up` — os testes provam apenas que o wrapper de tema renderiza; o conteúdo real
+  dessas telas depende do widget real do Clerk, que o mock substitui por `null`.
 
 Mais os 2 testes de comportamento de tema (`abre em dark quando não há preferência salva`,
-`respeita a preferência salva pelo usuário`).
+`respeita a preferência salva pelo usuário`), que continuam válidos e não afetados por esta
+correção.
 
 Nenhuma dessas telas foi percorrida manualmente em navegador real, em nenhum dos dois temas, pela
 razão registrada na seção 4.
@@ -210,7 +233,10 @@ razão registrada na seção 4.
 
 - `App.tsx`: 24 linhas (era 958).
 - 22 arquivos novos + 1 movido, listados na seção 1.
-- 18 testes automatizados (16 de tela + 2 de tema), 0 snapshots escritos na segunda execução.
+- 18 testes automatizados (16 de rota + 2 de tema), 0 snapshots escritos na segunda execução —
+  as 16 rotas cobrem 13 telas distintas por conteúdo real, não 16 (ver seção 5: `/` duplica
+  `/portal` byte a byte, e `/sign-in`/`/sign-up` só verificam o wrapper de tema, com os widgets
+  do Clerk mockados como `null`).
 - Nenhuma tela toca `localStorage`, `sessionStorage` ou `fetch` diretamente (confirmado por grep).
 - `src/domain/config.ts` com os módulos `theme`, e outros domínios configurados como `'local'`
   (ver arquivo para lista completa), prontos para virar `'api'` na Fase 3.
