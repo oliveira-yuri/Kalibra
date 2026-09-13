@@ -170,6 +170,50 @@ describe('migração de workspace', () => {
       expect(migrado?.hasEdital).toBe(false);
     });
   });
+
+  describe('campos não-string (regressão I5 — o helper `str` precisa pegar mais que null/undefined)', () => {
+    // `(raw.x as string) ?? fallback` só filtra null/undefined: um número ou objeto salvo
+    // no lugar de uma string passava direto, tipado como `string` sem nunca ter sido
+    // validado. `nextAction` é renderizado direto por Portal.tsx — um objeto ali faz o
+    // React lançar "Objects are not valid as a React child" fora do try/catch que isola
+    // registros corrompidos em getWorkspaces.
+    it('cai no fallback quando nextAction é um objeto, não uma string', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, nextAction: { texto: 'não deveria estar aqui' } });
+      expect(migrado?.nextAction).toBe('');
+    });
+
+    it('cai no fallback quando institution é um número', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, institution: 42 });
+      expect(migrado?.institution).toBe('');
+    });
+
+    it('cai no fallback quando type é um array', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, type: ['Concurso Público'] });
+      expect(migrado?.type).toBe('Concurso Público');
+    });
+
+    it('cai no fallback (o id do primeiro cargo) quando selectedCargoId não é uma string', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, selectedCargoId: 123 });
+      expect(migrado?.selectedCargoId).toBe(migrado?.cargos[0].id);
+    });
+
+    it('cai em undefined quando sourceFileName ou sourceText não são strings', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, sourceFileName: 999, sourceText: { texto: 'x' } });
+      expect(migrado?.sourceFileName).toBeUndefined();
+      expect(migrado?.sourceText).toBeUndefined();
+    });
+
+    it('nunca lança para nenhum campo de texto malformado', () => {
+      expect(() => migrateWorkspace({
+        ...ANTIGO,
+        institution: 1,
+        type: {},
+        examDate: [],
+        selectedCargoId: null,
+        nextAction: () => 'função não é dado',
+      })).not.toThrow();
+    });
+  });
 });
 
 describe('getWorkspaces — um registro corrompido não pode derrubar os outros', () => {

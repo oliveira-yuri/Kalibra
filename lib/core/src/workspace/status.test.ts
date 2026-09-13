@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS } from './status';
+import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS, WORKSPACE_STATUSES, type WorkspaceStatus } from './status';
 
 describe('transições de status', () => {
   it('permite sair de sem_edital para aguardando_upload', () => {
@@ -55,5 +55,34 @@ describe('próximo passo por status', () => {
 
   it('pede o diagnóstico quando ele está pendente', () => {
     expect(nextActionFor('diagnostico_pendente')).toBe('Fazer o diagnóstico inicial');
+  });
+});
+
+describe('WORKSPACE_STATUSES — regressão I4 (não pode ser uma lista mantida à mão)', () => {
+  it('contém exatamente as chaves de WORKSPACE_STATUS_LABELS, na mesma ordem', () => {
+    expect(WORKSPACE_STATUSES).toEqual(Object.keys(WORKSPACE_STATUS_LABELS));
+  });
+
+  it('cobre todo o union WorkspaceStatus, sem faltar nem sobrar nenhum membro', () => {
+    // Lista fixa aqui de propósito: é a única fonte de verdade "escrita à mão" que
+    // sobra no sistema, e existe só para travar o teste se alguém reintroduzir uma
+    // lista manual solta em algum outro lugar sem atualizar `WorkspaceStatus`.
+    const uniao: WorkspaceStatus[] = [
+      'sem_edital',
+      'aguardando_upload',
+      'extraindo_edital',
+      'aguardando_revisao_edital',
+      'diagnostico_pendente',
+      'diagnostico_em_andamento',
+      'plano_quinzenal_pendente',
+      'estudando',
+      'erro',
+    ];
+    expect(new Set(WORKSPACE_STATUSES)).toEqual(new Set(uniao));
+    expect(WORKSPACE_STATUSES).toHaveLength(uniao.length);
+  });
+
+  it('não tem duplicatas', () => {
+    expect(new Set(WORKSPACE_STATUSES).size).toBe(WORKSPACE_STATUSES.length);
   });
 });

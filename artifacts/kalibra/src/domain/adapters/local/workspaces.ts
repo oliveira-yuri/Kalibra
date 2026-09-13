@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   emptyAvailability,
+  WORKSPACE_STATUSES,
   type WeeklyAvailability,
   type WorkspaceStatus,
 } from '@workspace/core';
@@ -45,18 +46,6 @@ const STATUS_FROM_IMPORT: Record<ImportStatus, WorkspaceStatus> = {
   error: 'erro',
 };
 
-const VALID_STATUSES: readonly WorkspaceStatus[] = [
-  'sem_edital',
-  'aguardando_upload',
-  'extraindo_edital',
-  'aguardando_revisao_edital',
-  'diagnostico_pendente',
-  'diagnostico_em_andamento',
-  'plano_quinzenal_pendente',
-  'estudando',
-  'erro',
-];
-
 const VALID_IMPORT_STATUSES: readonly ImportStatus[] = ['pending', 'parsing', 'completed', 'error'];
 const VALID_SOURCE_MODES: readonly SourceMode[] = ['file', 'text', 'none'];
 
@@ -64,8 +53,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// `WORKSPACE_STATUSES` (lib/core) é derivado de `WORKSPACE_STATUS_LABELS`, então é
+// exaustivo por construção — ao contrário de uma lista mantida à mão aqui, ele não pode
+// ficar desatualizado quando um status novo é adicionado ao union (ver regressão I4).
 function isValidStatus(value: unknown): value is WorkspaceStatus {
-  return typeof value === 'string' && (VALID_STATUSES as readonly string[]).includes(value);
+  return typeof value === 'string' && (WORKSPACE_STATUSES as readonly string[]).includes(value);
 }
 
 function isValidImportStatus(value: unknown): value is ImportStatus {
@@ -94,6 +86,20 @@ function isValidAvailability(value: unknown): value is WeeklyAvailability {
 }
 
 /**
+ * Devolve `value` quando ele é genuinamente uma string; senão devolve `fallback`.
+ * `(value as string) ?? fallback` só protege contra null/undefined — um número ou
+ * objeto salvo num campo de texto passaria direto, tipado como `string` sem nunca ter
+ * sido validado. Isso importa em particular para `nextAction`, que Portal.tsx renderiza
+ * diretamente: um objeto ali derruba o render com "Objects are not valid as a React
+ * child", fora do try/catch que isola registros corrompidos em `getWorkspaces`.
+ */
+function str(value: unknown, fallback: string): string;
+function str(value: unknown, fallback: undefined): string | undefined;
+function str(value: unknown, fallback: string | undefined): string | undefined {
+  return typeof value === 'string' ? value : fallback;
+}
+
+/**
  * Converte um registro salvo em qualquer formato anterior para o formato atual.
  * Devolve null quando o registro não tem o mínimo para ser um workspace.
  *
@@ -110,27 +116,27 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
   const validCargos = Array.isArray(raw.cargos) ? raw.cargos.filter(isValidCargo) : [];
   const cargos = validCargos.length > 0
     ? validCargos
-    : [{ id: 'c1', name: 'Cargo único', examDate: (raw.examDate as string) ?? '' }];
+    : [{ id: 'c1', name: 'Cargo único', examDate: str(raw.examDate, '') }];
 
   return {
     slug: raw.slug,
     title: raw.title,
-    institution: (raw.institution as string) ?? '',
-    type: (raw.type as string) ?? 'Concurso Público',
-    examDate: (raw.examDate as string) ?? '',
+    institution: str(raw.institution, ''),
+    type: str(raw.type, 'Concurso Público'),
+    examDate: str(raw.examDate, ''),
     cargos,
-    selectedCargoId: (raw.selectedCargoId as string) ?? cargos[0].id,
+    selectedCargoId: str(raw.selectedCargoId, cargos[0].id),
     availability: isValidAvailability(raw.availability) ? raw.availability : emptyAvailability(),
     status: isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital'),
     hasEdital: typeof raw.hasEdital === 'boolean'
       ? raw.hasEdital
       : Boolean(raw.sourceMode) && importStatus !== 'pending' ? true : Boolean(raw.sourceText || raw.sourceFileName),
     sourceMode: isValidSourceMode(raw.sourceMode) ? raw.sourceMode : 'text',
-    sourceFileName: raw.sourceFileName as string | undefined,
-    sourceText: raw.sourceText as string | undefined,
+    sourceFileName: str(raw.sourceFileName, undefined),
+    sourceText: str(raw.sourceText, undefined),
     importStatus,
     progress: typeof raw.progress === 'number' ? raw.progress : 0,
-    nextAction: (raw.nextAction as string) ?? '',
+    nextAction: str(raw.nextAction, ''),
     active: typeof raw.active === 'boolean' ? raw.active : true,
   };
 }

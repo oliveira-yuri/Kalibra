@@ -21,6 +21,20 @@ export const WORKSPACE_STATUS_LABELS: Record<WorkspaceStatus, string> = {
   erro: 'erro',
 };
 
+/**
+ * Lista em tempo de execução de todo `WorkspaceStatus`, exaustiva por construção: como
+ * `WORKSPACE_STATUS_LABELS` está anotado como `Record<WorkspaceStatus, string>`, o
+ * compilador já recusa esse objeto literal se faltar (ou sobrar) uma chave em relação à
+ * união de tipos — então `Object.keys` sobre ele nunca pode ficar desatualizado da
+ * forma como uma lista mantida à mão (`VALID_STATUSES` em workspaces.ts) podia: um
+ * status novo era aceito pelo type-checker e rejeitado em runtime por todo registro
+ * migrado. O cast de volta para `WorkspaceStatus[]` é seguro exatamente por causa dessa
+ * anotação — não é uma afirmação nova, só reflete o que o compilador já garantiu.
+ */
+export const WORKSPACE_STATUSES: readonly WorkspaceStatus[] = Object.keys(
+  WORKSPACE_STATUS_LABELS,
+) as WorkspaceStatus[];
+
 const NEXT_ACTIONS: Record<WorkspaceStatus, string> = {
   sem_edital: 'Importar edital ou cadastrar manualmente',
   aguardando_upload: 'Enviar o arquivo do edital',
