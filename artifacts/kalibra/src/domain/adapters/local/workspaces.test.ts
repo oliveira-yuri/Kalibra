@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { migrateWorkspace } from './workspaces';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { migrateWorkspace, getWorkspaces } from './workspaces';
 
 const ANTIGO = {
   slug: 'setec-campinas',
@@ -26,8 +26,12 @@ describe('migração de workspace', () => {
     expect(migrado?.selectedCargoId).toBe('c1');
   });
 
-  it('traduz importStatus completed para um status real', () => {
-    expect(migrateWorkspace(ANTIGO)?.status).toBe('estudando');
+  it('traduz importStatus completed para diagnostico_pendente (o diagnóstico ainda não rodou)', () => {
+    // O único caminho até 'estudando' passa por diagnostico_pendente →
+    // diagnostico_em_andamento → plano_quinzenal_pendente (lib/core/src/workspace/status.ts).
+    // 'completed' aqui só significa que a extração do edital terminou — nunca que o
+    // diagnóstico inicial já rodou — então o mapeamento correto é diagnostico_pendente.
+    expect(migrateWorkspace(ANTIGO)?.status).toBe('diagnostico_pendente');
   });
 
   it('traduz importStatus pending para aguardando revisão', () => {
@@ -66,5 +70,137 @@ describe('migração de workspace', () => {
     expect(migrateWorkspace({})).toBeNull();
     expect(migrateWorkspace({ slug: 'x' })).toBeNull();
     expect(migrateWorkspace('string')).toBeNull();
+  });
+
+  describe('cargos malformados (não pode lançar)', () => {
+    it('descarta um cargo null e cai no cargo padrão', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, cargos: [null], selectedCargoId: undefined });
+      expect(migrado).not.toBeNull();
+      expect(migrado?.cargos).toHaveLength(1);
+      expect(migrado?.cargos[0].name).toBe('Cargo único');
+      expect(migrado?.selectedCargoId).toBe(migrado?.cargos[0].id);
+    });
+
+    it('descarta um cargo que é uma string e cai no cargo padrão', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, cargos: ['string'], selectedCargoId: undefined });
+      expect(migrado).not.toBeNull();
+      expect(migrado?.cargos).toHaveLength(1);
+      expect(migrado?.cargos[0].name).toBe('Cargo único');
+    });
+
+    it('descarta um cargo vazio ({}) e cai no cargo padrão', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, cargos: [{}], selectedCargoId: undefined });
+      expect(migrado).not.toBeNull();
+      expect(migrado?.cargos).toHaveLength(1);
+      expect(migrado?.cargos[0].name).toBe('Cargo único');
+    });
+
+    it('num array misto, mantém só o cargo bem formado e descarta o inválido', () => {
+      const bom = { id: 'c9', name: 'Cargo Válido', examDate: '2027-01-17' };
+      const migrado = migrateWorkspace({ ...ANTIGO, cargos: [bom, null], selectedCargoId: 'c9' });
+      expect(migrado).not.toBeNull();
+      expect(migrado?.cargos).toHaveLength(1);
+      expect(migrado?.cargos[0]).toEqual(bom);
+      expect(migrado?.selectedCargoId).toBe('c9');
+    });
+
+    it('nunca lança para nenhuma combinação de cargo malformado', () => {
+      for (const cargos of [[null], ['string'], [{}], [undefined], [42], [null, null]]) {
+        expect(() => migrateWorkspace({ ...ANTIGO, cargos, selectedCargoId: undefined })).not.toThrow();
+      }
+    });
+  });
+
+  describe('validação de forma (availability, status, importStatus, sourceMode)', () => {
+    it('rejeita availability sem o formato esperado e usa a vazia', () => {
+      expect(migrateWorkspace({ ...ANTIGO, availability: [] })?.availability.days).toHaveLength(7);
+      expect(migrateWorkspace({ ...ANTIGO, availability: {} })?.availability.days).toHaveLength(7);
+      expect(migrateWorkspace({ ...ANTIGO, availability: { days: 'não é array', maxSessionMinutes: 50 } })
+        ?.availability.days).toHaveLength(7);
+      expect(migrateWorkspace({ ...ANTIGO, availability: { days: [], maxSessionMinutes: 'cinquenta' } })
+        ?.availability.days).toHaveLength(7);
+      expect(migrateWorkspace({ ...ANTIGO, availability: 'lixo' })?.availability.maxSessionMinutes).toBe(50);
+    });
+
+    it('aceita uma availability válida sem alterá-la', () => {
+      const availability = { days: [{ weekday: 1, minutes: 30 }], maxSessionMinutes: 30 };
+      expect(migrateWorkspace({ ...ANTIGO, availability })?.availability).toEqual(availability);
+    });
+
+    it('rejeita status desconhecido e deriva de importStatus', () => {
+      expect(migrateWorkspace({ ...ANTIGO, status: 'inventado' })?.status).toBe('diagnostico_pendente');
+      expect(migrateWorkspace({ ...ANTIGO, status: 42 })?.status).toBe('diagnostico_pendente');
+    });
+
+    it('rejeita importStatus desconhecido e cai em pending', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, importStatus: 'inventado', status: undefined });
+      expect(migrado?.importStatus).toBe('pending');
+      expect(migrado?.status).toBe('aguardando_revisao_edital');
+    });
+
+    it('rejeita sourceMode desconhecido e cai em text', () => {
+      expect(migrateWorkspace({ ...ANTIGO, sourceMode: 'fax' })?.sourceMode).toBe('text');
+      expect(migrateWorkspace({ ...ANTIGO, sourceMode: 123 })?.sourceMode).toBe('text');
+    });
+  });
+
+  describe('hasEdital — ramos não cobertos antes', () => {
+    it('marca hasEdital true para parsing mesmo sem sourceText/sourceFileName', () => {
+      const migrado = migrateWorkspace({
+        ...ANTIGO,
+        importStatus: 'parsing',
+        sourceText: undefined,
+        sourceFileName: undefined,
+      });
+      expect(migrado?.hasEdital).toBe(true);
+    });
+
+    it('marca hasEdital true para error mesmo sem sourceText/sourceFileName', () => {
+      const migrado = migrateWorkspace({
+        ...ANTIGO,
+        importStatus: 'error',
+        sourceText: undefined,
+        sourceFileName: undefined,
+      });
+      expect(migrado?.hasEdital).toBe(true);
+    });
+
+    it('mantém hasEdital: false explícito mesmo com sourceText presente (idempotência)', () => {
+      const migrado = migrateWorkspace({ ...ANTIGO, hasEdital: false, sourceText: 'algum texto' });
+      expect(migrado?.hasEdital).toBe(false);
+    });
+  });
+});
+
+describe('getWorkspaces — um registro corrompido não pode derrubar os outros', () => {
+  const KEY = 'kalibra_workspaces:anonymous';
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('mantém os workspaces válidos quando um registro é lixo irreconhecível', () => {
+    localStorage.setItem(KEY, JSON.stringify([ANTIGO, { lixo: true }, { ...ANTIGO, slug: 'outro' }]));
+    const workspaces = getWorkspaces();
+    expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas', 'outro']);
+  });
+
+  it('mantém os workspaces válidos mesmo se um registro tiver cargos malformados', () => {
+    const comCargoRuim = { ...ANTIGO, slug: 'com-cargo-ruim', cargos: [null], selectedCargoId: undefined };
+    localStorage.setItem(KEY, JSON.stringify([ANTIGO, comCargoRuim]));
+    const workspaces = getWorkspaces();
+    expect(workspaces).toHaveLength(2);
+    expect(workspaces.find((w) => w.slug === 'com-cargo-ruim')?.cargos[0].name).toBe('Cargo único');
+  });
+
+  it('nunca lança e nunca descarta os bons por causa de um item corrompido', () => {
+    localStorage.setItem(KEY, JSON.stringify([ANTIGO, null, 'string', 42, { cargos: [null] }]));
+    expect(() => getWorkspaces()).not.toThrow();
+    const workspaces = getWorkspaces();
+    expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas']);
   });
 });

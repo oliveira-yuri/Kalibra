@@ -38,26 +38,78 @@ export interface WorkspaceDraft {
 const STATUS_FROM_IMPORT: Record<ImportStatus, WorkspaceStatus> = {
   pending: 'aguardando_revisao_edital',
   parsing: 'extraindo_edital',
-  completed: 'estudando',
+  // 'completed' aqui significa apenas "a extração do edital terminou" — o diagnóstico
+  // inicial ainda não rodou, então o próximo estado é diagnostico_pendente, nunca
+  // estudando (que só é alcançável depois do fluxo de diagnóstico + plano quinzenal).
+  completed: 'diagnostico_pendente',
   error: 'erro',
 };
+
+const VALID_STATUSES: readonly WorkspaceStatus[] = [
+  'sem_edital',
+  'aguardando_upload',
+  'extraindo_edital',
+  'aguardando_revisao_edital',
+  'diagnostico_pendente',
+  'diagnostico_em_andamento',
+  'plano_quinzenal_pendente',
+  'estudando',
+  'erro',
+];
+
+const VALID_IMPORT_STATUSES: readonly ImportStatus[] = ['pending', 'parsing', 'completed', 'error'];
+const VALID_SOURCE_MODES: readonly SourceMode[] = ['file', 'text'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isValidStatus(value: unknown): value is WorkspaceStatus {
+  return typeof value === 'string' && (VALID_STATUSES as readonly string[]).includes(value);
+}
+
+function isValidImportStatus(value: unknown): value is ImportStatus {
+  return typeof value === 'string' && (VALID_IMPORT_STATUSES as readonly string[]).includes(value);
+}
+
+function isValidSourceMode(value: unknown): value is SourceMode {
+  return typeof value === 'string' && (VALID_SOURCE_MODES as readonly string[]).includes(value);
+}
+
+/** Valida um item de `cargos` sem nunca acessar propriedade de algo que não seja um objeto. */
+function isValidCargo(value: unknown): value is Cargo {
+  return isRecord(value)
+    && typeof value.id === 'string' && value.id.length > 0
+    && typeof value.name === 'string' && value.name.length > 0
+    && typeof value.examDate === 'string';
+}
+
+function isValidAvailability(value: unknown): value is WeeklyAvailability {
+  if (!isRecord(value)) return false;
+  if (!Array.isArray(value.days)) return false;
+  if (typeof value.maxSessionMinutes !== 'number') return false;
+  return value.days.every(
+    (day) => isRecord(day) && typeof day.weekday === 'number' && typeof day.minutes === 'number',
+  );
+}
+
 /**
  * Converte um registro salvo em qualquer formato anterior para o formato atual.
  * Devolve null quando o registro não tem o mínimo para ser um workspace.
+ *
+ * Nunca lança: todo campo é validado antes de ser indexado (ver `isValidCargo`,
+ * `isValidAvailability`, `isValidStatus` etc.), então um item malformado dentro de um
+ * array (ex.: `cargos: [null]`) é descartado, não desreferenciado.
  */
 export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.slug !== 'string' || !raw.slug) return null;
   if (typeof raw.title !== 'string' || !raw.title) return null;
 
-  const importStatus = (raw.importStatus as ImportStatus) ?? 'pending';
-  const cargos = Array.isArray(raw.cargos) && raw.cargos.length > 0
-    ? (raw.cargos as Cargo[])
+  const importStatus = isValidImportStatus(raw.importStatus) ? raw.importStatus : 'pending';
+  const validCargos = Array.isArray(raw.cargos) ? raw.cargos.filter(isValidCargo) : [];
+  const cargos = validCargos.length > 0
+    ? validCargos
     : [{ id: 'c1', name: 'Cargo único', examDate: (raw.examDate as string) ?? '' }];
 
   return {
@@ -68,12 +120,12 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     examDate: (raw.examDate as string) ?? '',
     cargos,
     selectedCargoId: (raw.selectedCargoId as string) ?? cargos[0].id,
-    availability: (raw.availability as WeeklyAvailability) ?? emptyAvailability(),
-    status: (raw.status as WorkspaceStatus) ?? STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital',
+    availability: isValidAvailability(raw.availability) ? raw.availability : emptyAvailability(),
+    status: isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital'),
     hasEdital: typeof raw.hasEdital === 'boolean'
       ? raw.hasEdital
       : Boolean(raw.sourceMode) && importStatus !== 'pending' ? true : Boolean(raw.sourceText || raw.sourceFileName),
-    sourceMode: (raw.sourceMode as SourceMode) ?? 'text',
+    sourceMode: isValidSourceMode(raw.sourceMode) ? raw.sourceMode : 'text',
     sourceFileName: raw.sourceFileName as string | undefined,
     sourceText: raw.sourceText as string | undefined,
     importStatus,
@@ -153,7 +205,17 @@ export function getWorkspaces(userId?: string): WorkspaceDraft[] {
       const parsed: unknown = JSON.parse(saved);
       if (Array.isArray(parsed)) {
         return parsed
-          .map(migrateWorkspace)
+          .map((item) => {
+            // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
+            // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
+            // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
+            try {
+              return migrateWorkspace(item);
+            } catch (error) {
+              console.error('Registro de workspace corrompido, descartado.', error);
+              return null;
+            }
+          })
           .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
       }
     }

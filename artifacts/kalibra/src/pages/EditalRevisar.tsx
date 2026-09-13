@@ -22,11 +22,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   
   const handleConfirm = () => {
     if (pending?.isNew && pending.workspace) {
-      addWorkspace({ ...pending.workspace, importStatus: 'completed', nextAction: 'Pronto para estudar' });
+      addWorkspace({
+        ...pending.workspace,
+        importStatus: 'completed',
+        status: 'diagnostico_pendente',
+        nextAction: 'Pronto para estudar',
+      });
     } else {
       updateWorkspace(workspaceSlug, {
         ...(pending?.updates || {}),
         importStatus: 'completed',
+        status: 'diagnostico_pendente',
         nextAction: 'Pronto para estudar'
       });
     }
