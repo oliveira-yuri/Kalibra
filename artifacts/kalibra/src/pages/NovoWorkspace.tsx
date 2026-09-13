@@ -3,9 +3,10 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
-import { emptyAvailability } from '@workspace/core';
+import { emptyAvailability, validateAvailability } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
+import { AvailabilityFields } from '@/components/AvailabilityFields';
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
@@ -17,10 +18,12 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [type, setType] = useState('Concurso Público');
   const [examDate, setExamDate] = useState('');
   const [cargos, setCargos] = useState<Cargo[]>([{ id: 'c1', name: '', examDate: '', period: '' }]);
+  const [availability, setAvailability] = useState(emptyAvailability());
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [error, setError] = useState('');
+  const [availabilityProblems, setAvailabilityProblems] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [createdSlug, setCreatedSlug] = useState('');
 
@@ -53,6 +56,13 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       return;
     }
 
+    const problems = validateAvailability(availability);
+    if (problems.length > 0) {
+      setAvailabilityProblems(problems);
+      return;
+    }
+    setAvailabilityProblems([]);
+
     const baseSlug = title
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -73,7 +83,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       examDate,
       cargos: validCargos,
       selectedCargoId: (validCargos[0] ?? cargos[0]).id,
-      availability: emptyAvailability(),
+      availability,
       status: 'aguardando_revisao_edital',
       hasEdital: Boolean(sourceFileName || sourceText),
       sourceMode,
@@ -127,10 +137,15 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
           </p>
         </header>
 
-        {error && (
+        {(error || availabilityProblems.length > 0) && (
           <div className="mb-6 p-4 border border-[#db8f83] bg-[#fff0ee] dark:bg-[#30201f] dark:border-[#ff907d] rounded-[4px] flex gap-3 text-[#c94f45] dark:text-[#ff907d]">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
-            <p className="text-[12px] font-medium">{error}</p>
+            <div className="space-y-2">
+              {error && <p className="text-[12px] font-medium">{error}</p>}
+              {availabilityProblems.map((problem) => (
+                <p key={problem} className="text-[12px] font-medium">{problem}</p>
+              ))}
+            </div>
           </div>
         )}
 
@@ -261,6 +276,14 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                 />
               </div>
             )}
+          </section>
+
+          <section className={`p-6 md:p-8 rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
+            <h2 className="text-[15px] font-semibold mb-6 flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e5eed5] dark:bg-[#202b20] text-[#5f7900] dark:text-[#d5f35b] text-[10px] font-bold">3</span>
+              Disponibilidade semanal
+            </h2>
+            <AvailabilityFields value={availability} onChange={setAvailability} />
           </section>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-[#d5dede] dark:border-[#242a34]">
