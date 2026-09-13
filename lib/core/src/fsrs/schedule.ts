@@ -18,9 +18,11 @@ export type { FsrsState, RecallRating, ReviewItemKind } from './types';
 // /revisoes é uma previsão de carga por dia contra os minutos disponíveis do
 // usuário — itens vencendo em 1 ou 10 minutos não cabem num balde diário. E,
 // de forma mais concreta: `previewIntervals` existe para mostrar quantos DIAS
-// cada botão custa; com learning steps ligados (1m/6m/10m), os quatro
-// arredondariam para "0 dias". Por isso o menor intervalo aqui é sempre >= 1
-// dia — ver o teste "nunca agenda no mesmo dia" em schedule.test.ts.
+// cada botão custa; com learning steps ligados, `nada`/`parcial`/`bom`
+// caem em "Learning" (due em 1m/6m/10m) e arredondariam para "0 dias" — só
+// `completo` (Easy) pula direto para "Review" com dias de verdade. Por isso
+// o menor intervalo aqui é sempre >= 1 dia — ver o teste "nunca agenda no
+// mesmo dia" em schedule.test.ts.
 //
 // Nota de suporte: desligar isso também mantém a reconstrução do Card em
 // `toCard` simples. FsrsState não guarda o `state` (New/Learning/Review/
