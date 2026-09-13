@@ -47,3 +47,11 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Superpowers
+.superpowers/
+
+# Segredos — nunca versionar valores, só .env.example com nomes
+.env
+.env.*
+!.env.example
