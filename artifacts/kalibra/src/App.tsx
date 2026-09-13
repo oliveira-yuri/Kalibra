@@ -38,127 +38,7 @@ import { Shell } from '@/components/Shell';
 import { Metric } from '@/components/Metric';
 import { Dashboard } from '@/pages/Dashboard';
 import { Edital } from '@/pages/Edital';
-
-function Study() {
-  const [tab, setTab] = useState('explicação');
-  const [complete, setComplete] = useState(false);
-  const tabs = [
-    { id: 'explicação', label: 'explicação' }, 
-    { id: 'flashcards', label: 'cards anki' }, 
-    { id: 'questões', label: 'questões' }, 
-    { id: 'dissertativa', label: 'dissertativa' }, 
-    { id: 'resumo', label: 'resumo' }, 
-    { id: 'erros', label: 'erros' }
-  ];
-  return <div className="space-y-5"><div className="flex flex-col justify-between gap-4 border-b border-[#29313d] pb-5 md:flex-row md:items-end"><div><div className="mb-3 flex items-center gap-2"><span className="k-chip k-chip-active">MATEMÁTICA</span><span className="k-chip">PRIORIDADE ALTA</span></div><h2 className="text-[28px] font-semibold tracking-[-0.05em]">Porcentagem e juros simples</h2><p className="mt-2 text-[12px] text-[#8e98a8]">Sessão guiada · última prática há 5 dias · acerto atual 47%</p></div><div className="flex gap-2"><button className={`k-button ${complete ? 'border-[#8ed9ae] text-[#8ed9ae]' : 'k-button-primary'}`} onClick={() => setComplete(!complete)} data-testid="button-complete-study">{complete ? <CheckCircle2 size={14} /> : <Check size={14} />} {complete ? 'Sessão registrada' : 'Marcar como estudado'}</button><Link href="/questoes" className="k-button" data-testid="link-study-questions"><Play size={14} /> Praticar</Link></div></div><div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_290px]"><section className="k-card overflow-hidden"><div className="flex gap-1 overflow-x-auto border-b border-[#29313d] p-2">{tabs.map((item) => <button key={item.id} className={`k-button whitespace-nowrap border-0 px-3 text-[11px] capitalize ${tab === item.id ? 'bg-[#283322] text-[#d5f35b]' : 'k-button-quiet'}`} onClick={() => setTab(item.id)} data-testid={`button-study-tab-${item.id}`}>{item.label}</button>)}</div><div className="p-5 md:p-8">{tab === 'explicação' && <article className="prose prose-invert max-w-none prose-headings:tracking-[-.04em] prose-p:text-[13px] prose-p:leading-7 prose-p:text-[#b8c1cc]"><p className="k-eyebrow not-prose">base para resolver</p><h3>Porcentagem é uma razão com denominador 100</h3><p>Quando uma grandeza varia em porcentagem, o valor percentual funciona como um fator de transformação. O caminho mais seguro é sempre escrever o fator antes de calcular.</p><div className="not-prose my-5 border-l-2 border-[#d5f35b] bg-[#1b241e] p-4"><p className="k-mono text-[13px] text-[#d5f35b]">valor final = valor inicial × (1 ± taxa/100)</p><p className="mt-2 text-[11px] text-[#aeb8c5]">Use + para aumento e − para redução.</p></div><h3>Exemplo de prova</h3><p>Uma taxa de inscrição de R$ 80 sofreu reajuste de 12,5%. O acréscimo é 80 × 0,125 = R$ 10. O valor final é R$ 90.</p><div className="not-prose mt-6 grid gap-3 sm:grid-cols-2"><div className="k-card-soft p-4"><p className="k-eyebrow mb-2">atenção</p><p className="text-[12px] leading-5 text-[#d7dde4]">Não some a taxa ao número sem antes converter a porcentagem para fator.</p></div><div className="k-card-soft p-4"><p className="k-eyebrow mb-2">checagem rápida</p><p className="text-[12px] leading-5 text-[#d7dde4]">Em redução, o resultado precisa ser menor que o valor inicial.</p></div></div></article>}{tab === 'flashcards' && <Flashcards />}{tab === 'questões' && <div className="flex flex-col items-start gap-4"><p className="k-eyebrow">prática deliberada</p><h3 className="text-[19px] font-semibold">Teste o procedimento antes de avançar</h3><p className="max-w-[530px] text-[13px] leading-6 text-[#aeb8c5]">O próximo bloco tem 8 questões com mistura de cálculo direto e interpretação de enunciado.</p><Link href="/questoes" className="k-button k-button-primary" data-testid="link-open-practice-from-study">Abrir bloco de questões <ArrowRight size={14} /></Link></div>}{tab === 'dissertativa' && <Dissertativa />}{tab === 'resumo' && <Summary />}{tab === 'erros' && <div className="space-y-3"><p className="k-eyebrow">erros relacionados ao tópico</p><div className="k-card-soft p-4"><p className="text-[12px] font-medium">Aplicou 15% como 0,15 no lugar de 1,15</p><p className="mt-2 text-[11px] text-[#8e98a8]">falha de procedimento · 12 dez 2025 · aberto</p></div><Link href="/erros" className="k-button k-button-quiet px-0 text-[11px]" data-testid="link-all-study-errors">Ver no caderno de erros <ArrowRight size={13} /></Link></div>}</div></section><aside className="space-y-3"><div className="k-card p-4"><p className="k-eyebrow mb-4">estado do tópico</p><div className="mb-3 flex items-end justify-between"><span className="k-mono text-[29px] text-[#ff907d]">47%</span><span className="text-[10px] text-[#8e98a8]">acerto</span></div><div className="k-progress"><span className="bg-[#ff907d]" style={{ width: '47%', background: '#ff907d' }} /></div><div className="mt-4 flex justify-between text-[10px] text-[#8e98a8]"><span>corte recomendado</span><span className="k-mono text-[#d5f35b]">70%</span></div></div><div className="k-card p-4"><p className="k-eyebrow mb-3">nesta sessão</p><div className="space-y-3 text-[11px]"><div className="flex justify-between"><span className="text-[#8e98a8]">tempo estimado</span><span className="k-mono">25 min</span></div><div className="flex justify-between"><span className="text-[#8e98a8]">questões pendentes</span><span className="k-mono">8</span></div><div className="flex justify-between"><span className="text-[#8e98a8]">revisão seguinte</span><span className="k-mono">20 dez</span></div></div></div><div className="k-card-soft p-4"><div className="flex gap-2"><Brain size={15} className="k-focus shrink-0" /><p className="text-[11px] leading-5 text-[#b8c1cc]">O diagnóstico sugere alternar explicação curta com prática imediata.</p></div></div></aside></div></div>;
-}
-
-function Dissertativa() {
-  const [text, setText] = useState('');
-  const [evaluated, setEvaluated] = useState(false);
-  const lines = text.split('\n').length;
-  
-  return (
-    <div className="space-y-6">
-      <div className="mb-4">
-        <p className="k-eyebrow mb-2">QUESTÃO TEÓRICO-PRÁTICA</p>
-        <p className="text-[14px] leading-relaxed">
-          Discorra sobre a aplicação de juros simples no sistema financeiro, abordando seu conceito básico e comparando brevemente seu impacto em relação a juros compostos em períodos curtos.
-        </p>
-      </div>
-      
-      {!evaluated ? (
-        <div className="animate-in fade-in">
-          <p className="text-[12px] text-[#8e98a8] mb-3">Escreva à mão, em papel, respeitando o limite de linhas. Depois transcreva aqui para receber a avaliação.</p>
-          <textarea 
-            className="k-input min-h-[280px] resize-y"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Sua resposta dissertativa transcrita..."
-          />
-          <div className="mt-4 flex items-center justify-between">
-            <span className={`text-[12px] ${lines < 10 ? 'text-[#ff907d]' : 'text-[#8e98a8]'}`}>linhas escritas: {text.trim() ? lines : 0} / 30</span>
-            <button className="k-button k-button-primary" onClick={() => setEvaluated(true)} disabled={!text.trim()}>Avaliar</button>
-          </div>
-        </div>
-      ) : (
-        <div className="animate-in fade-in border border-[#394452] dark:border-[#35404e] bg-white dark:bg-[#131821] p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-[18px] font-semibold">Avaliação</h3>
-            <span className="k-mono text-[20px] text-[#6b8d00] dark:text-[#d5f35b] font-bold">7,5 / 10</span>
-          </div>
-          
-          <div className="space-y-5">
-            <div className="border-t border-[#d5dede] dark:border-[#29313d] pt-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-semibold text-[13px]">Tema</span>
-                <span className="k-mono text-[13px] text-[#6f7b85] dark:text-[#8e98a8]">4,0 / 5,0</span>
-              </div>
-              <ul className="text-[12px] text-[#6f7b85] dark:text-[#8e98a8] pl-4 list-disc space-y-1">
-                <li>atende parcialmente ao problema</li>
-              </ul>
-            </div>
-            
-            <div className="border-t border-[#d5dede] dark:border-[#29313d] pt-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-semibold text-[13px]">Estrutura do período e parágrafo</span>
-                <span className="k-mono text-[13px] text-[#6f7b85] dark:text-[#8e98a8]">2,0 / 2,5</span>
-              </div>
-              <ul className="text-[12px] text-[#6f7b85] dark:text-[#8e98a8] pl-4 list-disc space-y-1">
-                <li>poucas falhas de progressão</li>
-              </ul>
-            </div>
-            
-            <div className="border-t border-[#d5dede] dark:border-[#29313d] pt-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-semibold text-[13px]">Domínio do estilo formal</span>
-                <span className="k-mono text-[13px] text-[#6f7b85] dark:text-[#8e98a8]">1,5 / 2,5</span>
-              </div>
-              <ul className="text-[12px] text-[#6f7b85] dark:text-[#8e98a8] pl-4 list-disc space-y-1">
-                <li>concordância no 2º parágrafo</li>
-                <li>crase indevida antes de verbo</li>
-                <li>acentuação: "critérios"</li>
-              </ul>
-            </div>
-          </div>
-          <button className="k-button k-button-quiet mt-6 w-full text-[12px]" onClick={() => setEvaluated(false)}>Voltar ao texto</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Flashcards() {
-  const [cards, setCards] = useState([
-    { id: 'a1', status: 'rascunho', text: 'Qual é o fator de um aumento de 18%?', detail: '' },
-    { id: 'a2', status: 'aprovado', text: 'Em redução, o resultado é maior ou menor?', detail: '' },
-    { id: 'a3', status: 'exportado', text: 'Como aplicar duas variações seguidas?', detail: 'há 2 dias' },
-  ]);
-  const approve = (id: string) => setCards((current) => current.map((card) => card.id === id ? { ...card, status: 'aprovado' } : card));
-  const generate = () => setCards((current) => [...current, { id: `a${Date.now()}`, status: 'rascunho', text: 'Qual erro de procedimento devo evitar neste tópico?', detail: '' }]);
-  return (
-    <div>
-      <p className="k-eyebrow mb-5">CARDS DESTE TÓPICO</p>
-      <div className="space-y-2">
-        {cards.map((card) => <div key={card.id} className={`flex items-center gap-3 p-3 border transition-colors group ${card.status === 'exportado' ? 'bg-[#f5f8f6] dark:bg-[#0b0e13] border-[#dfe6e4] dark:border-[#242a34]' : 'bg-white dark:bg-[#131821] border-[#d5dede] dark:border-[#29313d]'}`}>
-          {card.status === 'rascunho' ? <CircleDot size={14} className="text-[#8e98a8] shrink-0" /> : card.status === 'aprovado' ? <Check size={14} className="text-[#6b8d00] dark:text-[#d5f35b] shrink-0" /> : <ArrowRight size={14} className="text-[#8e98a8] shrink-0 -rotate-45" />}
-          <span className={`text-[10px] w-[70px] uppercase font-mono tracking-wider ${card.status === 'aprovado' ? 'text-[#6b8d00] dark:text-[#d5f35b]' : 'text-[#8e98a8]'}`}>{card.status}</span>
-          <span className={`text-[12px] flex-1 truncate ${card.status === 'exportado' ? 'text-[#8e98a8]' : ''}`}>{card.text}</span>
-          {card.status === 'rascunho' && <button className="k-button k-button-quiet !h-6 !text-[10px] !px-2 opacity-50 group-hover:opacity-100" onClick={() => approve(card.id)}>aprovar</button>}
-          {card.detail && <span className="text-[10px] text-[#8e98a8]">{card.detail}</span>}
-        </div>)}
-      </div>
-      
-      <div className="mt-5 text-right">
-        <button className="k-button k-button-quiet text-[11px]" onClick={generate}><Plus size={14} /> Gerar card a partir de um erro</button>
-      </div>
-    </div>
-  );
-}
-
-function Summary() {
-  return <div><p className="k-eyebrow mb-5">resumo operacional</p><div className="space-y-3"><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">01 / fator</p><p className="mt-2 text-[13px] text-[#d7dde4]">Aumento → 1 + taxa. Redução → 1 − taxa.</p></div><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">02 / ordem</p><p className="mt-2 text-[13px] text-[#d7dde4]">Converta a porcentagem, aplique ao valor e confira a direção da mudança.</p></div><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">03 / prova</p><p className="mt-2 text-[13px] text-[#d7dde4]">Quando houver duas variações seguidas, aplique um fator depois do outro.</p></div></div></div>;
-}
+import { Estudo } from '@/pages/Estudo';
 
 function Review({ cards, onGrade }: { cards: ReviewCard[]; onGrade: (id: string, difficulty: Difficulty) => void }) {
   const [index, setIndex] = useState(0);
@@ -482,7 +362,7 @@ function WorkspaceApp({ theme, onToggleTheme, slug }: { theme: Theme; onToggleTh
         <Route path="/" component={() => <Dashboard cards={cards} onGrade={gradeCard} />} />
         <Route path="/edital" component={() => <Edital workspaceSlug={slug} />} />
         <Route path="/edital/revisar/:version" component={() => <EditalRevisar workspaceSlug={slug} />} />
-        <Route path="/estudo" component={Study} />
+        <Route path="/estudo" component={Estudo} />
         <Route path="/notas" component={() => <Notes notes={notes} onCreateNote={createNote} onSaveNote={saveNote} />} />
         <Route path="/revisao" component={() => <Review cards={cards} onGrade={gradeCard} />} />
         <Route path="/questoes" component={() => <Questions onRegisterError={registerError} />} />

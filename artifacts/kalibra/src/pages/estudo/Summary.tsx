@@ -1,0 +1,3 @@
+export function Summary() {
+  return <div><p className="k-eyebrow mb-5">resumo operacional</p><div className="space-y-3"><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">01 / fator</p><p className="mt-2 text-[13px] text-[#d7dde4]">Aumento → 1 + taxa. Redução → 1 − taxa.</p></div><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">02 / ordem</p><p className="mt-2 text-[13px] text-[#d7dde4]">Converta a porcentagem, aplique ao valor e confira a direção da mudança.</p></div><div className="k-card-soft p-4"><p className="k-mono text-[12px] text-[#d5f35b]">03 / prova</p><p className="mt-2 text-[13px] text-[#d7dde4]">Quando houver duas variações seguidas, aplique um fator depois do outro.</p></div></div></div>;
+}
