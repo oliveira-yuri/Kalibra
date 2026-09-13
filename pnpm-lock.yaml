@@ -358,6 +358,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/core':
+        specifier: workspace:*
+        version: link:../../lib/core
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1

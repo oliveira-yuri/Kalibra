@@ -3,6 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { stageWorkspaceImport, useWorkspaces, WorkspaceDraft } from '@/domain/useWorkspaces';
+import { emptyAvailability } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
@@ -68,6 +69,9 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       examDate,
       cargos: [{ id: 'c1', name: 'Cargo Único', examDate }],
       selectedCargoId: 'c1',
+      availability: emptyAvailability(),
+      status: 'aguardando_revisao_edital',
+      hasEdital: Boolean(sourceFileName || sourceText),
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceText: sourceMode === 'text' ? sourceText : undefined,

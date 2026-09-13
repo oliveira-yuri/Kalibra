@@ -13,3 +13,4 @@ export const useWorkspaces = local.useWorkspaces;
 export const stageWorkspaceImport = local.stageWorkspaceImport;
 export const getPendingWorkspaceImport = local.getPendingWorkspaceImport;
 export const clearPendingWorkspaceImport = local.clearPendingWorkspaceImport;
+export const migrateWorkspace = local.migrateWorkspace;

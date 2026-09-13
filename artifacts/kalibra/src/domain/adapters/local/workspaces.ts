@@ -1,4 +1,9 @@
 import { useState, useEffect } from 'react';
+import {
+  emptyAvailability,
+  type WeeklyAvailability,
+  type WorkspaceStatus,
+} from '@workspace/core';
 
 export type SourceMode = 'file' | 'text';
 export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
@@ -16,8 +21,11 @@ export interface WorkspaceDraft {
   institution: string;
   type: string;
   examDate: string; // default date
-  cargos?: Cargo[];
-  selectedCargoId?: string;
+  cargos: Cargo[];
+  selectedCargoId: string;
+  availability: WeeklyAvailability;
+  status: WorkspaceStatus;
+  hasEdital: boolean;
   sourceMode: SourceMode;
   sourceFileName?: string;
   sourceText?: string;
@@ -25,6 +33,54 @@ export interface WorkspaceDraft {
   progress: number;
   nextAction: string;
   active: boolean;
+}
+
+const STATUS_FROM_IMPORT: Record<ImportStatus, WorkspaceStatus> = {
+  pending: 'aguardando_revisao_edital',
+  parsing: 'extraindo_edital',
+  completed: 'estudando',
+  error: 'erro',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Converte um registro salvo em qualquer formato anterior para o formato atual.
+ * Devolve null quando o registro não tem o mínimo para ser um workspace.
+ */
+export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.slug !== 'string' || !raw.slug) return null;
+  if (typeof raw.title !== 'string' || !raw.title) return null;
+
+  const importStatus = (raw.importStatus as ImportStatus) ?? 'pending';
+  const cargos = Array.isArray(raw.cargos) && raw.cargos.length > 0
+    ? (raw.cargos as Cargo[])
+    : [{ id: 'c1', name: 'Cargo único', examDate: (raw.examDate as string) ?? '' }];
+
+  return {
+    slug: raw.slug,
+    title: raw.title,
+    institution: (raw.institution as string) ?? '',
+    type: (raw.type as string) ?? 'Concurso Público',
+    examDate: (raw.examDate as string) ?? '',
+    cargos,
+    selectedCargoId: (raw.selectedCargoId as string) ?? cargos[0].id,
+    availability: (raw.availability as WeeklyAvailability) ?? emptyAvailability(),
+    status: (raw.status as WorkspaceStatus) ?? STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital',
+    hasEdital: typeof raw.hasEdital === 'boolean'
+      ? raw.hasEdital
+      : Boolean(raw.sourceMode) && importStatus !== 'pending' ? true : Boolean(raw.sourceText || raw.sourceFileName),
+    sourceMode: (raw.sourceMode as SourceMode) ?? 'text',
+    sourceFileName: raw.sourceFileName as string | undefined,
+    sourceText: raw.sourceText as string | undefined,
+    importStatus,
+    progress: typeof raw.progress === 'number' ? raw.progress : 0,
+    nextAction: (raw.nextAction as string) ?? '',
+    active: typeof raw.active === 'boolean' ? raw.active : true,
+  };
 }
 
 export interface PendingWorkspaceImport {
@@ -62,6 +118,9 @@ const defaultPrograms: WorkspaceDraft[] = [
       { id: 'c2', name: 'Agente de Suporte Técnico', examDate: '2027-01-17', period: 'B' }
     ],
     selectedCargoId: 'c1',
+    availability: emptyAvailability(),
+    status: 'estudando' as const,
+    hasEdital: true,
     progress: 47.2,
     nextAction: 'Resolver 8 questões de porcentagem',
     active: true,
@@ -74,6 +133,11 @@ const defaultPrograms: WorkspaceDraft[] = [
     type: 'Concurso Público',
     institution: 'Banco do Brasil',
     examDate: '2026-06-01',
+    cargos: [{ id: 'c1', name: 'Cargo único', examDate: '2026-06-01' }],
+    selectedCargoId: 'c1',
+    availability: emptyAvailability(),
+    status: 'estudando' as const,
+    hasEdital: true,
     progress: 12.5,
     nextAction: 'Leitura inicial: Sistema Financeiro',
     active: false,
@@ -85,7 +149,14 @@ const defaultPrograms: WorkspaceDraft[] = [
 export function getWorkspaces(userId?: string): WorkspaceDraft[] {
   try {
     const saved = localStorage.getItem(storageKeyFor(userId));
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed: unknown = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map(migrateWorkspace)
+          .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
+      }
+    }
   } catch (error) {
     console.error('Não foi possível carregar os workspaces locais.', error);
   }
