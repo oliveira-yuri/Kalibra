@@ -206,6 +206,56 @@ describe('ligação com conceitos existentes', () => {
   });
 });
 
+// Fix round 2, achado E (importante): PROPOSAL_MIN_SCORE = 0.5 só cabia entre
+// os dois valores de teste existentes (0.125 não devia propor, 0.75 devia) —
+// o mesmo defeito que o teste de limiar fixo (achado 5 do round 1) existia
+// para evitar, reintroduzido para esta constante. Consequência real: "Direito
+// Civil" (entrada) contra um "Direito Penal" confirmado tem score 0.6923 e
+// entrava na fila só por compartilhar o prefixo "Direito " — em português,
+// prefixos como esse carregam muitos pares sem relação nenhuma. Subido para
+// 0.7 e fixado nos dois lados com scores sintéticos conhecidos, do mesmo jeito
+// que CONCEPT_MATCH_THRESHOLD.
+describe('piso de proposta (PROPOSAL_MIN_SCORE) — não fitted, fixado nos dois lados', () => {
+  it('NÃO propõe mais "Direito Civil" contra "Direito Penal" confirmado (0.6923, era proposto com piso 0.5)', () => {
+    resetIds();
+    const direitoPenal: Concept = {
+      id: 'global-direito-penal', canonicalName: 'Direito Penal', slug: 'direito-penal',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Direito Civil' })], [direitoPenal], makeId,
+    );
+    expect(newConcepts).toHaveLength(1);
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('não propõe um pouco abaixo do piso (score sintético fixo 0.6923076923076923)', () => {
+    resetIds();
+    const abaixo: Concept = {
+      id: 'global-abaixo', canonicalName: 'abcdefghijklm', slug: 'x',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'abzdeygxijwlm' })], [abaixo], makeId,
+    );
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('propõe um pouco acima do piso (score sintético fixo 0.7142857142857143)', () => {
+    resetIds();
+    const acima: Concept = {
+      id: 'global-acima', canonicalName: 'abcdefghijklmn', slug: 'x',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { syllabus, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'abzdeyghxjkwmn' })], [acima], makeId,
+    );
+    expect(proposedLinks).toEqual([
+      { itemId: syllabus.items[0].id, conceptId: 'global-acima', score: 0.7142857142857143, reason: 'low_score' },
+    ]);
+  });
+});
+
 describe('deduplicação por similaridade, não só igualdade exata de rótulo', () => {
   it('une conteúdo de dois cargos com grafias ligeiramente diferentes', () => {
     // Achado da revisão: dois cargos raramente escrevem o mesmo tópico com o
@@ -233,6 +283,59 @@ describe('deduplicação por similaridade, não só igualdade exata de rótulo',
 
     expect(syllabus.items).toHaveLength(2);
     expect(syllabus.items.every((item) => !isCommon(syllabus, item.id))).toBe(true);
+  });
+
+  it('soma questionCount e usa o maior weight quando um quase-duplicado cai no mesmo cargo (Finding C)', () => {
+    // Achado da revisão: o agrupamento por similaridade também vale dentro do
+    // MESMO cargo agora — duas linhas de edital quase-duplicadas ("Interpretação
+    // de textos" / "...de texto") no cargo c1 caem no mesmo bucket. Antes, a
+    // guarda de "um cargo não repete link" simplesmente descartava a segunda
+    // entrada inteira, perdendo seu questionCount (10+15 virava só 10). Agora
+    // soma questionCount (são dois blocos de questões) e usa o maior weight
+    // (peso é porcentagem do total, não some).
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos', weight: 20, questionCount: 10 }),
+      entrada({ cargoId: 'c1', label: 'Interpretação de texto', weight: 25, questionCount: 15 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(25);
+    expect(link?.weight).toBe(25);
+  });
+});
+
+// Fix round 2, achado B (crítico): o agrupamento guloso contra o primeiro
+// bucket que bate o limiar não é transitivo. Com A='Redacao oficial',
+// B='Redacao oficiais', C='Redacao oficiaisss' — sim(A,B)=0.875, sim(B,C)=
+// 0.889, sim(A,C)=0.778 — a ordem de chegada decidia se saíam 1 ou 2 itens.
+// dedupeEntries agora ordena as entradas pelo rótulo normalizado antes do
+// passe guloso, então o resultado é função só do CONJUNTO de entradas.
+describe('deduplicação independe da ordem de chegada das entradas (Finding B)', () => {
+  const triplo = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
+    const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
+      A: entrada({ cargoId: 'c-a', label: 'Redacao oficial' }),
+      B: entrada({ cargoId: 'c-b', label: 'Redacao oficiais' }),
+      C: entrada({ cargoId: 'c-c', label: 'Redacao oficiaisss' }),
+    };
+    return ordem.map((nome) => porNome[nome]);
+  };
+
+  it.each([
+    ['A,B,C', ['A', 'B', 'C']],
+    ['B,A,C', ['B', 'A', 'C']],
+    ['C,B,A', ['C', 'B', 'A']],
+  ] as const)('ordem %s: mesmo número de itens e mesmo sourceLabel sobrevivente', (_nome, ordem) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', triplo(ordem), [], makeId);
+
+    // Ordenado por rótulo normalizado, "redacao oficiais" (B) vem antes de
+    // "redacao oficial" (A), que vem antes de "redacao oficiaisss" (C) — B
+    // cria o bucket e funde os outros dois nele, sempre, não importa a ordem
+    // de chegada original.
+    expect(syllabus.items).toHaveLength(1);
+    expect(syllabus.items[0].sourceLabel).toBe('Redacao oficiais');
   });
 });
 

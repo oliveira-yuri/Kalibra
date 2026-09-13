@@ -19,22 +19,69 @@ export type ConceptMatch = {
 /** Abaixo disto, a ligação vira proposta em vez de fato. */
 export const CONCEPT_MATCH_THRESHOLD = 0.82;
 
-// Numeração de item de edital: "1.2.3", "4 -", "II –", "a)" etc.
+// Numeração de item de edital no início da string: "1.2.3 ", "4 - ", "II – ",
+// "a) " etc.
 //
-// DISCREPÂNCIA vs. o brief: o exemplo original exigia `\s+` (espaço) depois do
-// separador para reconhecer a numeração, então uma entrada que é *só*
-// numeração — "1.2." sem nada depois — não batia (faltava espaço após o
-// ponto final) e sobrava "1.2" em vez de "". Trocado por `(?:\s+|$)` para
-// aceitar também o fim da string como fronteira válida.
-const LEADING_NUMBERING = /^\s*(?:[0-9]+(?:\.[0-9]+)*|[ivxlcdm]+|[a-z])\s*[.)\-–—]*(?:\s+|$)/i;
+// DISCREPÂNCIA vs. o brief original (Task 1): o exemplo exigia `\s+` (espaço)
+// depois do separador para reconhecer a numeração, então uma entrada que é
+// *só* numeração — "1.2." sem nada depois — não batia e sobrava "1.2" em vez
+// de "". Trocada a fronteira final por um lookahead `(?=\s|$)` que aceita
+// também o fim da string.
+//
+// Achado da revisão (fix round 2, "Finding D"): o algarismo romano aqui era
+// `[ivxlcdm]+` sem limite nem checagem de validade — cortava palavras comuns
+// do português inteiras ("Civil e processual civil" virava "e processual
+// civil", "Mil e uma" virava "e uma"), corrompendo a identidade do item
+// guardado. `isRomanNumeralWord` (abaixo) decide se o candidato capturado é
+// numeração de verdade antes de `stripLeadingNumbering` cortar.
+/**
+ * Padrão canônico de algarismo romano em notação subtrativa (valores 1-3999).
+ * Valida a SEQUÊNCIA, não só o alfabeto — sem isso, "civil", "mil", "dividi",
+ * "vivi" (só letras de i/v/x/l/c/d/m, mas em ordem que não forma um numeral
+ * válido) passariam como numeração. Limite de 7 caracteres: cobre os incisos e
+ * capítulos reais de um edital (até XXXVIII); um numeral válido mais longo que
+ * isso não é um caso real neste domínio.
+ */
+const ROMAN_NUMERAL_PATTERN = /^m{0,4}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})$/;
+
+function isRomanNumeralWord(word: string): boolean {
+  return word.length > 0 && word.length <= 7 && ROMAN_NUMERAL_PATTERN.test(word);
+}
+
+// Candidato a numeração no início da string, capturado sem consumir a
+// fronteira final — quem decide se é numeração de verdade é
+// `stripLeadingNumbering`, usando `isRomanNumeralWord` no grupo 2.
+const LEADING_TOKEN = /^\s*([0-9]+(?:\.[0-9]+)*|([ivxlcdm]+|[a-z]))\s*[.)\-–—]*(?=\s|$)/i;
+
+/**
+ * Remove numeração do início de um nome de item de edital — mas só quando é
+ * numeração de verdade: dígitos, uma letra avulsa de marcador de lista ("a)",
+ * "b."), ou um algarismo romano válido. Ver a nota de `ROMAN_NUMERAL_PATTERN`.
+ */
+function stripLeadingNumbering(text: string): string {
+  const match = text.match(LEADING_TOKEN);
+  if (!match) return text;
+
+  const whole = match[0];
+  const token = match[1];
+  const romanOrLetter = match[2];
+  const isDigits = token !== romanOrLetter;
+  const isBulletLetter = romanOrLetter !== undefined && romanOrLetter.length === 1;
+  const isValidRoman = romanOrLetter !== undefined && isRomanNumeralWord(romanOrLetter);
+
+  if (!isDigits && !isBulletLetter && !isValidRoman) return text;
+
+  return text.slice(whole.length).replace(/^\s+/, '');
+}
 const TRAILING_PUNCTUATION = /[.,;:]+\s*$/;
 
 export function normalizeConceptName(name: string): string {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(LEADING_NUMBERING, '')
+  return stripLeadingNumbering(
+    name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase(),
+  )
     .replace(TRAILING_PUNCTUATION, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -67,16 +114,11 @@ function similarity(a: string, b: string): number {
 }
 
 // Uma palavra inteira feita só de dígitos e separadores de lista ("8.080",
-// "1.171/94") ou só de algarismos romanos ("ii", "iv") — o formato normal de
-// número de lei, artigo, decreto ou edição num nome de edital.
+// "1.171/94") — o formato normal de número de lei, artigo ou decreto num nome
+// de edital. Algarismo romano ("ii", "xviii") é reconhecido por
+// `isRomanNumeralWord`, que valida a sequência de verdade — ver a nota em
+// `ROMAN_NUMERAL_PATTERN` acima sobre por que checar só o alfabeto não basta.
 const NUMERIC_WORD = /^[0-9]+(?:[.\-/][0-9]+)*$/;
-// Limitado a 4 letras: cobre os algarismos romanos realmente usados como
-// sufixo de edição/parte em edital (i..xiii). Sem o limite, palavras comuns
-// do português que por acaso só usam letras de i/v/x/l/c/d/m — "civil",
-// "mil" — seriam lidas como numeração e bloqueariam comparações legítimas
-// (ex.: "Direito Civil" vs "Direito Penal" não deve ser rejeitado por causa
-// de "civil"; deve continuar de fora só por não passar do limiar de score).
-const ROMAN_WORD = /^[ivxlcdm]{1,4}$/;
 
 function extractNumberingTokens(normalized: string): string[] {
   const tokens: string[] = [];
@@ -84,19 +126,31 @@ function extractNumberingTokens(normalized: string): string[] {
     if (!word) continue;
     if (NUMERIC_WORD.test(word)) {
       tokens.push(...word.split(/[^0-9]+/).filter(Boolean));
-    } else if (ROMAN_WORD.test(word)) {
+    } else if (isRomanNumeralWord(word)) {
       tokens.push(word);
     }
   }
   return tokens;
 }
 
+/**
+ * Achado da revisão (fix round 2, "Finding A"): a versão anterior aceitava
+ * truncamento entre dois dígitos de QUALQUER tamanho — "137" batia com "37",
+ * "5" batia com "15" — porque bastava um ser sufixo do outro. Isso é exatamente
+ * o typo mais comum de artigo de edital ("Art. 5" vs "Art. 15"), não uma
+ * variante real. O único truncamento real do domínio é o ano abreviado (2
+ * dígitos representando os 2 últimos de um ano de 4), então a tolerância fica
+ * restrita a esse formato específico: mais nenhum comprimento passa.
+ */
 function numberingTokensCorrespond(a: string, b: string): boolean {
   if (a === b) return true;
-  // Só dígitos toleram truncamento (ano com 2 dígitos abreviando 4, "94" de
-  // "1994"). Algarismo romano nunca: "ii" e "iii" são conceitos diferentes.
+  // Algarismo romano nunca tolera truncamento: "ii" e "iii" são conceitos
+  // diferentes, não abreviações um do outro.
   if (!/^[0-9]+$/.test(a) || !/^[0-9]+$/.test(b)) return false;
-  return a.length !== b.length && (a.endsWith(b) || b.endsWith(a));
+
+  const long = a.length >= b.length ? a : b;
+  const short = a.length >= b.length ? b : a;
+  return long.length === 4 && short.length === 2 && long.endsWith(short);
 }
 
 /**

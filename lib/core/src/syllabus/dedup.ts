@@ -46,8 +46,20 @@ const UNCERTAIN_BELOW = 0.6;
  * como "Tecnologia da informação" contra "Crase" sempre têm *algum* score
  * (é sempre o melhor de uma lista não vazia), mas próximo de zero. Só vale a
  * pena incomodar um humano com a proposta quando o quase-acerto é real.
+ *
+ * Achado da revisão (fix round 2, "Finding E"): 0.5 foi escolhido só para
+ * caber entre dois valores de teste (0.125 não devia propor, 0.75 devia) —
+ * exatamente o defeito que o teste de limiar fixo (Finding 5) existia para
+ * evitar, só que reintroduzido para esta constante. Na prática, 0.5 deixava
+ * "Direito Civil" (entrada) propor ligação contra um "Direito Penal"
+ * confirmado (score 0.6923) — num corpus em português, prefixos como "Direito
+ * …", "Noções de …", "Legislação …" carregam uma fração grande de pares sem
+ * relação nenhuma para além de 0.5, e a fila é tempo de um humano. Subido para
+ * 0.7: mata esse par (fica abaixo) e mantém o quase-acerto real do exemplo
+ * acima (0.75, fica acima). Fixado por teste de fronteira nos dois lados, do
+ * mesmo jeito que `CONCEPT_MATCH_THRESHOLD`.
  */
-const PROPOSAL_MIN_SCORE = 0.5;
+const PROPOSAL_MIN_SCORE = 0.7;
 
 type Bucket = { item: SyllabusItem; labels: string[] };
 
@@ -73,6 +85,19 @@ function findBucket(rawLabel: string, buckets: readonly Bucket[]): Bucket | unde
   return best?.bucket;
 }
 
+/** null significa "sem dado" — soma trata como 0, mas o resultado só é null se as duas faltarem. */
+function sumNullable(a: number | null, b: number | null): number | null {
+  if (a === null && b === null) return null;
+  return (a ?? 0) + (b ?? 0);
+}
+
+/** null significa "sem dado" — não vira 0 artificialmente; usa o outro lado quando só um existe. */
+function maxNullable(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.max(a, b);
+}
+
 export function dedupeEntries(
   workspaceId: string,
   entries: readonly RawSyllabusEntry[],
@@ -85,7 +110,28 @@ export function dedupeEntries(
   const newConcepts: Concept[] = [];
   const proposedLinks: ProposedConceptLink[] = [];
 
-  for (const entry of entries) {
+  // Achado da revisão (fix round 2, "Finding B"): o agrupamento ganancioso
+  // contra o primeiro bucket que bate o limiar não é transitivo — o mesmo
+  // conjunto de entradas produzia números de item diferentes dependendo da
+  // ordem de chegada (ex.: A~B, B~C, mas A não~C: [A,B,C] funde só A+B,
+  // [B,A,C] funde os três). Isso deixaria o programa depender da ordem em que
+  // o extrator emitiu as linhas, que não é uma propriedade estável da
+  // entrada. Processar as entradas ordenadas pelo rótulo normalizado (em vez
+  // da ordem de chegada) torna o resultado função só do CONJUNTO de entradas:
+  // qualquer embaralhamento do array ordena para a mesma sequência antes do
+  // passe guloso. Empates (mesmo rótulo normalizado, ex.: dois cargos com a
+  // mesma grafia) mantêm a ordem original entre si — sort é estável — para
+  // que "o primeiro cargo" continue significando o primeiro na entrada, não
+  // o primeiro em ordem alfabética.
+  const processingOrder = [...entries].sort((a, b) => {
+    const na = normalizeConceptName(a.label);
+    const nb = normalizeConceptName(b.label);
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return 0;
+  });
+
+  for (const entry of processingOrder) {
     const normalized = normalizeConceptName(entry.label);
     if (!normalized) continue;
 
@@ -154,17 +200,34 @@ export function dedupeEntries(
       bucket.labels.push(entry.label);
     }
 
-    // Um cargo não pode aparecer duas vezes no mesmo item.
-    const already = links.some(
+    // Um cargo não pode ter duas LIGAÇÕES para o mesmo item — mas duas
+    // entradas do mesmo cargo podem legitimamente cair no mesmo bucket (duas
+    // linhas de edital quase-duplicadas para o mesmo cargo, ou o próprio
+    // agrupamento por similaridade juntando duas grafias da mesma entrada).
+    // Achado da revisão (fix round 2, "Finding C"): antes, a segunda entrada
+    // era simplesmente descartada nesse caso, perdendo seu questionCount e
+    // weight — "Interpretação de textos" q=10 + "Interpretação de texto"
+    // q=15 no mesmo cargo virava só 10, não 25. Agora a segunda entrada é
+    // MESCLADA na ligação existente: questionCount SOMA (são duas questões
+    // contadas, dois blocos do edital para o mesmo tópico), weight fica com o
+    // MAIOR (peso é porcentagem do total, não é aditivo).
+    const existingLinkIndex = links.findIndex(
       (link) => link.syllabusItemId === bucket!.item.id && link.cargoId === entry.cargoId,
     );
-    if (!already) {
+    if (existingLinkIndex === -1) {
       links.push({
         syllabusItemId: bucket.item.id,
         cargoId: entry.cargoId,
         weight: entry.weight,
         questionCount: entry.questionCount,
       });
+    } else {
+      const existing = links[existingLinkIndex];
+      links[existingLinkIndex] = {
+        ...existing,
+        questionCount: sumNullable(existing.questionCount, entry.questionCount),
+        weight: maxNullable(existing.weight, entry.weight),
+      };
     }
   }
 

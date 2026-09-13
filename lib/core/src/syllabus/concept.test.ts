@@ -143,6 +143,82 @@ describe('guarda de numeração — não funde leis, artigos ou edições difere
   });
 });
 
+// Fix round 2, achado A (crítico, residual): o truncamento aceitava qualquer
+// par de dígitos onde um é sufixo do outro, em QUALQUER tamanho — "137"
+// batia com "37", "5" batia com "15". Isso é o typo mais comum de artigo de
+// edital ("Art. 5" virar "Art. 15"), não uma variante real. A tolerância
+// agora vale só para o formato específico de ano abreviado (4 dígitos vs os
+// 2 últimos deles).
+describe('guarda de numeração — truncamento só para ano abreviado, não qualquer sufixo', () => {
+  it('NÃO casa "Art. 137 da CF" com "Art. 37 da CF" (137 não é truncamento válido de 37)', () => {
+    expect(matchConcept('Art. 137 da CF', [conceito({ canonicalName: 'Art. 37 da CF' })])).toBeNull();
+  });
+
+  it('NÃO casa "Art. 5 da CF" com "Art. 15 da CF" (typo comum de edital, não variante)', () => {
+    expect(matchConcept('Art. 5 da CF', [conceito({ canonicalName: 'Art. 15 da CF' })])).toBeNull();
+  });
+
+  it('NÃO casa "Lei 8.112/1990" com "Lei 8.12/1990" (112 não é truncamento válido de 12)', () => {
+    expect(matchConcept('Lei 8.112/1990', [conceito({ canonicalName: 'Lei 8.12/1990' })])).toBeNull();
+  });
+
+  it('continua casando o ano abreviado de 4 para 2 dígitos (0.889)', () => {
+    const match = matchConcept('Decreto 1.171/1994', [conceito({ canonicalName: 'Decreto 1.171/94' })]);
+    expect(match).not.toBeNull();
+    expect(match!.score).toBeCloseTo(0.8888888888888888, 10);
+  });
+});
+
+// Fix round 2, achado D (importante): o algarismo romano tinha dois
+// problemas. (1) O limite de 4 letras perdia numerais reais de edital
+// (XVIII, XXIII, XXVII, XXVIII) — um numeral não reconhecido não vira token
+// nenhum, então a guarda fica cega e deixa passar pela distância de edição
+// pura. (2) A checagem era só "letras do alfabeto i/v/x/l/c/d/m", não uma
+// sequência romana válida — palavras comuns do português ("civil", "mil")
+// passavam como numeração.
+describe('guarda de numeração — algarismo romano validado, não só o alfabeto', () => {
+  it('NÃO casa "Capítulo XVIII" com "Capítulo XXIII" (numeral > 4 letras, antes ficava cego)', () => {
+    expect(matchConcept('Capítulo XVIII', [conceito({ canonicalName: 'Capítulo XXIII' })])).toBeNull();
+  });
+
+  it('NÃO casa "Parte XXVII" com "Parte XXVIII" (mesma faixa XXXII–XXXIX)', () => {
+    expect(matchConcept('Parte XXVII', [conceito({ canonicalName: 'Parte XXVIII' })])).toBeNull();
+  });
+
+  it('continua casando algarismos romanos idênticos curtos e longos', () => {
+    expect(
+      matchConcept('Banco de dados II', [conceito({ canonicalName: 'Banco de dados II' })])?.score,
+    ).toBe(1);
+    expect(
+      matchConcept('Capítulo XVIII', [conceito({ canonicalName: 'Capítulo XVIII' })])?.score,
+    ).toBe(1);
+  });
+});
+
+describe('normalizeConceptName — palavra comum não é numeração, mesmo parecendo romana', () => {
+  it('não corta "civil" como se fosse algarismo romano', () => {
+    // Bug idêntico ao da guarda de similaridade, só que aqui na normalização
+    // — mais grave, porque corrompe a identidade do item guardado, não só
+    // uma comparação.
+    expect(normalizeConceptName('Civil e processual civil')).toBe('civil e processual civil');
+  });
+
+  it('não corta "mil" como se fosse algarismo romano', () => {
+    expect(normalizeConceptName('Mil e uma')).toBe('mil e uma');
+  });
+
+  it('não corta "dividi" nem "vivi" como numeração', () => {
+    expect(normalizeConceptName('Dividi o texto')).toBe('dividi o texto');
+    expect(normalizeConceptName('Vivi isso')).toBe('vivi isso');
+  });
+
+  it('continua cortando algarismo romano de verdade e marcador de lista', () => {
+    expect(normalizeConceptName('II – Ortografia')).toBe('ortografia');
+    expect(normalizeConceptName('XVIII - Direitos sociais')).toBe('direitos sociais');
+    expect(normalizeConceptName('a) Something')).toBe('something');
+  });
+});
+
 // O limiar de casamento não pode ser garantido só por testes cujo resultado
 // também passaria com qualquer outra constante razoável (0.5, 0.6, 0.95...).
 // Este par tem edit-distance fixa e conhecida — mover CONCEPT_MATCH_THRESHOLD
