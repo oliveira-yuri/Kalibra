@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { dedupeEntries, splitItem, type RawSyllabusEntry } from './dedup';
-import { cargosFor, isCommon } from './syllabus';
+import { cargosFor, isCommon, consolidatedQuestionCount } from './syllabus';
 import type { Concept } from './concept';
 
 let counter = 0;
@@ -182,6 +182,104 @@ describe('ligação com conceitos existentes', () => {
     ], [], makeId);
     expect(syllabus.items).toHaveLength(1);
     expect(newConcepts).toHaveLength(1);
+  });
+
+  it('propõe a ligação com razão low_score quando o casamento é real mas fica abaixo do limiar', () => {
+    // Achado da revisão: "Matemática financeira" (confirmado) contra
+    // "Matemática financeira básica" tem score 0.75 — real, mas abaixo de
+    // CONCEPT_MATCH_THRESHOLD (0.82). Antes do fix, matchConcept filtrava
+    // esse candidato por dentro e dedupeEntries nunca via o match: criava um
+    // provisório e não propunha nada, acumulando duplicatas sem revisão
+    // possível (o que a restrição R2 do spec existe para evitar).
+    resetIds();
+    const financeira: Concept = {
+      id: 'global-mat-financeira', canonicalName: 'Matemática financeira', slug: 'matematica-financeira',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { syllabus, newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Matemática financeira básica' })], [financeira], makeId,
+    );
+    expect(newConcepts).toHaveLength(1);
+    expect(proposedLinks).toEqual([
+      { itemId: syllabus.items[0].id, conceptId: 'global-mat-financeira', score: 0.75, reason: 'low_score' },
+    ]);
+  });
+});
+
+describe('deduplicação por similaridade, não só igualdade exata de rótulo', () => {
+  it('une conteúdo de dois cargos com grafias ligeiramente diferentes', () => {
+    // Achado da revisão: dois cargos raramente escrevem o mesmo tópico com o
+    // texto idêntico. "Interpretação de textos" (c1) e "Interpretação de
+    // texto" (c2, sem o plural) normalizam para strings DIFERENTES, então a
+    // chave exata do Map não os unia — cada um virava item próprio, cada um
+    // reportando isCommon: false e a contagem consolidada dobrada.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos', questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Interpretação de texto', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(isCommon(syllabus, syllabus.items[0].id)).toBe(true);
+    expect(consolidatedQuestionCount(syllabus, syllabus.items[0].id)).toBe(10);
+  });
+
+  it('NÃO une leis diferentes mesmo com alta similaridade textual — guarda de numeração', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Lei 8.080/1990' }),
+      entrada({ cargoId: 'c2', label: 'Lei 8.078/1990' }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(2);
+    expect(syllabus.items.every((item) => !isCommon(syllabus, item.id))).toBe(true);
+  });
+});
+
+describe('merged reporta pela contagem de cargos, não pela contagem de rótulos', () => {
+  it('reporta como unido mesmo quando os dois cargos usam o rótulo idêntico', () => {
+    // Achado da revisão: o exemplo do próprio brief (duas entradas idênticas
+    // em dois cargos) reportava merged: [] porque o filtro antigo exigia mais
+    // de um rótulo DISTINTO — exatamente o caso mais comum de união, e
+    // exatamente onde a tela mais precisa explicar a junção ao usuário.
+    resetIds();
+    const { merged } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c2', label: 'Matemática' }),
+    ], [], makeId);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].labels).toEqual(['Matemática']);
+  });
+
+  it('não reporta como unido um item de cargo só', () => {
+    resetIds();
+    const { merged } = dedupeEntries('w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [], makeId);
+    expect(merged).toEqual([]);
+  });
+});
+
+describe('detalhes menores da revisão: slug e kind do conceito provisório', () => {
+  it('gera o slug do conceito provisório com slugify (sem "/" nem outros caracteres inválidos)', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Lei nº 8.112/1990' })], [], makeId,
+    );
+    expect(newConcepts[0].slug).toBe('lei-n-8-112-1990');
+    expect(newConcepts[0].slug).not.toMatch(/[/º.]/);
+  });
+
+  it('marca disciplina quando a entrada não tem pai e tópico quando tem', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c1', label: 'Porcentagem', parentLabel: 'Matemática' }),
+    ], [], makeId);
+
+    const disciplina = newConcepts.find((c) => c.canonicalName === 'Matemática');
+    const topico = newConcepts.find((c) => c.canonicalName === 'Porcentagem');
+    expect(disciplina?.kind).toBe('disciplina');
+    expect(topico?.kind).toBe('topico');
   });
 });
 

@@ -1,4 +1,12 @@
-import { matchConcept, normalizeConceptName, shouldLinkDirectly, type Concept } from './concept';
+import {
+  bestConceptCandidate,
+  nameSimilarity,
+  normalizeConceptName,
+  shouldLinkDirectly,
+  CONCEPT_MATCH_THRESHOLD,
+  type Concept,
+} from './concept';
+import { slugify } from '../workspace/slug';
 import { type Syllabus, type SyllabusItem, type SyllabusItemCargo } from './syllabus';
 
 export type RawSyllabusEntry = {
@@ -33,13 +41,46 @@ export type DedupResult = {
 /** Abaixo disto o item entra marcado como incerto e pede olho humano. */
 const UNCERTAIN_BELOW = 0.6;
 
+/**
+ * Abaixo disto, o melhor candidato de `bestConceptCandidate` é ruído — nomes
+ * como "Tecnologia da informação" contra "Crase" sempre têm *algum* score
+ * (é sempre o melhor de uma lista não vazia), mas próximo de zero. Só vale a
+ * pena incomodar um humano com a proposta quando o quase-acerto é real.
+ */
+const PROPOSAL_MIN_SCORE = 0.5;
+
+type Bucket = { item: SyllabusItem; labels: string[] };
+
+/**
+ * Acha, entre os buckets já criados, aquele cujo rótulo de origem é o mesmo
+ * conteúdo que `rawLabel` — usando a mesma régua de similaridade do
+ * casamento de conceito (Finding 3 da revisão): duas entradas de cargos
+ * diferentes escritas de formas ligeiramente distintas ("Interpretação de
+ * textos" vs "Interpretação de texto") são o mesmo item, não dois. A guarda
+ * de numeração embutida em `nameSimilarity` impede que isso funda leis ou
+ * artigos diferentes.
+ */
+function findBucket(rawLabel: string, buckets: readonly Bucket[]): Bucket | undefined {
+  let best: { bucket: Bucket; score: number } | undefined;
+
+  for (const bucket of buckets) {
+    const score = nameSimilarity(rawLabel, bucket.item.sourceLabel);
+    if (score >= CONCEPT_MATCH_THRESHOLD && (!best || score > best.score)) {
+      best = { bucket, score };
+    }
+  }
+
+  return best?.bucket;
+}
+
 export function dedupeEntries(
   workspaceId: string,
   entries: readonly RawSyllabusEntry[],
   concepts: readonly Concept[],
   makeId: (seed: string) => string,
 ): DedupResult {
-  const byNormalized = new Map<string, { item: SyllabusItem; labels: string[] }>();
+  const buckets: Bucket[] = [];
+  const bucketByEntry = new Map<RawSyllabusEntry, Bucket>();
   const links: SyllabusItemCargo[] = [];
   const newConcepts: Concept[] = [];
   const proposedLinks: ProposedConceptLink[] = [];
@@ -48,15 +89,18 @@ export function dedupeEntries(
     const normalized = normalizeConceptName(entry.label);
     if (!normalized) continue;
 
-    let bucket = byNormalized.get(normalized);
+    let bucket = findBucket(entry.label, buckets);
 
     if (!bucket) {
       const id = makeId(normalized);
 
       // Restrições R3 e R4 do spec: só um conceito já confirmado serve de ponte
       // entre workspaces. Qualquer outro caso cria um provisório e propõe a
-      // ligação, em vez de aplicá-la.
-      const match = matchConcept(entry.label, concepts);
+      // ligação, em vez de aplicá-la. `bestConceptCandidate` (ao contrário de
+      // `matchConcept`) devolve o melhor candidato mesmo abaixo do limiar, para
+      // que a razão 'low_score' seja alcançável — `shouldLinkDirectly` é o
+      // único portão que decide se a ligação é aplicada de fato.
+      const match = bestConceptCandidate(entry.label, concepts);
       let conceptId: string;
 
       if (shouldLinkDirectly(match)) {
@@ -65,16 +109,19 @@ export function dedupeEntries(
         const provisional: Concept = {
           id: makeId(`concept-${normalized}`),
           canonicalName: entry.label,
-          slug: normalized.replace(/\s+/g, '-'),
+          slug: slugify(entry.label),
           parentId: null,
-          kind: 'topico',
+          // Um item sem pai é uma disciplina do edital; um item com pai é um
+          // tópico dela — conhecido já na entrada, sem esperar o segundo passe
+          // de hierarquia.
+          kind: entry.parentLabel ? 'topico' : 'disciplina',
           aliases: [],
           status: 'provisional',
         };
         newConcepts.push(provisional);
         conceptId = provisional.id;
 
-        if (match) {
+        if (match && match.score >= PROPOSAL_MIN_SCORE) {
           proposedLinks.push({
             itemId: id,
             conceptId: match.concept.id,
@@ -98,8 +145,10 @@ export function dedupeEntries(
         },
         labels: [],
       };
-      byNormalized.set(normalized, bucket);
+      buckets.push(bucket);
     }
+
+    bucketByEntry.set(entry, bucket);
 
     if (!bucket.labels.includes(entry.label)) {
       bucket.labels.push(entry.label);
@@ -121,22 +170,28 @@ export function dedupeEntries(
 
   // Hierarquia num segundo passe, quando todos os itens já existem.
   for (const entry of entries) {
-    const normalized = normalizeConceptName(entry.label);
-    if (!normalized || !entry.parentLabel) continue;
+    if (!entry.parentLabel) continue;
 
-    const child = byNormalized.get(normalized);
-    const parent = byNormalized.get(normalizeConceptName(entry.parentLabel));
+    const child = bucketByEntry.get(entry);
+    const parent = findBucket(entry.parentLabel, buckets);
     if (child && parent && child.item.id !== parent.item.id) {
       child.item.parentItemId = parent.item.id;
     }
   }
 
-  const buckets = [...byNormalized.values()];
-
   return {
     syllabus: { items: buckets.map((bucket) => bucket.item), links },
+    // Um bucket é "unido" quando reúne mais de um cargo — o rótulo pode ter
+    // sido idêntico nos dois (mesmo texto em dois cargos) ou ligeiramente
+    // diferente; o que importa para explicar a união ao usuário é quantos
+    // cargos caíram ali, não quantas grafias distintas do rótulo existem.
     merged: buckets
-      .filter((bucket) => bucket.labels.length > 1)
+      .filter((bucket) => {
+        const cargos = new Set(
+          links.filter((link) => link.syllabusItemId === bucket.item.id).map((link) => link.cargoId),
+        );
+        return cargos.size > 1;
+      })
       .map((bucket) => ({ itemId: bucket.item.id, labels: bucket.labels })),
     newConcepts,
     proposedLinks,
