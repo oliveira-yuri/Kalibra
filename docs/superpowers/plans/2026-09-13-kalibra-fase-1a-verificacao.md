@@ -2,7 +2,8 @@
 
 Data: 2026-09-13
 Branch: `fase-1a-core-workspace`
-Commits da fase: `a355642` (criar pacote `lib/core`) .. `76355a6` (card do Portal) + este registro
+Commits da fase: `a355642` (criar pacote `lib/core`) .. `2f10503` (Fix round 1: contagem
+regressiva D+/HOJE/D− para provas passadas) + este registro
 
 ## 1. Contagem de testes por pacote
 
@@ -13,8 +14,12 @@ $ pnpm run test
 | Pacote | Arquivos de teste | Testes |
 |---|---|---|
 | `lib/core` | 5 (`slug.test.ts`, `status.test.ts`, `exam-dates.test.ts`, `availability.test.ts`, `fsrs/schedule.test.ts`) | 51 |
-| `artifacts/kalibra` | 2 (`domain/adapters/local/workspaces.test.ts`, `__tests__/screens.snapshot.test.tsx`) | 43 (25 + 18) |
-| **Total** | **7** | **94** |
+| `artifacts/kalibra` | 2 (`domain/adapters/local/workspaces.test.ts`, `__tests__/screens.snapshot.test.tsx`) | 45 (25 + 20) |
+| **Total** | **7** | **96** |
+
+(Números atualizados no Fix round 1 — seção 9 — que acrescentou 2 testes a
+`screens.snapshot.test.tsx`, 18 → 20, 43 → 45 em `artifacts/kalibra`, 94 → 96 no total. A
+submissão original da Task 11/12 tinha 94; ver seção 9 para o antes/depois completo.)
 
 `lib/core` tem suíte própria, testando só regras puras (sem I/O), importável tanto pelo frontend
 hoje quanto pelo servidor na Fase 2 — é o pacote descrito no "Estado ao fim da Fase 1A" do plano.
@@ -115,15 +120,33 @@ texto ou elemento pré-existente foi removido. Após ler o diff, `-u` foi execut
 (`2 updated`), e as duas execuções seguintes do portão completo confirmaram 0 escritas adicionais
 (seção 2).
 
-**Nota sobre `D−-104`:** o card `bb-escriturario` (cargo único com `examDate: '2026-06-01'`, no
-passado em relação à data congelada `2026-09-13`) passou a exibir `D−-104` — sinal duplo, por
-`daysUntil` devolver um número negativo e o template do brief (`D−{dias}`, código usado
-verbatim) não tratar sinal negativo separadamente. Isso não é um bug desta task: é o comportamento
-exato especificado pelo brief, aplicado a um dado de exemplo (`defaultPrograms`) que já tinha uma
-data de prova no passado antes desta fase. Registrado aqui como achado cosmético, não corrigido,
-por estar fora do escopo do brief (que pede o código verbatim) e por `defaultPrograms` estar em
-`src/domain/adapters/local/workspaces.ts`, fora dos arquivos que a Task 11 tinha permissão de
-tocar.
+**Correção pós-revisão (Fix round 1) sobre `D−-104`:** a submissão original desta task exibia
+`D−-104` para o card `bb-escriturario` (cargo único com `examDate: '2026-06-01'`, no passado em
+relação à data congelada `2026-09-13`) e registrava isso como "achado cosmético, fora do escopo".
+Essa classificação estava errada e foi revertida em revisão: é um bug de correção, não um artefato
+de fixture — nada no app arquiva ou esconde um workspace quando a data da prova passa (`Arquivar`
+é manual), então qualquer usuário real chega a esse estado no dia seguinte à própria prova, e um
+sinal duplo num card cujo propósito central é a contagem regressiva é informação errada sobre o
+único número que o card existe para mostrar, não um detalhe visual. `Portal.tsx` agora usa
+`formatCountdown(dias)` (definida no próprio arquivo, logo abaixo dos imports), que reproduz a
+mesma convenção de três vias que `getDaysRemaining` (`src/lib/date-utils.ts`) já usa na sidebar
+(`Shell.tsx`): `D−{n}` para o futuro, `HOJE` para hoje, `D+{n}` para o passado — sem inventar
+nenhuma classe ou token novo, e sem importar `getDaysRemaining` em si (que opera sobre uma string
+de data com seu próprio `new Date()`, mockado de forma fixa no teste; `daysUntil` de
+`@workspace/core`, que já recebia `today` explícito, permanece a fonte do número). O card agora
+mostra `D+104`. Um teste dedicado (`nao usa sinal duplo para prova de cargo cuja data ja passou`)
+cobre essa regressão diretamente sobre o fixture `bb-escriturario`, fora do loop de snapshot.
+
+**Escolha de estilo — `k-focus` mantido também para provas passadas:** `Shell.tsx` (a sidebar, que
+já usa `getDaysRemaining`) aplica `k-focus k-mono` incondicionalmente, sem diferenciar
+D−/HOJE/D+ por cor. `Portal.tsx` segue exatamente esse precedente — `formatCountdown` só muda o
+texto, nunca a classe — em vez de inventar uma variante "muted" para prova passada. Justificativa:
+(1) o design system não tem um token "aviso"/"neutro" dedicado para essa distinção sem introduzir
+cor nova, o que violaria a restrição de não adicionar tokens; (2) já existe precedente direto na
+mesma aplicação, na tela adjacente, usando o mesmo dado (`getDaysRemaining`) sem diferenciar por
+cor; divergir do padrão já estabelecido para inventar uma nova regra visual pareceria mais
+arbitrário do que segui-lo. Se um design futuro quiser destacar provas vencidas, o lugar certo é
+alinhar as duas telas juntas, não fazer o Portal divergir sozinho da sidebar.
 
 ## 5. O determinismo do relógio (Task 11, Step 5) — qual rota foi usada e por quê
 
@@ -146,13 +169,19 @@ fallback de mockar `@workspace/core` diretamente:
 
 Não foi necessário recorrer ao fallback (estender o mock de `../lib/date-utils` ou fazer o Portal
 receber o relógio por injeção) porque a suíte deste projeto é pequena e não depende de temporizador
-real em nenhum ponto sensível durante o teste (os mocks de Clerk já resolvem os widgets como
-síncronos/`null`, e o Radix usado aqui — nos menus do Portal e do EditalRevisar — não abre
-overlay/portal real em jsdom sob teste, é controlado por estado React simples). Caso uma fase
-futura introduza testes que dependam de temporizadores reais (ex.: debounce, animação com
-`requestAnimationFrame`), a recomendação é isolar `vi.useFakeTimers()` para o describe específico
-que precisa de data determinística, em vez de todo o arquivo — mas não foi necessário fazer isso
-agora.
+real em nenhum ponto sensível durante o teste. Os mocks de Clerk já resolvem os widgets como
+síncronos/`null`. **Correção (Fix round 1):** a versão anterior deste documento atribuía a
+segurança dos fake timers a "o Radix usado aqui — nos menus do Portal e do EditalRevisar". Isso
+estava errado: esses dois menus de três pontos não são Radix — são dropdowns simples controlados
+por `useState` local (`openMenu`), sem overlay/portal DOM próprio, então não dependem de nenhum
+temporizador para abrir ou fechar. Radix só entra na árvore desta aplicação via `TooltipProvider`
+(usado a partir de `components/ui/`), que também não depende de timer para os testes desta suíte
+passarem. A conclusão ("fake timers são seguros aqui") continua válida — só o motivo declarado
+estava errado, e foi corrigido aqui. Caso uma fase futura introduza testes que dependam de
+temporizadores reais (ex.: debounce, animação com `requestAnimationFrame`, ou um componente Radix
+que de fato use timers em teste), a recomendação é isolar `vi.useFakeTimers()` para o describe
+específico que precisa de data determinística, em vez de todo o arquivo — mas não foi necessário
+fazer isso agora.
 
 ## 6. Step 3 — Conferência visual manual nos dois temas
 
@@ -210,14 +239,23 @@ leitura manual do diff descrita na seção 4 — não sobre inspeção visual re
   como sugestão principal e um fallback de mock de fronteira como alternativa caso a primeira
   quebrasse algo. A primeira funcionou sem nenhum efeito colateral (seção 5) — não é um desvio do
   brief, é a rota "feliz" que o próprio brief previa como possível.
-- **`D−-104` no card `bb-escriturario`**: comportamento correto do código (verbatim do brief)
-  aplicado a um dado de exemplo pré-existente com data de prova já no passado. Documentado na
-  seção 4, não corrigido nesta fase (fora do escopo dos arquivos que a Task 11 podia tocar).
+- **`D−-104` no card `bb-escriturario`**: rebaixado incorretamente a "achado cosmético fora de
+  escopo" na primeira submissão desta task; era, na verdade, um bug de correção que qualquer
+  usuário real atinge (a data de uma prova passa e nada arquiva o workspace automaticamente).
+  Encontrado em revisão (Fix round 1) e corrigido em `Portal.tsx` com `formatCountdown`, que
+  reproduz a mesma convenção de três vias que `getDaysRemaining` (`src/lib/date-utils.ts`) já usa
+  na sidebar (`Shell.tsx`) — `D−n`/`HOJE`/`D+n` — em vez de inventar uma regra nova. Coberto por um
+  teste dedicado. Ver seção 4.
 - **Verificação manual em navegador (Step 3)**: não realizada, por ausência de
   `VITE_CLERK_PUBLISHABLE_KEY` e de ferramenta de automação de navegador neste ambiente — mesma
   lacuna já registrada na Fase 0, reconfirmada aqui para o trabalho específico desta fase (seção
   6). A lacuna em si é o achado; nenhum problema real pôde ser observado ou descartado por essa
   via.
+- **Correção factual (Fix round 1)**: este documento afirmava que os menus de três pontos do
+  Portal e de `EditalRevisar.tsx` eram Radix, usado como parte da justificativa de que os fake
+  timers eram seguros. Esses dois menus são dropdowns simples com `useState`, não Radix — Radix só
+  entra via `TooltipProvider`. A conclusão sobre a segurança dos fake timers não mudou; só a razão
+  declarada estava errada. Corrigido na seção 5.
 - Nenhum outro desvio, classe nova fora do esperado, elemento removido ou mudança de texto foi
   encontrado nas etapas que puderam ser executadas (typecheck, build, testes, greps do Step 2).
 
@@ -225,8 +263,9 @@ leitura manual do diff descrita na seção 4 — não sobre inspeção visual re
 
 - `lib/core`: 51 testes, 5 arquivos, regras puras (workspace, disponibilidade, slug, datas por
   cargo, FSRS), nenhum tocando I/O.
-- `artifacts/kalibra`: 43 testes, 2 arquivos; 94 testes no total da fase, 0 snapshots escritos em
-  duas execuções consecutivas do portão completo.
+- `artifacts/kalibra`: 45 testes, 2 arquivos (incluindo os 2 testes acrescentados no Fix round 1 —
+  seção 9); 96 testes no total da fase, 0 snapshots escritos em duas execuções consecutivas do
+  portão completo.
 - Workspace com múltiplos cargos, disponibilidade semanal e edital opcional — testado desde as
   Tasks 5–10 desta fase.
 - Card do Portal mostrando status real (`WorkspaceStatusChip`, reaproveitando os três tons de
@@ -241,6 +280,72 @@ leitura manual do diff descrita na seção 4 — não sobre inspeção visual re
   `components/ui/` (confirmado por grep, seção 3).
 - Frontend não importa `ts-fsrs` diretamente — só consome o agendamento calculado por `lib/core`
   (confirmado por grep, seção 3).
+
+## 9. Fix round 1 — revisão e correção
+
+A revisão de código sobre as Tasks 11–12 encontrou dois problemas nesta task, ambos corrigidos:
+
+1. **`D−-104` era um bug de correção, não um achado cosmético** (Importante). O card
+   `bb-escriturario`, com `examDate` já no passado em relação ao relógio congelado, exibia sinal
+   duplo. A submissão original classificou isso como "cosmético, fora de escopo" — errado, porque
+   (a) não é exclusivo do dado de exemplo: nada arquiva um workspace quando a prova passa,
+   `Arquivar` é manual, então todo usuário real chega a esse estado; (b) já existe convenção
+   pronta no próprio app para esse caso (`getDaysRemaining` em `src/lib/date-utils.ts`, em uso na
+   sidebar via `Shell.tsx`); (c) o sinal duplo pode ser lido como "104 dias para a prova" quando a
+   prova já passou há 104 dias — informação errada sobre o número central do card.
+
+   **Correção:** `Portal.tsx` ganhou uma função de módulo `formatCountdown(dias: number)` que
+   replica a convenção de três vias de `getDaysRemaining` — `D−{n}` (futuro), `HOJE` (hoje),
+   `D+{n}` (passado) — sem importar `getDaysRemaining` (que tem sua própria fonte de data,
+   mockada de forma fixa no teste) e sem tocar `lib/core` ou `defaultPrograms`. Nenhuma classe
+   nova: `k-mono k-focus` continuam sendo as únicas classes do `<span>` da contagem, em todos os
+   três casos — decisão explicada na seção 4 ("Escolha de estilo"), seguindo o precedente de
+   `Shell.tsx`, que também não diferencia cor por elapsed-state.
+
+   **Teste adicionado:** `nao usa sinal duplo para prova de cargo cuja data ja passou`, em
+   `screens.snapshot.test.tsx`, fora do loop de snapshot — renderiza `/portal` com o fixture
+   padrão (que já contém `bb-escriturario` com data passada) e afirma por regex que
+   `container.innerHTML` não contém `D−-\d` e que contém `D+104`. Cobre a regressão diretamente,
+   sem depender de snapshot (que só detectaria a mudança, não afirma a ausência do sinal duplo por
+   si).
+
+   **Diff de snapshot da correção**, lido antes de `-u`: único trecho alterado nos dois snapshots
+   (`/portal`, `/`) foi `<span class="k-mono k-focus ml-2">D−-104</span>` →
+   `<span class="k-mono k-focus ml-2">D+104</span>` no card `bb-escriturario` — nada mais mudou em
+   nenhum dos dois snapshots. `-u` rodado em seguida (`2 updated`), e duas execuções completas do
+   portão confirmaram 0 escritas adicionais.
+
+2. **Correção factual sobre Radix** (Menor). Este documento atribuía a segurança dos fake timers,
+   em parte, a "o Radix usado aqui — nos menus do Portal e do EditalRevisar". Os dois menus de três
+   pontos exercitados pela Task 11 (`Portal.tsx`, `EditalRevisar.tsx`) são dropdowns simples com
+   `useState` local, não Radix; Radix só entra na aplicação via `TooltipProvider`. A conclusão
+   ("fake timers são seguros nesta suíte") continua correta — só a razão declarada estava errada.
+   Corrigida na seção 5, com a razão certa: nenhum dos dois menus abre overlay/portal próprio nem
+   depende de temporizador para abrir/fechar, e o único ponto de entrada real do Radix
+   (`TooltipProvider`) também não depende de timer para os testes desta suíte passarem.
+
+3. **Teste do "próximo passo" derivado** (Menor, opcional — feito). Nenhuma fixture de
+   `defaultPrograms` tem `nextAction` vazio (ambas carregam texto livre), então o branch
+   `nextActionFor(program.status)` em `Portal.tsx` nunca era exercitado por teste algum. Em vez de
+   alterar `defaultPrograms` (fora do escopo de arquivos desta task), o teste
+   `deriva o próximo passo do status quando nextAction está vazio` semeia um único workspace
+   diretamente em `localStorage` (mesma chave e formato que `useWorkspaces` espera,
+   `kalibra_workspaces:<userId>`), com `nextAction: ''` e `status: 'diagnostico_pendente'`, e
+   afirma que o texto `Fazer o diagnóstico inicial` (de `nextActionFor`, `lib/core`) aparece no
+   HTML renderizado. Ficou barato o suficiente para incluir — não precisou de cirurgia em
+   fixture de produção.
+
+**Gate re-executado após a correção** (root, mesmos três comandos): `pnpm run typecheck` — passou;
+`pnpm run test`, duas vezes seguidas — 96 testes (51 `lib/core` + 45 `artifacts/kalibra`) passando
+nas duas rodadas, 0 snapshots escritos na segunda; `pnpm run build` — passou (mesmos dois avisos
+pré-existentes já registrados na seção 2, não relacionados a esta correção).
+
+**Arquivos tocados nesta correção:** `artifacts/kalibra/src/pages/Portal.tsx` (função
+`formatCountdown` + uso no render),
+`artifacts/kalibra/src/__tests__/screens.snapshot.test.tsx` (2 testes novos + import de
+`emptyAvailability`/`TEST_USER`), `artifacts/kalibra/src/__tests__/__snapshots__/screens.snapshot.test.tsx.snap`
+(2 snapshots atualizados, só o `D+104`), e este documento (seções 4, 5, 7, 8, e esta seção 9).
+Nenhum arquivo em `lib/core`, `src/index.css`, `src/data.ts` ou `src/components/ui/` foi tocado.
 
 **Próximo plano:** Fase 1B — importação e revisão de edital, mais a fila de aprovações como
 infraestrutura transversal.
