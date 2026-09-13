@@ -7,6 +7,7 @@ import {
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { stageWorkspaceImport } from '@/domain/useWorkspaces';
+import { nextActionFor } from '@workspace/core';
 import { subjects, topics } from '@/data';
 import { useToast } from '@/hooks/use-toast';
 
@@ -48,6 +49,11 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   };
 
   const handleReady = () => {
+    // `status` acompanha `importStatus: 'pending'` (mesmo mapeamento de
+    // STATUS_FROM_IMPORT em workspaces.ts) e `nextAction` vem de `nextActionFor(status)`
+    // — sem isso, um reimport deixava o chip de status antigo ao lado de um texto novo
+    // que já falava em "aguardando revisão" (ver regressão I2).
+    const status = 'aguardando_revisao_edital' as const;
     stageWorkspaceImport(workspaceSlug, {
       isNew: false,
       updates: {
@@ -55,7 +61,8 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
         sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
         sourceText: sourceMode === 'text' ? sourceText : undefined,
         importStatus: 'pending',
-        nextAction: 'Edital atualizado · aguardando revisão',
+        status,
+        nextAction: nextActionFor(status),
       },
     }, user?.id);
     setIsUpdateModalOpen(false);
