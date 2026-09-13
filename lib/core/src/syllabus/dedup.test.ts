@@ -63,6 +63,13 @@ describe('deduplicação entre cargos', () => {
   });
 
   it('preserva o rótulo literal do primeiro cargo e registra os unidos', () => {
+    // Verificado na revisão (fix round 3, Finding C): este teste passa hoje
+    // porque a Fase 2 de dedupeEntries escolhe explicitamente o rótulo de
+    // MENOR ÍNDICE ORIGINAL como sourceLabel (Finding B) — e não mais só por
+    // coincidência de o critério de ordenação da Fase 1 empatar (os dois
+    // rótulos normalizam igual) e o sort estável preservar a ordem de
+    // entrada nesse empate. O nome do teste já descrevia o comportamento
+    // certo; agora é também o motivo certo.
     resetIds();
     const { syllabus, merged } = dedupeEntries('w1', [
       entrada({ cargoId: 'c1', label: '1.1 Matemática Básica' }),
@@ -304,6 +311,25 @@ describe('deduplicação por similaridade, não só igualdade exata de rótulo',
     expect(link?.questionCount).toBe(25);
     expect(link?.weight).toBe(25);
   });
+
+  it('NÃO soma quando o rótulo bruto é idêntico no mesmo cargo — é a mesma linha emitida duas vezes (Finding A)', () => {
+    // Achado da revisão (fix round 3): somar sempre não distingue "duas
+    // linhas legítimas do edital para o mesmo tópico" de "o extrator emitiu
+    // a mesma linha duas vezes". A contagem alimenta totalQuestionsFor e
+    // consolidatedQuestionCount, que decidem quantas questões de diagnóstico
+    // gerar — dobrar por causa de uma linha duplicada infla o diagnóstico. O
+    // único sinal disponível é o rótulo bruto: rótulo IDÊNTICO no mesmo cargo
+    // é tratado como emissão duplicada e mantém o valor já registrado.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(10);
+  });
 });
 
 // Fix round 2, achado B (crítico): o agrupamento guloso contra o primeiro
@@ -311,7 +337,16 @@ describe('deduplicação por similaridade, não só igualdade exata de rótulo',
 // B='Redacao oficiais', C='Redacao oficiaisss' — sim(A,B)=0.875, sim(B,C)=
 // 0.889, sim(A,C)=0.778 — a ordem de chegada decidia se saíam 1 ou 2 itens.
 // dedupeEntries agora ordena as entradas pelo rótulo normalizado antes do
-// passe guloso, então o resultado é função só do CONJUNTO de entradas.
+// passe guloso, então o AGRUPAMENTO (quantos itens saem, quem funde com
+// quem) é função só do CONJUNTO de entradas.
+//
+// CORREÇÃO (fix round 3, "Finding C"): o comentário original aqui e o
+// relatório do round 2 diziam que a ordem alfabética era B, depois A, depois
+// C. Errado — a execução mostra B, depois C, depois A ("redacao oficiais" é
+// prefixo de "redacao oficiaisss", que fica antes de "redacao oficial" porque
+// na 15ª posição "i" < "l"). A afirmação testada (1 item só, não importa a
+// ordem de chegada) sempre esteve certa; só a explicação do porquê estava
+// errada.
 describe('deduplicação independe da ordem de chegada das entradas (Finding B)', () => {
   const triplo = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
     const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
@@ -326,16 +361,83 @@ describe('deduplicação independe da ordem de chegada das entradas (Finding B)'
     ['A,B,C', ['A', 'B', 'C']],
     ['B,A,C', ['B', 'A', 'C']],
     ['C,B,A', ['C', 'B', 'A']],
-  ] as const)('ordem %s: mesmo número de itens e mesmo sourceLabel sobrevivente', (_nome, ordem) => {
+  ] as const)('ordem %s: sempre 1 item só, não importa a ordem de agrupamento', (_nome, ordem) => {
     resetIds();
     const { syllabus } = dedupeEntries('w1', triplo(ordem), [], makeId);
 
-    // Ordenado por rótulo normalizado, "redacao oficiais" (B) vem antes de
-    // "redacao oficial" (A), que vem antes de "redacao oficiaisss" (C) — B
-    // cria o bucket e funde os outros dois nele, sempre, não importa a ordem
-    // de chegada original.
+    // O AGRUPAMENTO independe da ordem — sempre funde os três num item só,
+    // nunca 2 (que é o que aconteceria sem a Fase 1 ordenada: [A,B,C] só
+    // funde A+B porque sim(A,C)=0.778 fica abaixo do limiar sozinho).
     expect(syllabus.items).toHaveLength(1);
-    expect(syllabus.items[0].sourceLabel).toBe('Redacao oficiais');
+  });
+});
+
+// Fix round 3, achado B (importante): a ordenação que resolve o achado B do
+// round 2 (agrupamento independente de ordem) tem um efeito colateral se for
+// usada também para decidir QUAL rótulo sobrevive como `sourceLabel` — o
+// rótulo mostrado ao usuário passaria a ser o alfabeticamente primeiro, não o
+// que aparece primeiro no edital. Ex.: "Interpretação de textos" (1º cargo do
+// edital) perdia para "Interpretação de texto" (2º cargo, mas alfabeticamente
+// antes) só por causa da ordenação usada para agrupar. Isso também nomeava o
+// `Concept` provisório (canonicalName/slug) e ordenava `syllabus.items`
+// alfabeticamente em vez de pela ordem do edital.
+//
+// A independência de ordem do agrupamento (achado B do round 2) e a ordem de
+// aparição no edital (este achado) não competem: o índice original de cada
+// entrada viaja junto do agrupamento, e decide separadamente (a) qual rótulo
+// sobrevive e (b) a ordem de `items` — sem reabrir a decisão de quem funde
+// com quem.
+describe('sourceLabel e ordem de items refletem a ordem do edital, não a ordem alfabética (Finding B, round 3)', () => {
+  it.each([
+    ['textos primeiro', 'Interpretação de textos', 'c1', 'Interpretação de texto', 'c2'],
+    ['texto primeiro', 'Interpretação de texto', 'c1', 'Interpretação de textos', 'c2'],
+  ] as const)('%s: sourceLabel é o rótulo que aparece primeiro na entrada', (_nome, primeiroLabel, primeiroCargo, segundoLabel, segundoCargo) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: primeiroCargo, label: primeiroLabel }),
+      entrada({ cargoId: segundoCargo, label: segundoLabel }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(syllabus.items[0].sourceLabel).toBe(primeiroLabel);
+  });
+
+  it.each([
+    ['ordem 1', ['Matemática', 'Português', 'Legislação']],
+    ['ordem 2 (embaralhada)', ['Legislação', 'Português', 'Matemática']],
+  ] as const)('%s: items sai na ordem de primeira aparição no edital', (_nome, ordemDeLabels) => {
+    resetIds();
+    const entries = ordemDeLabels.map((label, i) => entrada({ cargoId: `c${i}`, label }));
+    const { syllabus } = dedupeEntries('w1', entries, [], makeId);
+
+    expect(syllabus.items.map((item) => item.sourceLabel)).toEqual(ordemDeLabels);
+  });
+
+  it('items sai por primeira aparição mesmo quando um item unido reaparece depois de outro item', () => {
+    // "Matemática" aparece nos índices 0 (c1) e 2 (c2); "Português" aparece
+    // no índice 1. A primeira aparição de "Matemática" (índice 0) é anterior
+    // à de "Português" (índice 1), então "Matemática" continua vindo
+    // primeiro em `items`, mesmo a segunda linha de "Matemática" vindo depois
+    // de "Português" na entrada.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c3', label: 'Português' }),
+      entrada({ cargoId: 'c2', label: 'Matemática' }),
+    ], [], makeId);
+
+    expect(syllabus.items.map((item) => item.sourceLabel)).toEqual(['Matemática', 'Português']);
+  });
+
+  it('o conceito provisório também é nomeado pelo rótulo que aparece primeiro no edital', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos' }),
+      entrada({ cargoId: 'c2', label: 'Interpretação de texto' }),
+    ], [], makeId);
+
+    expect(newConcepts).toHaveLength(1);
+    expect(newConcepts[0].canonicalName).toBe('Interpretação de textos');
   });
 });
 
