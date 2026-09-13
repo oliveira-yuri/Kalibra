@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS, WORKSPACE_STATUSES, type WorkspaceStatus } from './status';
+import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS, WORKSPACE_STATUSES, type WorkspaceStatus, initialStatus, assertTransition } from './status';
 
 describe('transições de status', () => {
   it('permite sair de sem_edital para aguardando_upload', () => {
@@ -84,5 +84,47 @@ describe('WORKSPACE_STATUSES — regressão I4 (não pode ser uma lista mantida 
 
   it('não tem duplicatas', () => {
     expect(new Set(WORKSPACE_STATUSES).size).toBe(WORKSPACE_STATUSES.length);
+  });
+});
+
+describe('estado inicial', () => {
+  it('workspace com edital começa aguardando upload', () => {
+    expect(initialStatus(true)).toBe('aguardando_upload');
+  });
+
+  it('workspace sem edital começa sem edital', () => {
+    expect(initialStatus(false)).toBe('sem_edital');
+  });
+
+  it('o caminho real da criação com edital é válido de ponta a ponta', () => {
+    const caminho = [
+      initialStatus(true),
+      'extraindo_edital',
+      'aguardando_revisao_edital',
+      'diagnostico_pendente',
+    ] as const;
+    for (let i = 0; i < caminho.length - 1; i += 1) {
+      expect(canTransition(caminho[i], caminho[i + 1])).toBe(true);
+    }
+  });
+
+  it('o caminho real da criação sem edital é válido', () => {
+    expect(canTransition(initialStatus(false), 'aguardando_upload')).toBe(true);
+  });
+});
+
+describe('transição obrigatória', () => {
+  it('não lança para transição válida', () => {
+    expect(() => assertTransition('aguardando_upload', 'extraindo_edital')).not.toThrow();
+  });
+
+  it('lança com mensagem em português para transição inválida', () => {
+    expect(() => assertTransition('sem_edital', 'estudando')).toThrow(
+      'Transição inválida de "sem edital" para "estudando".',
+    );
+  });
+
+  it('lança ao tentar pular o diagnóstico obrigatório', () => {
+    expect(() => assertTransition('aguardando_revisao_edital', 'estudando')).toThrow();
   });
 });
