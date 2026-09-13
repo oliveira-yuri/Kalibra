@@ -21,21 +21,11 @@ import { NovoWorkspace } from './pages/NovoWorkspace';
 import { stageWorkspaceImport, useWorkspaces } from './store/workspaces';
 import { Redirect, useRoute } from 'wouter';
 
-
-type TopicStatus = 'dominar' | 'em andamento' | 'não iniciado';
-type Priority = 'alta' | 'média' | 'baixa';
-type Difficulty = 'errei' | 'difícil' | 'bom' | 'fácil';
-type ErrorStatus = 'aberto' | 'em revisão' | 'resolvido';
-
-type Subject = { id: string; name: string; weight: number; progress: number; color: string; questions: number };
-type Topic = { id: string; subject: string; name: string; status: TopicStatus; priority: Priority; accuracy: number; lastStudied: string };
-type ReviewCard = { id: string; prompt: string; answer: string; due: string; difficulty: Difficulty; topic: string };
-type Question = { id: string; stem: string; options: string[]; correct: number; explanation: string; subject: string; topic: string; source: string };
-type ErrorRecord = { id: string; classification: string; subject: string; topic: string; date: string; status: ErrorStatus; severity: 'crítica' | 'alta' | 'média' };
-type Recommendation = { id: string; text: string; rationale: string; impact: string; approved: boolean };
-type Note = { id: string; title: string; subject: string; updatedAt: string; content: string };
-type PlanItem = { id: string; weekday: string; date: string; label: string; subject: string; duration: string; kind: 'prática' | 'revisão' | 'teoria' | 'simulado'; tone: 'focus' | 'review' | 'quiet' };
-type Theme = 'light' | 'dark';
+import type {
+  TopicStatus, Priority, Difficulty, ErrorStatus,
+  Subject, Topic, ReviewCard, Question, ErrorRecord,
+  Recommendation, Note, PlanItem, Theme,
+} from './types';
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const queryClient = new QueryClient();
