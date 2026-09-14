@@ -994,7 +994,13 @@ seguem em `19.1.0`.
   14 (sem a chave `review` nenhuma) continua irrecuperável — dado de protótipo em
   `localStorage`, sem usuário real; já registrado na seção 12.
 
-### Estado final confirmado (atualiza a seção 13)
+### Estado final confirmado pelo fix wave — REVISTO pela seção 15
+
+O parágrafo abaixo foi escrito com base em leitura de código. Uma re-revisão com
+escopo, que EXECUTOU o código em vez de lê-lo, mostrou que este mesmo fix wave
+introduziu três regressões Críticas e relatou como concluída uma correção que
+medidamente não era. Ver a **seção 15**: o que segue continua válido para os achados
+C1, C2/I1, I4 e I6, mas não é mais o estado final do branch.
 
 Com este fix wave, os dois achados Críticos e os quatro Importantes da revisão final
 de branch inteira estão corrigidos e testados: uma importação (primeira ou
@@ -1006,5 +1012,110 @@ um efeito colateral de render; confirmar sobrevive a uma falha parcial sem trava
 um registro de workspaces corrompido não é mais indistinguível de "primeiro uso" aos
 olhos de quem lê. Relatório completo desta rodada:
 `.superpowers/sdd/2026-09-13-kalibra-fase-1b/final-fix-report.md`.
+
+## 15. Rodada de regressões — o que o fix wave da seção 14 quebrou
+
+Uma re-revisão com escopo sobre `cdc5b10..8dab281` — que **executou** o código, em vez
+de lê-lo — confirmou que os dois Críticos da revisão de branch inteira estavam fechados,
+e encontrou que o próprio wave **introduziu três regressões Críticas** (R1, R2, R3) e
+**relatou como concluída uma correção que medidamente não era** (R4), além de R5, R6
+(metade) e R7. Esta seção registra a correção de R1–R6; R7 fica como limite conhecido,
+com o motivo técnico.
+
+A lição de processo, antes dos achados: o wave da seção 14 passou em revisão com
+correções que **liam certo e executavam errado** — um `useMemo` presente que não
+economizava nada (R4), um contador "durável" que inflava (R2), um retry que corrompia o
+que o bug anterior só travava (R3). Por isso, nesta rodada, cada guarda adicionada foi
+**mecanicamente revertida** e a suíte re-executada antes do commit, com o número da
+falha anotado no relatório. Um teste que não fica vermelho ao reverter a correção não
+conta como cobertura.
+
+### R1 (regressão Crítica) — a comparação do PD-08 sumia para todo workspace já existente
+
+Duas causas somadas: `EditalRevisar` decidia mostrar a comparação por
+`version !== '1'` — gate só inofensivo enquanto `Edital.tsx` mandava o literal `2` — e
+`reserveNextSyllabusVersion` devolvia 1 sempre que não havia chave de contador, que é o
+caso de **todo** workspace anterior ao wave. Resultado medido: reimportar num workspace
+com programa salvo reservava 1 e `[data-testid="syllabus-diff"]` não existia, na tela
+cuja única razão de existir é mostrar o que uma retificação mudou — a cláusula que dá
+nome à fase. Corrigido: o sinal passa a ser **existir programa salvo com que comparar**,
+nunca o número da versão.
+
+### R2 (regressão Crítica) — comparação contra uma versão que nunca existiu
+
+O contador durável era incrementado no início da extração e nunca liberado quando a
+importação era abandonada: abandonar e refazer com o mesmo título caía na versão 2, e o
+rótulo `Number(version) - 1` anunciava "COMPARADO COM A VERSÃO 1" para um workspace que
+nunca teve versão 1. Corrigido em duas partes: **o contador some** — uma versão é real
+quando algo a nomeia (um item `edital_structure` na fila, durável; ou o programa salvo,
+que só pode ter vindo de uma versão confirmada), e `nextSyllabusVersion` lê isso em vez
+de contar; e **o rótulo nomeia a maior versão aprovada** (`comparedSyllabusVersion`),
+nunca a aritmética da URL. O achado C1 continua fechado: uma tentativa abandonada
+**depois** de chegar à fila continua nomeando o número dela. Junto, os refs de versão de
+`Edital`/`NovoWorkspace` deixam de ter os literais `2`/`1` como padrão.
+
+### R3 (regressão Crítica) — o retry duplicava a biblioteca global de conceitos
+
+O achado I5 tornou `handleConfirm` retentável sem tornar a sequência idempotente:
+`newConcepts` era reapendado inteiro e o laço de `concept_merge` reenfileirava com ids
+novos. Medido com `setItem` falhando na 3ª escrita e 2 conceitos novos: **5 entradas na
+biblioteca, com ids repetidos** — corrupção que o trinco-morto anterior não conseguia
+produzir. Corrigido com idempotência **por conteúdo** (não por um ref de progresso, que
+uma remontagem apagaria): `addConcept` ignora id já presente, o laço pula um par
+(conceito-alvo, item de origem) já enfileirado, e os `persist` dos adaptadores gravam
+antes de atualizar memória — com a ordem antiga, uma escrita que lança deixava o `ref`
+afirmando um estado que o armazenamento nunca teve.
+
+### R4 (relatado como corrigido, medidamente não) — `diffSyllabus` por tecla
+
+O `useMemo` da seção 14 economizava exatamente a chamada da montagem: a primeira
+dependência (`review`) é recriada a cada tecla por `handleWeightChange`. Medido: 4
+chamadas depois de 3 teclas, contra 5 sem memo nenhum. Corrigido fazendo as dependências
+serem só o que uma edição de peso **não pode tocar** — `review.syllabus.items` para o
+diff (com um teste em `lib/core` fixando que peso e questões não mudam o resultado) e a
+topologia das ligações para "tem item comum", cuja derivação virou `hasCommonItems` em
+`lib/core`, O(itens + ligações) numa passada só. O comentário que afirmava o contrário
+foi corrigido. O teste conta **chamadas**, com um cargo selecionado para que o campo de
+peso esteja de fato editável.
+
+### R5 — uma aprovação decidida convidava para uma tela que avançava o workspace
+
+`ApprovalCard` renderizava "Revisar estrutura" incondicionalmente (`decidableInline`
+fechava só a caixa de seleção e os botões inline); a tela do outro lado só retoma o que
+`canDecide` autoriza, então abria vazia — e "Confirmar estrutura" levava o workspace de
+`aguardando_revisao_edital` para `diagnostico_pendente`. As duas metades fechadas: o
+link some para item decidido, e confirmar sem proposta recusa antes de qualquer escrita
+(a recusa do fix round 3 estava gated em `review &&` e nunca disparava nesse caso).
+
+### R6 — a primeira escrita ainda destruía o original ilegível
+
+A leitura já estava correta desde a seção 14, mas `saveWorkspaces` gravava por cima assim
+mesmo: medido com um registro recuperável (`{"0": {slug, title, …}}`), o primeiro
+`addWorkspace` apagava o original do usuário. Corrigido: antes de destruir, preserva — o
+valor ilegível é copiado byte a byte para `kalibra_workspaces:<user>:corrompido`, e um
+backup existente nunca é sobrescrito.
+
+### R7 — não corrigido, registrado como limite
+
+A primeira fusão aprovada deixa um conceito provisório sem referência na biblioteca
+global (rodadas 2+ já ligam direto; medido `[2,2,2,2]`, a biblioteca não cresce).
+Removê-lo exigiria decidir inalcançabilidade atravessando o `syllabus` de **todo**
+workspace do usuário e o `payloadAfter.review.syllabus` de **toda proposta pendente** na
+fila. Um coletor assim falha de forma desproporcional: com o registro de workspaces
+ilegível — exatamente o caso de R6, em que `getWorkspaces` devolve `[]` — tudo pareceria
+inalcançável e a biblioteca inteira seria apagada. O pedido autorizou não forçar.
+
+### Gate desta rodada
+
+`pnpm run typecheck` (passou, 4 pacotes). `pnpm run test`: `lib/core` 198 → **204** (+6),
+`artifacts/kalibra` 242 → **275** (+33). Total **479** (era 440), rodado sob `TZ=UTC`,
+`America/Sao_Paulo` e `Pacific/Kiritimati` — idêntico nas três. **Nenhum snapshot
+movido** (nenhuma linha `written/updated`, nenhum `-u` necessário). `pnpm run build`
+passou, com os mesmos dois avisos pré-existentes.
+
+Commits: `3c176fa` (lib/core: `hasCommonItems` e o diff fixado como independente das
+ligações), `34b34c6` (a versão do edital lida da realidade + preservação do registro
+ilegível — R1/R2/R6), `402c61f` (a tela de revisão fecha R1/R2/R3/R4/R5). Relatório
+completo: `.superpowers/sdd/2026-09-13-kalibra-fase-1b/regression-fix-report.md`.
 
 **Próximo plano:** Fase 1C — diagnóstico obrigatório, plano quinzenal e sessões de estudo.
