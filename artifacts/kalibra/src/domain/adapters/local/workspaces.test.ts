@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { hasEdital } from '@workspace/core';
 import { migrateWorkspace, getWorkspaces, defaultCargo } from './workspaces';
 
 const ANTIGO = {
@@ -48,9 +49,29 @@ describe('migração de workspace', () => {
     expect(migrado?.availability.maxSessionMinutes).toBe(50);
   });
 
-  it('marca hasEdital a partir da origem antiga', () => {
-    expect(migrateWorkspace(ANTIGO)?.hasEdital).toBe(true);
-    expect(migrateWorkspace({ ...ANTIGO, sourceMode: undefined, importStatus: 'pending' })?.hasEdital).toBe(false);
+  it('deriva hasEdital do status migrado, sem heurística própria', () => {
+    expect(hasEdital(migrateWorkspace(ANTIGO)!.status)).toBe(true);
+
+    // Antes desta refatoração este mesmo registro (sem sourceMode, importStatus
+    // 'pending') produzia ao mesmo tempo status='aguardando_revisao_edital' (que
+    // implica edital) e hasEdital=false — a divergência entre os dois campos que esta
+    // tarefa elimina ao tornar `status` a única fonte de verdade.
+    const semSourceMode = migrateWorkspace({ ...ANTIGO, sourceMode: undefined, importStatus: 'pending' })!;
+    expect(semSourceMode.status).toBe('aguardando_revisao_edital');
+    expect(hasEdital(semSourceMode.status)).toBe(true);
+  });
+
+  it('descarta hasEdital de registros antigos', () => {
+    const migrado = migrateWorkspace({ ...ANTIGO, hasEdital: true });
+    expect(migrado).not.toHaveProperty('hasEdital');
+  });
+
+  it('registro antigo com hasEdital false e sem edital vira sem_edital', () => {
+    const migrado = migrateWorkspace({
+      ...ANTIGO, hasEdital: false, importStatus: 'pending',
+      sourceText: undefined, sourceFileName: undefined,
+    });
+    expect(migrado?.status).toBe('sem_edital');
   });
 
   it('dá um cargo padrão a quem não tinha nenhum', () => {
@@ -152,7 +173,7 @@ describe('migração de workspace', () => {
         sourceText: undefined,
         sourceFileName: undefined,
       });
-      expect(migrado?.hasEdital).toBe(true);
+      expect(hasEdital(migrado!.status)).toBe(true);
     });
 
     it('marca hasEdital true para error mesmo sem sourceText/sourceFileName', () => {
@@ -162,12 +183,12 @@ describe('migração de workspace', () => {
         sourceText: undefined,
         sourceFileName: undefined,
       });
-      expect(migrado?.hasEdital).toBe(true);
+      expect(hasEdital(migrado!.status)).toBe(true);
     });
 
     it('mantém hasEdital: false explícito mesmo com sourceText presente (idempotência)', () => {
       const migrado = migrateWorkspace({ ...ANTIGO, hasEdital: false, sourceText: 'algum texto' });
-      expect(migrado?.hasEdital).toBe(false);
+      expect(hasEdital(migrado!.status)).toBe(false);
     });
   });
 

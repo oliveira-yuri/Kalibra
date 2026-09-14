@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS, WORKSPACE_STATUSES, type WorkspaceStatus, initialStatus, assertTransition } from './status';
+import { canTransition, nextActionFor, WORKSPACE_STATUS_LABELS, WORKSPACE_STATUSES, type WorkspaceStatus, initialStatus, assertTransition, hasEdital } from './status';
 
 describe('transições de status', () => {
   it('permite sair de sem_edital para aguardando_upload', () => {
@@ -126,5 +126,28 @@ describe('transição obrigatória', () => {
 
   it('lança ao tentar pular o diagnóstico obrigatório', () => {
     expect(() => assertTransition('aguardando_revisao_edital', 'estudando')).toThrow();
+  });
+});
+
+describe('derivar se há edital', () => {
+  it('não há edital apenas em sem_edital e aguardando_upload', () => {
+    expect(hasEdital('sem_edital')).toBe(false);
+    expect(hasEdital('aguardando_upload')).toBe(false);
+  });
+
+  it('há edital a partir da extração', () => {
+    expect(hasEdital('extraindo_edital')).toBe(true);
+    expect(hasEdital('aguardando_revisao_edital')).toBe(true);
+    expect(hasEdital('diagnostico_pendente')).toBe(true);
+    expect(hasEdital('estudando')).toBe(true);
+  });
+
+  it('há edital também em diagnostico_em_andamento, plano_quinzenal_pendente e erro', () => {
+    // Lista fixa deliberadamente à parte da anterior: cobre os três membros do union que
+    // nem "sem edital" nem o teste acima exercitam, para que WITHOUT_EDITAL não possa
+    // ganhar um novo membro sem que algum teste aqui quebre.
+    expect(hasEdital('diagnostico_em_andamento')).toBe(true);
+    expect(hasEdital('plano_quinzenal_pendente')).toBe(true);
+    expect(hasEdital('erro')).toBe(true);
   });
 });

@@ -87,7 +87,6 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       selectedCargoId: finalCargos[0].id,
       availability,
       status,
-      hasEdital: sourceMode !== 'none',
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceText: sourceMode === 'text' ? sourceText : undefined,

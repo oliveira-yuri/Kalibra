@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   emptyAvailability,
+  hasEdital,
   WORKSPACE_STATUSES,
   type WeeklyAvailability,
   type WorkspaceStatus,
@@ -38,7 +39,6 @@ export interface WorkspaceDraft {
   selectedCargoId: string;
   availability: WeeklyAvailability;
   status: WorkspaceStatus;
-  hasEdital: boolean;
   sourceMode: SourceMode;
   sourceFileName?: string;
   sourceText?: string;
@@ -130,6 +130,14 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     ? validCargos
     : [defaultCargo(str(raw.examDate, ''))];
 
+  const derivedStatus = isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital');
+  // Registros antigos guardavam `hasEdital` como campo à parte de `status`, e os dois
+  // podiam divergir. O campo não existe mais no formato atual, mas um `hasEdital: false`
+  // explícito herdado de um registro antigo não é descartado em silêncio: se o status
+  // derivado implicaria um edital, ele é corrigido para `sem_edital` — a informação do
+  // campo antigo é absorvida pelo status canônico, não perdida.
+  const status = raw.hasEdital === false && hasEdital(derivedStatus) ? 'sem_edital' : derivedStatus;
+
   return {
     slug: raw.slug,
     title: raw.title,
@@ -139,10 +147,7 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     cargos,
     selectedCargoId: str(raw.selectedCargoId, cargos[0].id),
     availability: isValidAvailability(raw.availability) ? raw.availability : emptyAvailability(),
-    status: isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital'),
-    hasEdital: typeof raw.hasEdital === 'boolean'
-      ? raw.hasEdital
-      : Boolean(raw.sourceMode) && importStatus !== 'pending' ? true : Boolean(raw.sourceText || raw.sourceFileName),
+    status,
     sourceMode: isValidSourceMode(raw.sourceMode) ? raw.sourceMode : 'text',
     sourceFileName: str(raw.sourceFileName, undefined),
     sourceText: str(raw.sourceText, undefined),
@@ -190,7 +195,6 @@ const defaultPrograms: WorkspaceDraft[] = [
     selectedCargoId: 'c1',
     availability: emptyAvailability(),
     status: 'estudando' as const,
-    hasEdital: true,
     progress: 47.2,
     nextAction: 'Resolver 8 questões de porcentagem',
     active: true,
@@ -207,7 +211,6 @@ const defaultPrograms: WorkspaceDraft[] = [
     selectedCargoId: 'c1',
     availability: emptyAvailability(),
     status: 'estudando' as const,
-    hasEdital: true,
     progress: 12.5,
     nextAction: 'Leitura inicial: Sistema Financeiro',
     active: false,

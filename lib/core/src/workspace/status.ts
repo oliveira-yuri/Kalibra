@@ -81,6 +81,17 @@ export function initialStatus(hasEdital: boolean): WorkspaceStatus {
   return hasEdital ? 'aguardando_upload' : 'sem_edital';
 }
 
+const WITHOUT_EDITAL: readonly WorkspaceStatus[] = ['sem_edital', 'aguardando_upload'];
+
+/**
+ * Derivada de `status`, nunca armazenada: manter os dois em disco (um campo `status` e
+ * um booleano `hasEdital` separados) permitia que discordassem entre si — e discordavam,
+ * antes desta função existir. Agora "há edital" é só uma pergunta sobre o próprio status.
+ */
+export function hasEdital(status: WorkspaceStatus): boolean {
+  return !WITHOUT_EDITAL.includes(status);
+}
+
 export function assertTransition(from: WorkspaceStatus, to: WorkspaceStatus): void {
   if (!canTransition(from, to)) {
     throw new Error(
