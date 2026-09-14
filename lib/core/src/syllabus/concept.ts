@@ -240,3 +240,35 @@ export function shouldLinkDirectly(match: ConceptMatch | null): boolean {
   if (match.concept.status !== 'confirmed') return false;
   return match.score >= CONCEPT_MATCH_THRESHOLD;
 }
+
+/**
+ * Acrescenta `alias` aos aliases de `concept`, se ele ainda não estiver lá (e não for
+ * idêntico ao nome canônico — um alias igual ao canônico não informa nada). Sem efeito
+ * (devolve `concept` inalterado) para uma string vazia ou já presente — idempotente,
+ * então chamar duas vezes com o mesmo alias não duplica nada.
+ *
+ * Achado C2/I1 da revisão final: `diffSyllabus` já lê aliases via `matchConcept`, mas
+ * nada em produção jamais escrevia um — toda entrada nasce com `aliases: []` e ninguém
+ * nunca acrescentava. Esta é a metade que faltava: o PRODUTOR de alias, usado tanto por
+ * uma renomeação (`renameConcept` abaixo) quanto por uma fusão de conceito aprovada
+ * (`concept_merge`, ver `applyApprovalSideEffects` no adaptador local).
+ */
+export function withAlias(concept: Concept, alias: string): Concept {
+  const trimmed = alias.trim();
+  if (!trimmed || trimmed === concept.canonicalName || concept.aliases.includes(trimmed)) return concept;
+  return { ...concept, aliases: [...concept.aliases, trimmed] };
+}
+
+/**
+ * Renomeia o nome canônico de um conceito, preservando o nome anterior como alias —
+ * o mecanismo do PD-08 (achado C2 da revisão final): "renomeado ≠ removido + adicionado"
+ * só é possível quando alguma coisa grava, no momento da renomeação, que o rótulo antigo
+ * e o novo são o MESMO conceito. Esse é o único momento em que essa equivalência é
+ * conhecida — depois dele, o rótulo antigo já não aparece em lugar nenhum para ser
+ * comparado. Sem efeito quando o novo nome é vazio ou idêntico ao atual.
+ */
+export function renameConcept(concept: Concept, newCanonicalName: string): Concept {
+  const trimmed = newCanonicalName.trim();
+  if (!trimmed || trimmed === concept.canonicalName) return concept;
+  return withAlias({ ...concept, canonicalName: trimmed }, concept.canonicalName);
+}

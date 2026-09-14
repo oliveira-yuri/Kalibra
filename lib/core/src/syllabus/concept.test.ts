@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeConceptName, matchConcept, shouldLinkDirectly, bestConceptCandidate,
+  withAlias, renameConcept,
   CONCEPT_MATCH_THRESHOLD, type Concept,
 } from './concept';
 
@@ -258,5 +259,76 @@ describe('bestConceptCandidate — melhor candidato sem corte de limiar', () => 
   it('devolve null para nome vazio ou lista vazia', () => {
     expect(bestConceptCandidate('', [conceito()])).toBeNull();
     expect(bestConceptCandidate('Crase', [])).toBeNull();
+  });
+});
+
+// Achado C2/I1 da revisão final: `diffSyllabus` lê aliases via `matchConcept`, mas
+// nada em produção escrevia um — estas duas funções são o produtor que faltava.
+describe('withAlias', () => {
+  it('acrescenta um alias novo', () => {
+    const concept = conceito({ aliases: [] });
+    expect(withAlias(concept, 'Crase').aliases).toEqual(['Crase']);
+  });
+
+  it('é idempotente — não duplica um alias já presente', () => {
+    const concept = conceito({ aliases: ['Crase'] });
+    expect(withAlias(concept, 'Crase').aliases).toEqual(['Crase']);
+  });
+
+  it('não acrescenta um alias igual ao nome canônico — não informa nada', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    expect(withAlias(concept, 'Crase').aliases).toEqual([]);
+  });
+
+  it('ignora string vazia ou só espaço', () => {
+    const concept = conceito({ aliases: [] });
+    expect(withAlias(concept, '   ').aliases).toEqual([]);
+  });
+
+  it('apara espaços do alias antes de comparar/gravar', () => {
+    const concept = conceito({ aliases: [] });
+    expect(withAlias(concept, '  Crase  ').aliases).toEqual(['Crase']);
+  });
+
+  it('devolve o mesmo objeto (sem cópia) quando não há mudança — barato de chamar em loop', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    expect(withAlias(concept, 'Crase')).toBe(concept);
+  });
+});
+
+describe('renameConcept — o mecanismo do PD-08 ("renomeado ≠ removido + adicionado")', () => {
+  it('troca o nome canônico e preserva o anterior como alias', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    const renamed = renameConcept(concept, 'Emprego do acento indicativo de crase');
+    expect(renamed.canonicalName).toBe('Emprego do acento indicativo de crase');
+    expect(renamed.aliases).toEqual(['Crase']);
+  });
+
+  it('depois de renomear, o rótulo ANTIGO ainda casa via matchConcept (alias) — é exatamente o que permite a v2 do edital linkar ao mesmo concept', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    const renamed = renameConcept(concept, 'Emprego do acento indicativo de crase');
+    expect(matchConcept('Crase', [renamed])?.concept.id).toBe(concept.id);
+    expect(matchConcept('Emprego do acento indicativo de crase', [renamed])?.concept.id).toBe(concept.id);
+  });
+
+  it('não duplica o alias ao renomear duas vezes para o mesmo nome final', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    const once = renameConcept(concept, 'Emprego do acento indicativo de crase');
+    const twice = renameConcept(once, 'Emprego do acento indicativo de crase');
+    expect(twice).toBe(once);
+  });
+
+  it('sem efeito para nome vazio ou idêntico ao atual', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    expect(renameConcept(concept, '   ')).toBe(concept);
+    expect(renameConcept(concept, 'Crase')).toBe(concept);
+  });
+
+  it('uma segunda renomeação empilha o alias anterior, sem perder o primeiro', () => {
+    const concept = conceito({ canonicalName: 'Crase', aliases: [] });
+    const first = renameConcept(concept, 'Emprego do acento indicativo de crase');
+    const second = renameConcept(first, 'Crase (uso do acento grave)');
+    expect(second.canonicalName).toBe('Crase (uso do acento grave)');
+    expect(second.aliases).toEqual(['Crase', 'Emprego do acento indicativo de crase']);
   });
 });
