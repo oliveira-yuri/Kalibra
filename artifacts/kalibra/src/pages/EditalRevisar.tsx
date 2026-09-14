@@ -2,7 +2,10 @@ import { useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
+import {
+  clearPendingWorkspaceImport, getPendingWorkspaceImport, migrateWorkspace, stageWorkspaceImport, useWorkspaces,
+  type WorkspaceDraft,
+} from '@/domain/useWorkspaces';
 import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
@@ -70,6 +73,35 @@ function reviewFromPayload(payload: unknown): DedupResult | null {
     newConcepts: review.newConcepts as unknown as Concept[],
     proposedLinks: review.proposedLinks as unknown as ProposedConceptLink[],
   };
+}
+
+/**
+ * As incertezas do PD-06 ("Não encontrado no edital") — fix round 2 (achado B): antes,
+ * esta tela só as lia de `pending.extractionOutput.uncertainties`, que não sobrevive a
+ * uma revisão retomada da fila (sem `pending`, a lista virava `[]` e o bloco inteiro
+ * sumia). Gravadas no mesmo payload da proposta agora, para que retomar da fila mostre
+ * exatamente o que a extração não conseguiu achar, o mesmo dado que o humano decidindo
+ * precisa ver — não menos, só porque a aba mudou.
+ */
+function uncertaintiesFromPayload(payload: unknown): string[] {
+  if (!isRecord(payload)) return [];
+  const uncertainties = payload.uncertainties;
+  return Array.isArray(uncertainties) ? uncertainties.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/**
+ * O rascunho do workspace ainda não criado — fix round 2 (achado A): quando a proposta é
+ * de uma importação nova (`pending.isNew`), o workspace em si só é criado em
+ * `handleConfirm`. Sem gravar esse rascunho no payload, retomar a revisão numa aba sem o
+ * `pending` original (fechada/reiniciada) confirmava a estrutura — Syllabus, conceitos e
+ * a própria aprovação — para um workspace que nunca chegava a existir: um `updateWorkspace`
+ * sobre um slug ausente da lista é um `.map` que não casa nada, silenciosamente. Usa
+ * `migrateWorkspace` (a mesma validação, já testada, de qualquer registro de workspace
+ * salvo) em vez de confiar cegamente no formato do payload.
+ */
+function workspaceDraftFromPayload(payload: unknown): WorkspaceDraft | null {
+  if (!isRecord(payload)) return null;
+  return migrateWorkspace(payload.workspaceDraft);
 }
 
 // As quatro transformações puras abaixo espelham `useSyllabus.{renameItem,removeItem,
@@ -156,7 +188,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const version = params.version || '1';
   const { workspaces, addWorkspace, updateWorkspace } = useWorkspaces(user?.id);
   const [pending] = useState(() => getPendingWorkspaceImport(workspaceSlug, user?.id));
-  const workspace = pending?.workspace || workspaces.find((w) => w.slug === workspaceSlug);
+  const persistedWorkspace = workspaces.find((w) => w.slug === workspaceSlug);
   const syllabusApi = useSyllabus(workspaceSlug, user?.id);
   const conceptsApi = useConcepts(user?.id);
   const approvalsApi = useApprovals(user?.id);
@@ -180,7 +212,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   //      não persiste nada — e É ENFILEIRADA agora, uma vez.
   //   3. Senão, não há proposta para revisar (`null`): edição normal de uma estrutura
   //      já confirmada antes.
-  const [reviewState, setReviewState] = useState<{ review: DedupResult; approvalId: string } | null>(() => {
+  const [reviewState, setReviewState] = useState<{
+    review: DedupResult;
+    approvalId: string;
+    // Fix round 2 (achado B): as incertezas do PD-06 viajam com a proposta, não mais só
+    // com `pending` — sem isto, retomar da fila escondia "Não encontrado no edital".
+    uncertainties: string[];
+    // Fix round 2 (achado A): o rascunho do workspace ainda não criado, quando esta
+    // proposta é de uma importação nova — sem isto, retomar da fila confirmava a
+    // estrutura para um workspace que `handleConfirm` nunca chegava a criar.
+    workspaceDraft: WorkspaceDraft | null;
+  } | null>(() => {
     const queued = approvalsApi.items.find((item) => (
       item.type === 'edital_structure'
       && item.workspaceId === workspaceSlug
@@ -189,13 +231,22 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     ));
     if (queued) {
       const resumed = reviewFromPayload(queued.payloadAfter);
-      if (resumed) return { review: resumed, approvalId: queued.id };
+      if (resumed) {
+        return {
+          review: resumed,
+          approvalId: queued.id,
+          uncertainties: uncertaintiesFromPayload(queued.payloadAfter),
+          workspaceDraft: workspaceDraftFromPayload(queued.payloadAfter),
+        };
+      }
     }
 
     if (!(pending?.extractionOutput && !pending.extractionApplied)) return null;
 
     const freshReview = syllabusApi.previewExtraction(pending.extractionOutput);
     const mergedCount = freshReview.syllabus.items.filter((item) => isCommon(freshReview.syllabus, item.id)).length;
+    const uncertainties = pending.extractionOutput.uncertainties ?? [];
+    const workspaceDraft = pending?.isNew ? (pending.workspace ?? null) : null;
     const id = approvalsApi.enqueue({
       workspaceId: workspaceSlug,
       type: 'edital_structure',
@@ -209,14 +260,22 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // `payloadBefore` é o programa hoje persistido — `null` só na primeira
       // importação (`pending.isNew`), quando não existe programa nenhum ainda.
       payloadBefore: pending?.isNew ? null : syllabusApi.syllabus,
-      payloadAfter: { version, review: freshReview, mergedCount },
+      payloadAfter: { version, review: freshReview, mergedCount, uncertainties, workspaceDraft },
     }, new Date());
 
-    return { review: freshReview, approvalId: id };
+    return {
+      review: freshReview, approvalId: id, uncertainties, workspaceDraft,
+    };
   });
 
   const review = reviewState?.review ?? null;
   const structureApprovalId = reviewState?.approvalId ?? null;
+  // O rascunho do workspace nunca criado — de `pending` na mesma aba, ou da fila numa
+  // retomada (fix round 2, achado A). `workspaceExists` decide, em `handleConfirm` e
+  // `handleDiscard`, se ele ainda precisa ser criado ou se já é real.
+  const workspaceDraft = pending?.workspace || reviewState?.workspaceDraft || null;
+  const workspaceExists = !!persistedWorkspace;
+  const workspace = pending?.workspace || persistedWorkspace || reviewState?.workspaceDraft || undefined;
 
   // Idempotência de `handleConfirm`: um clique duplo antes da navegação não pode
   // persistir a mesma proposta duas vezes (duplicaria concept_merge na fila). A
@@ -228,7 +287,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   // já está persistido (edição normal de uma estrutura já confirmada).
   const currentSyllabus = review ? review.syllabus : syllabusApi.syllabus;
 
-  const uncertainFields = pending?.extractionOutput?.uncertainties ?? [];
+  const uncertainFields = reviewState?.uncertainties ?? [];
   // Um item comum a mais de um cargo é exatamente o que `dedupeEntries` uniu — o spec
   // exige que o usuário entenda isso de cara, não que descubra sozinho (Task 12).
   const hasCommonItems = currentSyllabus.items.some((item) => isCommon(currentSyllabus, item.id));
@@ -247,7 +306,10 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
     // status ao lado dela (ver regressão I2).
     const targetStatus = 'diagnostico_pendente' as const;
-    const statusBeforeConfirm = pending?.isNew ? (pending.workspace?.status ?? targetStatus) : (workspace?.status ?? targetStatus);
+    // `workspace` já resolve para o rascunho certo em qualquer um dos três casos
+    // (mesma aba com `pending`, retomada da fila, ou edição normal já confirmada) —
+    // não precisa mais de um `if (pending?.isNew)` separado aqui (fix round 2).
+    const statusBeforeConfirm = workspace?.status ?? targetStatus;
     // Fix round 2 (crítico, corrige o achado menor do round 1): QUATRO dos nove status
     // não têm aresta para "diagnostico_pendente" — `sem_edital`, `aguardando_upload`,
     // `extraindo_edital` e `erro` (o comentário anterior dizia o contrário; estava
@@ -281,7 +343,12 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // que uma edição poderia desalinhar.
       if (structureApprovalId) {
         const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
-        approvalsApi.approve(structureApprovalId, { version, review, mergedCount });
+        // `uncertainties` viaja para o registro aprovado por completude (fix round 2,
+        // achado B); `workspaceDraft` vira `null` — a partir daqui o workspace É real
+        // (gravado logo abaixo), não falta mais criar.
+        approvalsApi.approve(structureApprovalId, {
+          version, review, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
+        });
       }
 
       const now = new Date();
@@ -310,9 +377,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
     }
 
-    if (pending?.isNew && pending.workspace) {
+    // Fix round 2 (achado A, crítico): antes, só `pending.isNew && pending.workspace`
+    // decidia entre criar e atualizar — e `pending` está vazio numa retomada da fila
+    // (aba fechada/reiniciada). O `else` rodava `updateWorkspace` sobre um slug ausente
+    // da lista: um `.map` que não casa nada, silenciosamente — a aprovação e o Syllabus
+    // ficavam gravados, mas o workspace nunca chegava a existir. `workspaceDraft` agora
+    // vem de `pending` OU do payload da fila (achado A); `workspaceExists` decide entre
+    // criar e atualizar, não mais só `pending.isNew` — cobre o caso de a criação ainda
+    // não ter acontecido, venha o rascunho de onde vier.
+    if (workspaceDraft && !workspaceExists) {
       addWorkspace({
-        ...pending.workspace,
+        ...workspaceDraft,
         importStatus: 'completed',
         status,
         nextAction: nextActionFor(status),
@@ -336,7 +411,11 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // humano olhou a proposta e recusou, em vez de deixá-la pendente para sempre.
     if (structureApprovalId) approvalsApi.reject(structureApprovalId);
     clearPendingWorkspaceImport(workspaceSlug, user?.id);
-    if (pending?.isNew) setLocation(`~${import.meta.env.BASE_URL}portal`);
+    // O mesmo `workspaceDraft`/`workspaceExists` do confirmar (fix round 2, achado A):
+    // descartar numa retomada de importação nova, cujo workspace nunca chegou a existir,
+    // não pode mandar o usuário para `/edital` de um workspace fantasma — volta ao
+    // portal, como já acontecia quando `pending.isNew` vinha preenchido na mesma aba.
+    if (workspaceDraft && !workspaceExists) setLocation(`~${import.meta.env.BASE_URL}portal`);
     else setLocation('/edital');
   };
 

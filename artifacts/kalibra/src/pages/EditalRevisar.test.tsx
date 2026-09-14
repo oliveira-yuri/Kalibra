@@ -652,6 +652,99 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const approvedPayload = approved.payloadAfter as { review: { syllabus: unknown } };
     expect(approvedPayload.review.syllabus).toEqual(syllabus);
   });
+
+  // "novo-concurso" nunca aparece em `defaultPrograms` (só `setec-campinas` e
+  // `bb-escriturario`) — de propósito, para que `workspaces.find(...)` nunca ache um
+  // registro de coincidência e a busca do rascunho na fila seja o que de fato importa.
+  const NOVO_WORKSPACE_KEY = 'novo-concurso';
+  const NOVO_SYLLABUS_KEY = `kalibra_syllabus:${TEST_USER.id}:${NOVO_WORKSPACE_KEY}`;
+
+  function stageNovaImportacao(uncertainties: string[] = []) {
+    window.history.replaceState({}, '', `/workspace/${NOVO_WORKSPACE_KEY}/edital/revisar/1`);
+    stageWorkspaceImport(NOVO_WORKSPACE_KEY, {
+      isNew: true,
+      workspace: {
+        slug: NOVO_WORKSPACE_KEY, title: 'Concurso Novo', institution: 'Banca X', type: 'Concurso Público',
+        examDate: '2027-05-10',
+        cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }, { id: 'c2', name: 'Técnico', examDate: '2027-05-10' }],
+        selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
+        sourceMode: 'text', importStatus: 'pending', progress: 0, nextAction: '', active: true,
+      },
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties,
+      },
+    }, TEST_USER.id);
+  }
+
+  it('fix round 2 (achado A, crítico): retomar uma importação NOVA sem sessionStorage cria o workspace ao confirmar, não deixa dado órfão', async () => {
+    stageNovaImportacao();
+    const { default: App } = await import('../App');
+
+    const first = render(<App />);
+    first.unmount();
+    // Fecha a aba: sessionStorage some — o rascunho do workspace só sobrevive porque
+    // viajou no payload do item da fila (achado A).
+    window.sessionStorage.clear();
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const workspacesStored: Array<{ slug: string; status: string }> = JSON.parse(window.localStorage.getItem(WORKSPACES_KEY) ?? '[]');
+    const created = workspacesStored.find((w) => w.slug === NOVO_WORKSPACE_KEY);
+    // A propriedade pedida: ou o workspace existe depois, ou nada foi escrito. Aqui ele
+    // deve existir — sem o fix, `updateWorkspace` sobre um slug ausente é um `.map`
+    // que não casa nada, e a linha abaixo falharia com `undefined`.
+    expect(created).toBeTruthy();
+    expect(created?.status).toBe('diagnostico_pendente');
+
+    const syllabus = JSON.parse(window.localStorage.getItem(NOVO_SYLLABUS_KEY)!);
+    expect(syllabus.items).toHaveLength(1);
+
+    const approved = readApprovals().find((item) => item.workspaceId === NOVO_WORKSPACE_KEY);
+    expect(approved?.status).toBe('aprovado');
+  });
+
+  it('fix round 2 (achado A): descartar uma importação NOVA retomada sem sessionStorage não cria o workspace nem escreve nada', async () => {
+    stageNovaImportacao();
+    const { default: App } = await import('../App');
+
+    const first = render(<App />);
+    first.unmount();
+    window.sessionStorage.clear();
+
+    render(<App />);
+    fireEvent.click(screen.getByText('Descartar'));
+
+    expect(window.localStorage.getItem(WORKSPACES_KEY)).toBeNull();
+    expect(window.localStorage.getItem(NOVO_SYLLABUS_KEY)).toBeNull();
+    const rejected = readApprovals().find((item) => item.workspaceId === NOVO_WORKSPACE_KEY);
+    expect(rejected?.status).toBe('rejeitado');
+    // Sem o achado A, `pending?.isNew` (vazio numa retomada) mandaria para `/edital` de
+    // um workspace que nunca existiu — volta ao portal porque `workspaceDraft` (vindo
+    // da fila) e `!workspaceExists` identificam a mesma situação sem depender de `pending`.
+    expect(window.location.pathname).toContain('/portal');
+  });
+
+  it('fix round 2 (achado B): retomar sem sessionStorage ainda mostra "Não encontrado no edital" e o filtro de cargo', async () => {
+    stageNovaImportacao(['peso das matérias']);
+    const { default: App } = await import('../App');
+
+    const first = render(<App />);
+    first.unmount();
+    window.sessionStorage.clear();
+
+    const { container } = render(<App />);
+
+    // Achado B: sem carregar as incertezas do payload, este bloco (PD-06) sumia numa
+    // retomada — exatamente o único dado que o humano decidindo precisa ver.
+    expect(container.innerHTML).toContain('Não encontrado no edital');
+    expect(screen.getByText('peso das matérias')).toBeTruthy();
+    // O filtro de cargo também dependia de `workspace`, que sem o achado A resolvia
+    // `undefined` numa retomada — reaparece porque `workspace` agora vem do rascunho.
+    expect(screen.getByTestId('cargo-filter-c1')).toBeTruthy();
+    expect(screen.getByTestId('cargo-filter-c2')).toBeTruthy();
+  });
 });
 
 describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar escrita pela metade)', () => {
