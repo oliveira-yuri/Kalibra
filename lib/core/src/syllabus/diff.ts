@@ -42,26 +42,36 @@ function resolvedConceptId(item: SyllabusItem, concepts: readonly Concept[]): st
  * `unchanged`.
  */
 export function diffSyllabus(previous: Syllabus, next: Syllabus, concepts: readonly Concept[]): SyllabusDiff {
-  const prevByConcept = new Map<string, SyllabusItem>();
+  // Balde por conceito, não um item só — achado da revisão (fix round 1, "Finding 3"):
+  // um `Map<conceptId, SyllabusItem>` perde um item sempre que DOIS itens anteriores
+  // resolvem para o mesmo conceito (exatamente a forma que `splitItem`, Task 12,
+  // produz: dois itens, cargos diferentes, mesmo `conceptId`). O segundo `.set`
+  // sobrescrevia o primeiro, e o "removido" real desaparecia sem aviso nenhum — o
+  // oposto do que o PD-08 pede (ver o aviso coral de histórico). Cada item de `next`
+  // consome UM item do balde do seu conceito (`shift`, ordem de aparição em
+  // `previous`); o que sobra em cada balde ao final é removido de verdade.
+  const prevByConcept = new Map<string, SyllabusItem[]>();
   for (const item of previous.items) {
-    prevByConcept.set(resolvedConceptId(item, concepts), item);
+    const key = resolvedConceptId(item, concepts);
+    const bucket = prevByConcept.get(key);
+    if (bucket) bucket.push(item);
+    else prevByConcept.set(key, [item]);
   }
 
-  const matchedConceptIds = new Set<string>();
   const added: SyllabusItem[] = [];
   const renamed: Array<{ from: SyllabusItem; to: SyllabusItem }> = [];
   const unchanged: SyllabusItem[] = [];
 
   for (const nextItem of next.items) {
     const conceptId = resolvedConceptId(nextItem, concepts);
-    const prevItem = prevByConcept.get(conceptId);
+    const bucket = prevByConcept.get(conceptId);
+    const prevItem = bucket && bucket.length > 0 ? bucket.shift() : undefined;
 
     if (!prevItem) {
       added.push(nextItem);
       continue;
     }
 
-    matchedConceptIds.add(conceptId);
     if (prevItem.sourceLabel === nextItem.sourceLabel) {
       unchanged.push(nextItem);
     } else {
@@ -69,9 +79,10 @@ export function diffSyllabus(previous: Syllabus, next: Syllabus, concepts: reado
     }
   }
 
-  const removed = previous.items.filter(
-    (item) => !matchedConceptIds.has(resolvedConceptId(item, concepts)),
-  );
+  const removed: SyllabusItem[] = [];
+  for (const bucket of prevByConcept.values()) {
+    removed.push(...bucket);
+  }
 
   return { added, removed, renamed, unchanged };
 }

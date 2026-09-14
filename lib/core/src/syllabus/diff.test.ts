@@ -137,3 +137,64 @@ describe('diffSyllabus — PD-08 (renomeado não é remoção mais adição)', (
     expect(diff.renamed).toEqual([]);
   });
 });
+
+describe('diffSyllabus — fix round 1, Finding 3 (dois itens no mesmo conceito não podem perder um deles)', () => {
+  it('reprodução exata do achado: dois itens anteriores no mesmo conceito, só um sobrevive na versão nova — o outro é removido, não desaparece', () => {
+    // prev = ["Crase", "Emprego do acento indicativo de crase"]  (ambos -> mesmo conceito, via alias)
+    // next = ["Crase"]
+    // Antes do fix: added [] | removed [] | renamed 1 | unchanged [] — um dos dois itens
+    // anteriores sumia sem aparecer em lugar nenhum do diff.
+    const previous: Syllabus = {
+      items: [
+        item({ id: 'i-crase', conceptId: 'concept-crase', sourceLabel: 'Crase' }),
+        item({ id: 'i-emprego', conceptId: 'concept-crase', sourceLabel: 'Emprego do acento indicativo de crase' }),
+      ],
+      links: [],
+    };
+    const next: Syllabus = {
+      items: [item({ id: 'i-crase-v2', conceptId: 'concept-crase', sourceLabel: 'Crase' })],
+      links: [],
+    };
+
+    const diff = diffSyllabus(previous, next, [CRASE_CONCEPT]);
+
+    // O item cujo rótulo bate exatamente ("Crase") casa e fica unchanged; o outro,
+    // que não tem correspondente na versão nova, é removido de verdade — nunca
+    // some sem aparecer em added, removed, renamed OU unchanged.
+    expect(diff.unchanged.map((i) => i.id)).toEqual(['i-crase-v2']);
+    expect(diff.removed.map((i) => i.id)).toEqual(['i-emprego']);
+    expect(diff.added).toEqual([]);
+    expect(diff.renamed).toEqual([]);
+
+    // Nenhum item anterior desaparece: os dois somam exatamente a soma dos buckets.
+    const accountedFor = [...diff.removed, ...diff.renamed.map((r) => r.from)];
+    expect(accountedFor.map((i) => i.id).sort()).toEqual(['i-emprego']);
+  });
+
+  it('forma produzida pela Task 12 (splitItem): dois itens, cargos diferentes, mesmo conceito — remover um na v2 não apaga o outro do diff', () => {
+    // `splitItem` (Task 12) desfaz uma união criando um segundo item com o MESMO
+    // conceito do primeiro, só que ligado a outro cargo — exatamente a forma que
+    // este achado apontou como reproduzível de verdade, não hipotética.
+    const previous: Syllabus = {
+      items: [
+        item({ id: 'item-c1', conceptId: 'concept-comum', sourceLabel: 'Matemática básica' }),
+        item({ id: 'item-c2', conceptId: 'concept-comum', sourceLabel: 'Matemática básica' }),
+      ],
+      links: [
+        { syllabusItemId: 'item-c1', cargoId: 'c1', weight: null, questionCount: null },
+        { syllabusItemId: 'item-c2', cargoId: 'c2', weight: null, questionCount: null },
+      ],
+    };
+    // A versão nova só extraiu o conteúdo para c1 — o de c2 sumiu do edital novo.
+    const next: Syllabus = {
+      items: [item({ id: 'item-c1-v2', conceptId: 'concept-comum', sourceLabel: 'Matemática básica' })],
+      links: [{ syllabusItemId: 'item-c1-v2', cargoId: 'c1', weight: null, questionCount: null }],
+    };
+
+    const diff = diffSyllabus(previous, next, []);
+
+    expect(diff.unchanged.map((i) => i.id)).toEqual(['item-c1-v2']);
+    expect(diff.removed).toHaveLength(1);
+    expect(diff.added).toEqual([]);
+  });
+});
