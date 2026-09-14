@@ -10,4 +10,5 @@ export const domainConfig = {
   studyState: 'local',
   theme: 'local',
   extraction: 'local',
+  syllabus: 'local',
 } satisfies Record<string, ModuleSource>;
