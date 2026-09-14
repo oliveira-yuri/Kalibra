@@ -73,10 +73,12 @@ export function SyllabusTree({
   const childrenOf = (parentId: string) => visible.filter((item) => item.parentItemId === parentId);
 
   const renderFields = (item: SyllabusItem) => {
-    // `w-[90px]` é o mesmo valor arbitrário que `AvailabilityFields` já usa para um
-    // campo numérico de largura fixa ("Sessão máxima") — fix round 1 (achado menor):
-    // `w-[56px]`/`w-[48px]` eram os únicos valores arbitrários novos do lote inteiro;
-    // reaproveitar o que já existe em vez de inventar dois novos.
+    // A largura fixa abaixo é o mesmo valor arbitrário que AvailabilityFields já usa
+    // para um campo numérico ("Sessão máxima") — fix round 1 (achado menor): dois
+    // valores novos foram trocados por este, já existente, em vez de introduzir token
+    // novo. Nota do fix round 2: o valor antigo não pode nem aparecer em comentário —
+    // o scanner do Tailwind lê texto puro do arquivo, não só `className`, e gerava
+    // regra morta no CSS de build a partir da citação em prosa.
     if (cargoId === null) {
       const weight = consolidatedWeight(syllabus, item.id);
       const questions = consolidatedQuestions(syllabus, item.id);

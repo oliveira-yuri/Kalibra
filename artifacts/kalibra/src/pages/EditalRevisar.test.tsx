@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, fireEvent } from '@testing-library/react';
-import type { Concept, RawSyllabusEntry, ExtractionOutput } from '@workspace/core';
+import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 import { stageWorkspaceImport } from '@/domain/useWorkspaces';
 
@@ -14,6 +14,31 @@ vi.mock('@clerk/localizations', () => ({ ptBR: {} }));
 const CONCEPTS_KEY = `kalibra_concepts:${TEST_USER.id}`;
 const APPROVALS_KEY = `kalibra_approvals:${TEST_USER.id}`;
 const SYLLABUS_KEY = `kalibra_syllabus:${TEST_USER.id}:setec-campinas`;
+const WORKSPACES_KEY = `kalibra_workspaces:${TEST_USER.id}`;
+const PENDING_KEY = `kalibra_pending_edital:${TEST_USER.id}:setec-campinas`;
+
+function seedWorkspaceWithStatus(status: WorkspaceStatus) {
+  window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+    slug: 'setec-campinas',
+    title: 'Concurso SETEC Campinas',
+    institution: 'SETEC',
+    type: 'Concurso Público',
+    examDate: '2027-01-17',
+    cargos: [{ id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' }],
+    selectedCargoId: 'c1',
+    availability: { days: [], maxSessionMinutes: 50 },
+    status,
+    sourceMode: 'text',
+    importStatus: 'completed',
+    progress: 0,
+    nextAction: 'texto qualquer',
+    active: true,
+  }]));
+}
+
+function readWorkspaceStatus(): WorkspaceStatus {
+  return JSON.parse(window.localStorage.getItem(WORKSPACES_KEY)!)[0].status;
+}
 
 const CRASE_PROVISIONAL: Concept = {
   id: 'global-crase', canonicalName: 'Crase', slug: 'crase',
@@ -425,5 +450,85 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
     const { default: App } = await import('../App');
     const { container } = render(<App />);
     expect(container.querySelector('[data-testid="syllabus-diff"]')).toBeNull();
+  });
+});
+
+describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar escrita pela metade)', () => {
+  // Os quatro status sem aresta para "diagnostico_pendente" no grafo de lib/core —
+  // exatamente os que o achado apontou. `assertTransition` sem guarda, DEPOIS das três
+  // escritas, deixava Syllabus e conceitos gravados, a fila enfileirada, mas o status
+  // preso e a importação pendente nunca limpa — sem chance de um segundo clique
+  // corrigir, porque `confirmedRef` já estava marcado.
+  const STATUSES_SEM_ARESTA: WorkspaceStatus[] = ['sem_edital', 'aguardando_upload', 'extraindo_edital', 'erro'];
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    // Mesma biblioteca da fixture da Task 11 — é o que faz as duas entradas de
+    // EXTRACTION_OUTPUT gerarem `proposedLinks` de verdade (sem candidato nenhum na
+    // biblioteca, `bestConceptCandidate` nunca encontra nada para propor).
+    window.localStorage.setItem(CONCEPTS_KEY, JSON.stringify([CRASE_PROVISIONAL, MAT_FINANCEIRA_CONFIRMED]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  // Depois do confirmar, `handleConfirm` navega para `/edital` — que monta `Edital.tsx`
+  // de novo, e o efeito de autocura do Finding 1 (fix round 1) vê exatamente a forma
+  // que ele foi desenhado para reconhecer: `extraindo_edital` sem nenhuma extração de
+  // verdade em andamento nesta sessão. Ele avança esse UM caso especificamente para
+  // "erro" — não é uma escrita pela metade nem um bug novo, é a composição correta de
+  // dois mecanismos já aceitos: o confirmar corretamente recusa "diagnostico_pendente"
+  // (sem aresta válida) e deixa o status como estava; a autocura então reconhece esse
+  // "como estava" como o mesmo problema que ela já resolve. Os outros três status
+  // (nenhum é `extraindo_edital`) não disparam a autocura e permanecem exatamente como
+  // estavam.
+  const EXPECTED_FINAL_STATUS: Partial<Record<WorkspaceStatus, WorkspaceStatus>> = {
+    extraindo_edital: 'erro',
+  };
+
+  describe.each(STATUSES_SEM_ARESTA)('confirmar a partir de "%s" (sem aresta para diagnostico_pendente)', (status) => {
+    it('não lança e persiste a proposta inteira (nada pela metade) — o botão continua funcionando', async () => {
+      seedWorkspaceWithStatus(status);
+      seedPendingImport();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      expect(() => fireEvent.click(screen.getByText('Confirmar estrutura'))).not.toThrow();
+
+      // Tudo o que a proposta implica foi escrito — não uma escrita pela metade.
+      const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+      expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
+        ['Crase', 'Matemática financeira básica'].sort(),
+      );
+      // 2 seeded + 2 provisórios novos (nenhuma das duas entradas casa direto com um
+      // conceito CONFIRMED — a mesma fixture da Task 11).
+      expect(JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!)).toHaveLength(4);
+      expect(readApprovals()).toHaveLength(2);
+
+      // A importação pendente foi limpa — o botão "continua funcionando" significa
+      // exatamente isto: a ação de confirmar chegou ao fim, não travou pela metade.
+      expect(window.sessionStorage.getItem(PENDING_KEY)).toBeNull();
+
+      // Sem aresta válida, `handleConfirm` nunca escreve "diagnostico_pendente"
+      // fingido — o status fica como estava, ou (só para `extraindo_edital`) segue o
+      // caminho de autocura já testado em `Edital.test.tsx`.
+      expect(readWorkspaceStatus()).toBe(EXPECTED_FINAL_STATUS[status] ?? status);
+    });
+  });
+
+  it('confirmar a partir de um status COM aresta válida (ex.: aguardando_revisao_edital) ainda avança o status normalmente', async () => {
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+    seedPendingImport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
+    expect(readApprovals()).toHaveLength(2);
   });
 });

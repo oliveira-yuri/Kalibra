@@ -7,7 +7,7 @@ import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
 import {
-  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition,
+  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition, canTransition,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
 } from '@workspace/core';
@@ -163,6 +163,28 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     if (confirmedRef.current) return;
     confirmedRef.current = true;
 
+    // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
+    // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
+    // status ao lado dela (ver regressão I2).
+    const targetStatus = 'diagnostico_pendente' as const;
+    const statusBeforeConfirm = pending?.isNew ? (pending.workspace?.status ?? targetStatus) : (workspace?.status ?? targetStatus);
+    // Fix round 2 (crítico, corrige o achado menor do round 1): QUATRO dos nove status
+    // não têm aresta para "diagnostico_pendente" — `sem_edital`, `aguardando_upload`,
+    // `extraindo_edital` e `erro` (o comentário anterior dizia o contrário; estava
+    // errado, `sem_edital` não é um caso coberto). Chamar `assertTransition` sobre uma
+    // entrada vinda de estado persistido, dentro de um handler de clique sem nada para
+    // pegar o throw, é exatamente o anti-padrão do Finding 1 — e aqui era pior, porque
+    // o assert vinha DEPOIS das três escritas: uma entrada inválida deixava o Syllabus
+    // e os conceitos gravados, a fila enfileirada, mas o status preso e a importação
+    // pendente nunca limpa — um "torn write" do qual nem um segundo clique escapa
+    // (`confirmedRef` já estaria marcado). A checagem com `canTransition` roda ANTES de
+    // qualquer persistência: ou tudo acontece, ou nada acontece. Quando a aresta não é
+    // válida, a proposta ainda é confirmada (é o que o botão promete) — só o status não
+    // avança, e continua sendo o que já era.
+    const canAdvanceStatus = statusBeforeConfirm === targetStatus || canTransition(statusBeforeConfirm, targetStatus);
+    if (statusBeforeConfirm !== targetStatus && canAdvanceStatus) assertTransition(statusBeforeConfirm, targetStatus);
+    const status = canAdvanceStatus ? targetStatus : statusBeforeConfirm;
+
     if (review) {
       // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
       // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
@@ -197,17 +219,6 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
     }
 
-    // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
-    // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
-    // status ao lado dela (ver regressão I2).
-    const status = 'diagnostico_pendente' as const;
-    // Fix round 1 (achado menor): todo outro lugar do lote que muda `status` passa por
-    // `assertTransition` (Task 10); só este confirm não passava. A aresta é válida em
-    // todo fluxo real que chega aqui (extração terminada = "aguardando_revisao_edital",
-    // ou edição manual de uma estrutura já confirmada) — o guard de "já está lá" evita
-    // um assert vazio quando não há nada a transicionar.
-    const statusBeforeConfirm = pending?.isNew ? (pending.workspace?.status ?? status) : (workspace?.status ?? status);
-    if (statusBeforeConfirm !== status) assertTransition(statusBeforeConfirm, status);
     if (pending?.isNew && pending.workspace) {
       addWorkspace({
         ...pending.workspace,
