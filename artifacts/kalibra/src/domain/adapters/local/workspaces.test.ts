@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { hasEdital } from '@workspace/core';
-import { migrateWorkspace, getWorkspaces, useWorkspaces, type WorkspaceDraft, defaultCargo } from './workspaces';
+import {
+  migrateWorkspace, getWorkspaces, useWorkspaces, type WorkspaceDraft, defaultCargo, reserveNextSyllabusVersion,
+} from './workspaces';
 
 const ANTIGO = {
   slug: 'setec-campinas',
@@ -279,6 +281,87 @@ describe('getWorkspaces — um registro corrompido não pode derrubar os outros'
     expect(() => getWorkspaces()).not.toThrow();
     const workspaces = getWorkspaces();
     expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas']);
+  });
+});
+
+describe('getWorkspaces — achado I6 da revisão final: corrupção não pode ressuscitar a demonstração', () => {
+  const KEY = 'kalibra_workspaces:anonymous';
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('chave GENUINAMENTE ausente semeia a demonstração (primeiro uso de verdade)', () => {
+    expect(localStorage.getItem(KEY)).toBeNull();
+    const workspaces = getWorkspaces();
+    expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas', 'bb-escriturario']);
+  });
+
+  it('JSON corrompido devolve lista VAZIA, nunca a demonstração — a corrupção não pode se passar por primeiro uso', () => {
+    localStorage.setItem(KEY, 'isto não é json{{{');
+    const workspaces = getWorkspaces();
+    expect(workspaces).toEqual([]);
+  });
+
+  it('valor salvo que não é um array (ex.: um objeto solto) também devolve lista vazia, não a demonstração', () => {
+    localStorage.setItem(KEY, JSON.stringify({ isto: 'não é uma lista' }));
+    const workspaces = getWorkspaces();
+    expect(workspaces).toEqual([]);
+  });
+
+  it('a corrupção detectada não sobrescreve nada sozinha — uma leitura pura não grava', () => {
+    localStorage.setItem(KEY, 'lixo{{{');
+    getWorkspaces();
+    // getWorkspaces() é só leitura — o valor corrompido original continua lá, disponível
+    // para qualquer tentativa de recuperação manual, em vez de já ter sido substituído.
+    expect(localStorage.getItem(KEY)).toBe('lixo{{{');
+  });
+
+  it('um array corrompido cujo conteúdo ainda é reconhecível continua sendo recuperado item a item (comportamento pré-existente, não regressão)', () => {
+    localStorage.setItem(KEY, JSON.stringify([ANTIGO]));
+    expect(getWorkspaces().map((w) => w.slug)).toEqual(['setec-campinas']);
+  });
+});
+
+describe('reserveNextSyllabusVersion — achado C1 da revisão final (identidade de uma importação)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('a primeira reserva de um slug novo é 1', () => {
+    expect(reserveNextSyllabusVersion('novo-concurso')).toBe(1);
+  });
+
+  it('cada reserva subsequente do MESMO slug é estritamente maior que a anterior', () => {
+    expect(reserveNextSyllabusVersion('setec-campinas')).toBe(1);
+    expect(reserveNextSyllabusVersion('setec-campinas')).toBe(2);
+    expect(reserveNextSyllabusVersion('setec-campinas')).toBe(3);
+  });
+
+  it('é durável — sobrevive a uma "nova aba" (nova leitura do módulo, não só em memória)', () => {
+    reserveNextSyllabusVersion('setec-campinas');
+    reserveNextSyllabusVersion('setec-campinas');
+    // Uma reimportação abandonada nunca chega a limpar nada — a próxima reserva, mesmo
+    // "numa aba nova", nunca pode reciclar um número já usado.
+    expect(reserveNextSyllabusVersion('setec-campinas')).toBe(3);
+  });
+
+  it('slugs diferentes têm contadores independentes', () => {
+    reserveNextSyllabusVersion('setec-campinas');
+    reserveNextSyllabusVersion('setec-campinas');
+    expect(reserveNextSyllabusVersion('outro-concurso')).toBe(1);
+  });
+
+  it('é namespaced por usuário, como as outras chaves', () => {
+    reserveNextSyllabusVersion('setec-campinas', 'user-1');
+    expect(reserveNextSyllabusVersion('setec-campinas', 'user-2')).toBe(1);
+  });
+
+  it('reproduz o cenário do achado C1: reimportar duas vezes (a primeira abandonada) nunca gera a mesma versão que a primeira reserva', () => {
+    // Cenário do achado: usuário reimporta (reserva 2), abandona sem decidir, reimporta
+    // de novo — antes da correção, a rota era sempre o literal `/edital/revisar/2` nas
+    // duas vezes; agora a segunda tentativa reserva um número que a primeira NUNCA usou.
+    const primeiraTentativa = reserveNextSyllabusVersion('setec-campinas');
+    const segundaTentativaAbandonandoAPrimeira = reserveNextSyllabusVersion('setec-campinas');
+    expect(segundaTentativaAbandonandoAPrimeira).not.toBe(primeiraTentativa);
   });
 });
 

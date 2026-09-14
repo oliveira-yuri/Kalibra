@@ -183,6 +183,49 @@ export interface PendingWorkspaceImport {
 const STORAGE_KEY = 'kalibra_workspaces';
 const storageKeyFor = (userId?: string) => `${STORAGE_KEY}:${userId || 'anonymous'}`;
 const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital:${userId || 'anonymous'}:${slug}`;
+const VERSION_STORAGE_PREFIX = 'kalibra_syllabus_version';
+const versionKeyFor = (slug: string, userId?: string) => `${VERSION_STORAGE_PREFIX}:${userId || 'anonymous'}:${slug}`;
+
+/**
+ * Reserva o próximo número de versão de revisão do edital para este workspace — a
+ * identidade real de UMA IMPORTAÇÃO (achado C1 da revisão final). Antes, a rota
+ * `/edital/revisar/:version` era montada com um LITERAL fixo — `1` em
+ * `NovoWorkspace.tsx`, `2` em `Edital.tsx` — sem contador algum: reimportar sempre
+ * roteava para a mesma URL, e uma primeira importação abandonada e refeita com o
+ * MESMO título gerava o MESMO slug (`uniqueSlug` só evita colisão com workspaces que
+ * de fato existem — um abandonado nunca chega a existir). Nos dois casos, o
+ * inicializador de `EditalRevisar` achava o item ANTIGO ainda pendente na fila
+ * (mesmo `workspaceId` + mesma `version` da URL) e retomava a proposta ERRADA — a de
+ * uma importação abandonada, com o `workspaceDraft` antigo junto — e "Confirmar
+ * estrutura" gravava o programa errado.
+ *
+ * A correção: reservar um número NUNCA usado antes, de forma DURÁVEL (localStorage,
+ * não sessionStorage — sobrevive a fechar a aba) e no momento em que a extração É
+ * INICIADA, não quando é confirmada. Isso garante que duas importações do mesmo slug
+ * — mesmo que a primeira nunca seja confirmada nem descartada — nunca competem pelo
+ * mesmo número: reimportar sempre reserva um número novo, nunca reciclado, então a
+ * fila nunca pode confundir a proposta certa com uma abandonada. Funciona mesmo para
+ * um workspace que ainda nem existe (`NovoWorkspace`): a chave é pelo SLUG, não por
+ * um registro em `kalibra_workspaces`.
+ */
+export function reserveNextSyllabusVersion(slug: string, userId?: string): number {
+  const key = versionKeyFor(slug, userId);
+  let current = 0;
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? Number.parseInt(raw, 10) : 0;
+    if (Number.isFinite(parsed) && parsed > 0) current = parsed;
+  } catch (error) {
+    console.error('Não foi possível ler o contador de versão do edital — reservando a partir de 1.', error);
+  }
+  const next = current + 1;
+  try {
+    localStorage.setItem(key, String(next));
+  } catch (error) {
+    console.error('Não foi possível persistir o contador de versão do edital.', error);
+  }
+  return next;
+}
 
 export function stageWorkspaceImport(slug: string, pending: PendingWorkspaceImport, userId?: string) {
   sessionStorage.setItem(pendingKeyFor(slug, userId), JSON.stringify(pending));
@@ -235,31 +278,56 @@ const defaultPrograms: WorkspaceDraft[] = [
   }
 ];
 
+/**
+ * Achado I6 da revisão final: antes, "chave ausente", "valor não é um array" e "JSON
+ * corrompido" caíam todos no MESMO fallback (`defaultPrograms`) — um usuário com uma
+ * chave danificada via os dois concursos fictícios de demonstração aparecerem do nada,
+ * e a primeira escrita (`addWorkspace`/`updateWorkspace`) persistia essa lista
+ * fabricada POR CIMA do registro original recuperável, enquanto `kalibra_syllabus`,
+ * `kalibra_concepts` e `kalibra_approvals` sobreviviam órfãos (indexados por slugs que
+ * não existem mais em `kalibra_workspaces`). Só "chave genuinamente ausente" é
+ * primeiro-uso de verdade; um valor presente mas ilegível é corrupção, e o único jeito
+ * seguro de tratar corrupção é devolver uma lista vazia — nunca inventar dado que a
+ * próxima escrita torna permanente.
+ */
 export function getWorkspaces(userId?: string): WorkspaceDraft[] {
+  const key = storageKeyFor(userId);
+  let saved: string | null;
   try {
-    const saved = localStorage.getItem(storageKeyFor(userId));
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((item) => {
-            // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
-            // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
-            // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
-            try {
-              return migrateWorkspace(item);
-            } catch (error) {
-              console.error('Registro de workspace corrompido, descartado.', error);
-              return null;
-            }
-          })
-          .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
-      }
-    }
+    saved = localStorage.getItem(key);
   } catch (error) {
-    console.error('Não foi possível carregar os workspaces locais.', error);
+    // O próprio acesso ao armazenamento falhou (ex.: bloqueado pelo navegador) — não há
+    // como distinguir "vazio" de "corrompido" aqui; semear a demonstração é o único
+    // comportamento que não deixa a tela quebrada.
+    console.error('Não foi possível acessar os workspaces locais.', error);
+    return defaultPrograms;
   }
-  return defaultPrograms;
+
+  if (saved === null) return defaultPrograms;
+
+  try {
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) {
+      console.error('Registro de workspaces corrompido (formato inesperado) — tratado como vazio, não substituído por dados de demonstração.');
+      return [];
+    }
+    return parsed
+      .map((item) => {
+        // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
+        // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
+        // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
+        try {
+          return migrateWorkspace(item);
+        } catch (error) {
+          console.error('Registro de workspace corrompido, descartado.', error);
+          return null;
+        }
+      })
+      .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
+  } catch (error) {
+    console.error('Registro de workspaces corrompido (JSON inválido) — tratado como vazio, não substituído por dados de demonstração.', error);
+    return [];
+  }
 }
 
 export function saveWorkspaces(workspaces: WorkspaceDraft[], userId?: string) {
