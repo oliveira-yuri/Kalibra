@@ -9,4 +9,5 @@ export const domainConfig = {
   notes: 'local',
   studyState: 'local',
   theme: 'local',
+  extraction: 'local',
 } satisfies Record<string, ModuleSource>;
