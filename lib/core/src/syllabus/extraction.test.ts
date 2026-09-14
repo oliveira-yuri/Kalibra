@@ -71,4 +71,28 @@ describe('mensagens de erro', () => {
       expect(EXTRACTION_ERROR_MESSAGES[kind].action.length).toBeGreaterThan(0);
     }
   });
+
+  // Fix round 1 (achado menor): o teste acima só provava que as strings não estavam
+  // vazias — um "Erro." passaria. Fixado contra o texto literal do PD-07, para que o
+  // copy não possa derivar do spec com a suíte verde.
+  it('mensagem e ação batem literalmente com o texto do PD-07', () => {
+    expect(EXTRACTION_ERROR_MESSAGES).toEqual({
+      scanned: {
+        message: 'Este PDF é uma imagem, não texto. Não é possível extrair o conteúdo automaticamente.',
+        action: 'Colar o texto manualmente',
+      },
+      corrupted: {
+        message: 'Não foi possível abrir o arquivo.',
+        action: 'Enviar outro arquivo',
+      },
+      short: {
+        message: 'O conteúdo enviado tem poucas palavras. Verifique se é o edital completo.',
+        action: 'Enviar mesmo assim',
+      },
+      structure: {
+        message: 'O conteúdo foi extraído, mas não conseguimos identificar a estrutura.',
+        action: 'Montar manualmente',
+      },
+    });
+  });
 });

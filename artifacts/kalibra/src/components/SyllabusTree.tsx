@@ -73,13 +73,17 @@ export function SyllabusTree({
   const childrenOf = (parentId: string) => visible.filter((item) => item.parentItemId === parentId);
 
   const renderFields = (item: SyllabusItem) => {
+    // `w-[90px]` é o mesmo valor arbitrário que `AvailabilityFields` já usa para um
+    // campo numérico de largura fixa ("Sessão máxima") — fix round 1 (achado menor):
+    // `w-[56px]`/`w-[48px]` eram os únicos valores arbitrários novos do lote inteiro;
+    // reaproveitar o que já existe em vez de inventar dois novos.
     if (cargoId === null) {
       const weight = consolidatedWeight(syllabus, item.id);
       const questions = consolidatedQuestions(syllabus, item.id);
       return (
         <div className="flex items-center gap-1 shrink-0">
-          <input className="k-input w-[56px] text-right" value={weight ?? ''} placeholder="%" disabled data-testid={`input-peso-${item.id}`} />
-          <input className="k-input w-[48px] text-right" value={questions || ''} placeholder="qtd" disabled data-testid={`input-questoes-${item.id}`} />
+          <input type="number" className="k-input w-[90px] text-right" value={weight ?? ''} placeholder="%" disabled data-testid={`input-peso-${item.id}`} />
+          <input type="number" className="k-input w-[90px] text-right" value={questions || ''} placeholder="qtd" disabled data-testid={`input-questoes-${item.id}`} />
         </div>
       );
     }
@@ -88,7 +92,7 @@ export function SyllabusTree({
       <div className="flex items-center gap-1 shrink-0">
         <input
           type="number"
-          className="k-input w-[56px] text-right"
+          className="k-input w-[90px] text-right"
           value={link?.weight ?? ''}
           placeholder="%"
           onChange={(event) => onWeightChange(item.id, cargoId, parseNumberOrNull(event.target.value))}
@@ -96,7 +100,7 @@ export function SyllabusTree({
         />
         <input
           type="number"
-          className="k-input w-[48px] text-right"
+          className="k-input w-[90px] text-right"
           value={link?.questionCount ?? ''}
           placeholder="qtd"
           onChange={(event) => onQuestionCountChange(item.id, cargoId, parseNumberOrNull(event.target.value))}

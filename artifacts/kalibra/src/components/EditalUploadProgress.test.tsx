@@ -1,7 +1,31 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, screen, fireEvent } from '@testing-library/react';
-import { EXTRACTION_ERROR_MESSAGES, type ExtractionErrorKind, type ExtractionProgress } from '@workspace/core';
+import type { ExtractionErrorKind, ExtractionProgress } from '@workspace/core';
 import { EditalUploadProgress } from './EditalUploadProgress';
+
+// Texto literal do PD-07, não reimportado de `EXTRACTION_ERROR_MESSAGES` — achado
+// menor do fix round 1: comparar o render contra a MESMA constante que o componente
+// usa é uma tautologia (os dois lados derivam juntos; o copy podia se afastar do spec
+// com a suíte inteira verde). Fixado aqui do mesmo jeito que `extraction.test.ts`
+// (lib/core) fixa a constante em si contra o spec.
+const EXPECTED_ERROR_COPY: Record<ExtractionErrorKind, { message: string; action: string }> = {
+  scanned: {
+    message: 'Este PDF é uma imagem, não texto. Não é possível extrair o conteúdo automaticamente.',
+    action: 'Colar o texto manualmente',
+  },
+  corrupted: {
+    message: 'Não foi possível abrir o arquivo.',
+    action: 'Enviar outro arquivo',
+  },
+  short: {
+    message: 'O conteúdo enviado tem poucas palavras. Verifique se é o edital completo.',
+    action: 'Enviar mesmo assim',
+  },
+  structure: {
+    message: 'O conteúdo foi extraído, mas não conseguimos identificar a estrutura.',
+    action: 'Montar manualmente',
+  },
+};
 
 const ERROR_KINDS: ExtractionErrorKind[] = ['scanned', 'corrupted', 'short', 'structure'];
 
@@ -65,7 +89,7 @@ describe('EditalUploadProgress — Task 10 (dirigido pelo adaptador, nunca simul
       const onAction = vi.fn();
       render(<EditalUploadProgress progress={progressFor({ stage: 'erro', errorKind: kind })} onReady={vi.fn()} onAction={onAction} />);
 
-      const expected = EXTRACTION_ERROR_MESSAGES[kind];
+      const expected = EXPECTED_ERROR_COPY[kind];
       expect(screen.getByText(expected.message)).toBeTruthy();
       const button = screen.getByTestId('button-extraction-error-action');
       expect(button.textContent).toContain(expected.action);
