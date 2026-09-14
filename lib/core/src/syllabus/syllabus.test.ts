@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   cargosFor, isCommon, hasCommonItems, itemsForCargo, totalQuestionsFor,
-  consolidatedQuestionCount, emptySyllabus, linkItemToCargo, type Syllabus,
+  consolidatedQuestionCount, emptySyllabus, linkItemToCargo, unlinkItemFromCargo, type Syllabus,
 } from './syllabus';
 import { splitItem } from './dedup';
 
@@ -197,5 +197,106 @@ describe('linkItemToCargo', () => {
       .map((link) => link.syllabusItemId + ':' + link.cargoId)
       .sort();
     expect(c1Links(split)).toEqual(c1Links(base));
+  });
+});
+
+describe('unlinkItemFromCargo', () => {
+  // "Crase" é comum a Analista (c1) e Técnico (c2), com peso e quantidade DIFERENTES
+  // por cargo — é exatamente o dado que a exclusão por cargo não pode contaminar.
+  const base: Syllabus = {
+    items: [
+      { id: 'i1', workspaceId: 'w', parentItemId: null, conceptId: 'k1', sourceLabel: 'Crase', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      { id: 'i2', workspaceId: 'w', parentItemId: null, conceptId: 'k2', sourceLabel: 'Informática', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'i1', cargoId: 'c1', weight: 5, questionCount: 2 },
+      { syllabusItemId: 'i1', cargoId: 'c2', weight: 6, questionCount: 3 },
+      { syllabusItemId: 'i2', cargoId: 'c2', weight: 20, questionCount: 5 },
+    ],
+  };
+
+  it('tira o item só do cargo pedido', () => {
+    const next = unlinkItemFromCargo(base, 'i1', 'c1');
+    expect(cargosFor(next, 'i1')).toEqual(['c2']);
+  });
+
+  it('o outro cargo mantém o item COM peso e quantidade intactos', () => {
+    const next = unlinkItemFromCargo(base, 'i1', 'c1');
+    expect(next.links).toContainEqual({ syllabusItemId: 'i1', cargoId: 'c2', weight: 6, questionCount: 3 });
+    expect(next.items.map((item) => item.id)).toContain('i1');
+  });
+
+  it('NÃO cria item novo (não é um split disfarçado)', () => {
+    const next = unlinkItemFromCargo(base, 'i1', 'c1');
+    expect(next.items).toHaveLength(base.items.length);
+  });
+
+  it('tirar o ÚLTIMO cargo exclui o item — não sobra item sem ligação', () => {
+    const next = unlinkItemFromCargo(base, 'i2', 'c2');
+    expect(next.items.map((item) => item.id)).toEqual(['i1']);
+    expect(next.links.filter((link) => link.syllabusItemId === 'i2')).toEqual([]);
+  });
+
+  it('não altera as ligações de outros itens', () => {
+    const next = unlinkItemFromCargo(base, 'i1', 'c1');
+    expect(next.links.filter((link) => link.syllabusItemId === 'i2'))
+      .toEqual(base.links.filter((link) => link.syllabusItemId === 'i2'));
+  });
+
+  it('cargo que o item não tem devolve o syllabus intacto', () => {
+    expect(unlinkItemFromCargo(base, 'i2', 'c1')).toEqual(base);
+  });
+
+  it('item inexistente devolve o syllabus intacto', () => {
+    expect(unlinkItemFromCargo(base, 'nao-existe', 'c1')).toEqual(base);
+  });
+
+  it('não muta a entrada', () => {
+    const snapshot = JSON.parse(JSON.stringify(base));
+    unlinkItemFromCargo(base, 'i1', 'c1');
+    expect(base).toEqual(snapshot);
+  });
+
+  describe('subtópicos', () => {
+    // "Crase" (pai) com dois filhos: um comum aos dois cargos, outro só do c1.
+    const comFilhos: Syllabus = {
+      items: [
+        ...base.items,
+        { id: 'f1', workspaceId: 'w', parentItemId: 'i1', conceptId: 'k3', sourceLabel: 'Crase facultativa', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+        { id: 'f2', workspaceId: 'w', parentItemId: 'i1', conceptId: 'k4', sourceLabel: 'Crase proibida', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      ],
+      links: [
+        ...base.links,
+        { syllabusItemId: 'f1', cargoId: 'c1', weight: 1, questionCount: 1 },
+        { syllabusItemId: 'f1', cargoId: 'c2', weight: 2, questionCount: 1 },
+        { syllabusItemId: 'f2', cargoId: 'c1', weight: 1, questionCount: 1 },
+      ],
+    };
+
+    it('o filho também deixa de pertencer ao cargo — nenhum órfão pendurado lá', () => {
+      const next = unlinkItemFromCargo(comFilhos, 'i1', 'c1');
+      expect(itemsForCargo(next, 'c1').map((item) => item.id)).toEqual([]);
+    });
+
+    it('o filho comum sobrevive no outro cargo, com o peso daquele cargo', () => {
+      const next = unlinkItemFromCargo(comFilhos, 'i1', 'c1');
+      expect(next.links).toContainEqual({ syllabusItemId: 'f1', cargoId: 'c2', weight: 2, questionCount: 1 });
+    });
+
+    it('o filho que só existia naquele cargo é excluído junto', () => {
+      const next = unlinkItemFromCargo(comFilhos, 'i1', 'c1');
+      expect(next.items.map((item) => item.id)).not.toContain('f2');
+    });
+
+    it('filho que sobrevive a um pai excluído vira raiz, nunca aponta para pai inexistente', () => {
+      // Tirar o c2 de "Crase" some com o pai (o c2 era a única ligação que sobrava
+      // depois de já não haver c1) — o filho comum f1 fica sem pai e vira raiz.
+      const semC1 = unlinkItemFromCargo(comFilhos, 'i1', 'c1');
+      const next = unlinkItemFromCargo(semC1, 'f1', 'c2');
+      const ids = new Set(next.items.map((item) => item.id));
+      next.items.forEach((item) => {
+        expect(item.parentItemId === null || ids.has(item.parentItemId)).toBe(true);
+      });
+    });
   });
 });

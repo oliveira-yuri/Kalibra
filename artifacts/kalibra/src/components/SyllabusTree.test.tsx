@@ -53,6 +53,8 @@ function renderTree(overrides: Partial<{
   cargoId: string | null;
   onLinkToCargo(itemId: string, cargoId: string): void;
   onSplit(itemId: string, cargoId: string): void;
+  onRemove(itemId: string): void;
+  onRemoveFromCargo(itemId: string, cargoId: string): void;
 }> = {}) {
   return render(
     <SyllabusTree
@@ -60,7 +62,8 @@ function renderTree(overrides: Partial<{
       cargos={TASK7_CARGOS}
       cargoId={overrides.cargoId ?? null}
       onRename={noop}
-      onRemove={noop}
+      onRemove={overrides.onRemove ?? noop}
+      onRemoveFromCargo={overrides.onRemoveFromCargo ?? noop}
       onAdd={noop}
       onSplit={overrides.onSplit ?? noop}
       onLinkToCargo={overrides.onLinkToCargo ?? noop}
@@ -73,7 +76,7 @@ function renderTree(overrides: Partial<{
 describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um campo só)', () => {
   it('com um cargo específico selecionado, os campos são editáveis e refletem a ligação daquele cargo', () => {
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c1" onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c1" onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     const weightInput = getByTestId('input-peso-materia-1') as HTMLInputElement;
     const questionsInput = getByTestId('input-questoes-materia-1') as HTMLInputElement;
@@ -85,7 +88,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
   it('editar o peso com um cargo selecionado chama onWeightChange com aquele cargo, não outro', () => {
     const onWeightChange = vi.fn();
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c2" onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={onWeightChange} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c2" onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={onWeightChange} onQuestionCountChange={noop} />,
     );
     fireEvent.change(getByTestId('input-peso-materia-1'), { target: { value: '40' } });
     expect(onWeightChange).toHaveBeenCalledWith('materia-1', 'c2', 40);
@@ -93,7 +96,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
 
   it('com "todos os cargos" (cargoId null), os campos ficam desabilitados e mostram o consolidado — maior peso, não a soma', () => {
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     const weightInput = getByTestId('input-peso-materia-1') as HTMLInputElement;
     const questionsInput = getByTestId('input-questoes-materia-1') as HTMLInputElement;
@@ -107,7 +110,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
 
   it('item incerto ganha o chip coral de incerteza', () => {
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     expect(getByTestId('chip-uncertain-topico-1')).toBeTruthy();
     expect(() => getByTestId('chip-uncertain-materia-1')).toThrow();
@@ -117,7 +120,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
     const onRename = vi.fn();
     const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Língua Portuguesa e Literatura');
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={onRename} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={onRename} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     fireEvent.click(getByTestId('button-item-menu-materia-1'));
     fireEvent.click(getByTestId('button-rename-materia-1'));
@@ -128,7 +131,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
   it('excluir via o menu de três pontos chama onRemove com o itemId', () => {
     const onRemove = vi.fn();
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={onRemove} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={onRemove} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     fireEvent.click(getByTestId('button-item-menu-topico-1'));
     fireEvent.click(getByTestId('button-remove-topico-1'));
@@ -138,7 +141,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
   it('"adicionar tópico" chama onAdd com o id da matéria pai; "adicionar matéria" chama com null', () => {
     const onAdd = vi.fn();
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={onAdd} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={onAdd} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     fireEvent.click(getByTestId('button-add-topic-materia-1'));
     expect(onAdd).toHaveBeenCalledWith('materia-1');
@@ -148,7 +151,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
 
   it('filtra itens pelo cargo selecionado — item sem ligação com o cargo não aparece', () => {
     const { queryByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c2" onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId="c2" onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     // "Crase" só tem ligação com c1, não c2.
     expect(queryByTestId('row-syllabus-item-topico-1')).toBeNull();
@@ -159,7 +162,7 @@ describe('SyllabusTree — Task 11 (peso e quantidade são por cargo, nunca um c
 describe('SyllabusTree — Task 12 (deduplicação visível e reversível)', () => {
   it('item ligado a mais de um cargo ganha o chip neutro "N cargos"; item de um cargo só, não', () => {
     const { getByTestId, queryByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     // "Língua Portuguesa" está ligada a c1 e c2 — os dois únicos cargos desta fixture,
     // então o chip agora lê "comum a todos" (Fase 1B.5), não mais a contagem "2 cargos".
@@ -171,7 +174,7 @@ describe('SyllabusTree — Task 12 (deduplicação visível e reversível)', () 
   it('o menu de um item comum ganha "Separar de <cargo>" para cada cargo ligado, chamando onSplit', () => {
     const onSplit = vi.fn();
     const { getByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={noop} onSplit={onSplit} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={onSplit} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     fireEvent.click(getByTestId('button-item-menu-materia-1'));
     expect(getByTestId('button-split-materia-1-c1').textContent).toContain('Analista Técnico');
@@ -183,7 +186,7 @@ describe('SyllabusTree — Task 12 (deduplicação visível e reversível)', () 
 
   it('o menu de um item não comum não oferece "Separar de"', () => {
     const { getByTestId, queryByTestId } = render(
-      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
+      <SyllabusTree syllabus={SYLLABUS} cargos={CARGOS} cargoId={null} onRename={noop} onRemove={noop} onRemoveFromCargo={noop} onAdd={noop} onSplit={noop} onLinkToCargo={noop} onWeightChange={noop} onQuestionCountChange={noop} />,
     );
     fireEvent.click(getByTestId('button-item-menu-topico-1'));
     expect(queryByTestId('button-split-topico-1-c1')).toBeNull();
@@ -220,5 +223,58 @@ describe('vínculos por cargo (Fase 1B.5)', () => {
   it('um item ligado a um cargo só é marcado com o nome daquele cargo', () => {
     renderTree({ cargoId: null });
     expect(screen.getByTestId('chip-escopo-i1').textContent).toContain('só Analista');
+  });
+});
+
+/**
+ * Achado I-2 da revisão final: "Excluir" apagava o item de TODOS os cargos mesmo com o
+ * filtro num cargo só — violando o critério "alterar um cargo não contamina os demais".
+ * O menu agora oferece as duas exclusões e DIZ qual delas vai acontecer.
+ */
+describe('SyllabusTree — achado I-2 (excluir daqui versus excluir de tudo)', () => {
+  const abrirMenu = (itemId: string) => fireEvent.click(screen.getByTestId(`button-item-menu-${itemId}`));
+
+  it('com o filtro num cargo, o item comum é excluído SÓ daquele cargo', () => {
+    const onRemove = vi.fn();
+    const onRemoveFromCargo = vi.fn();
+    renderTree({ cargoId: 'c1', onRemove, onRemoveFromCargo });
+
+    abrirMenu('i2');
+    fireEvent.click(screen.getByTestId('button-remove-i2'));
+
+    expect(onRemoveFromCargo).toHaveBeenCalledWith('i2', 'c1');
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it('e o rótulo nomeia o cargo, para não haver dúvida sobre o alcance', () => {
+    renderTree({ cargoId: 'c1' });
+    abrirMenu('i2');
+    expect(screen.getByTestId('button-remove-i2').textContent).toBe('Excluir de Analista');
+  });
+
+  it('com "todos os cargos", excluir continua removendo o item inteiro', () => {
+    const onRemove = vi.fn();
+    const onRemoveFromCargo = vi.fn();
+    renderTree({ cargoId: null, onRemove, onRemoveFromCargo });
+
+    abrirMenu('i2');
+    expect(screen.getByTestId('button-remove-i2').textContent).toBe('Excluir de todos os cargos');
+    fireEvent.click(screen.getByTestId('button-remove-i2'));
+
+    expect(onRemove).toHaveBeenCalledWith('i2');
+    expect(onRemoveFromCargo).not.toHaveBeenCalled();
+  });
+
+  it('item de um cargo só: excluir é excluir, e o rótulo não promete mais do que faz', () => {
+    const onRemove = vi.fn();
+    const onRemoveFromCargo = vi.fn();
+    renderTree({ cargoId: 'c1', onRemove, onRemoveFromCargo });
+
+    abrirMenu('i1');
+    expect(screen.getByTestId('button-remove-i1').textContent).toBe('Excluir');
+    fireEvent.click(screen.getByTestId('button-remove-i1'));
+
+    expect(onRemove).toHaveBeenCalledWith('i1');
+    expect(onRemoveFromCargo).not.toHaveBeenCalled();
   });
 });

@@ -46,6 +46,7 @@ export function SyllabusTree({
   cargos,
   onRename,
   onRemove,
+  onRemoveFromCargo,
   onAdd,
   onSplit,
   onLinkToCargo,
@@ -58,10 +59,17 @@ export function SyllabusTree({
   /** Cargos do workspace, só para rotular "Separar de <cargo>" e "Aplicar a <cargo>" no menu do item. */
   cargos: Cargo[];
   onRename(itemId: string, label: string): void;
+  /** Exclui o item de TODOS os cargos. Só é oferecido quando não há a que restringir. */
   onRemove(itemId: string): void;
+  /**
+   * Exclui o item de UM cargo, deixando os demais intactos — Fase 1B.5. Enquanto todo
+   * item era comum a todos os cargos, "excluir daqui" e "excluir de tudo" eram a mesma
+   * operação; agora não são, e o menu precisa das duas.
+   */
+  onRemoveFromCargo(itemId: string, cargoId: string): void;
   onAdd(parentItemId: string | null): void;
   onSplit(itemId: string, cargoId: string): void;
-  /** Liga o item a mais um cargo (o inverso de `onSplit`) — Fase 1B.5. */
+  /** Liga o item a mais um cargo (a direção contrária à de `onSplit`) — Fase 1B.5. */
   onLinkToCargo(itemId: string, cargoId: string): void;
   onWeightChange(itemId: string, cargoId: string, weight: number | null): void;
   onQuestionCountChange(itemId: string, cargoId: string, questionCount: number | null): void;
@@ -120,6 +128,11 @@ export function SyllabusTree({
   const renderMenu = (item: SyllabusItem) => {
     if (openMenu !== item.id) return null;
     const common = isCommon(syllabus, item.id);
+    // `cargoId !== null` é "estou vendo um cargo só"; `common` é "o item tem mais de
+    // uma ligação". Só os dois juntos fazem a exclusão por cargo existir: com o item
+    // num cargo só, tirar aquela ligação É excluir o item, e o rótulo simples é o
+    // honesto.
+    const porCargo = cargoId !== null && common;
     return (
       <div className="absolute right-2 top-8 z-10 flex w-44 flex-col border border-[#d5dede] bg-white p-1 shadow-lg dark:border-[#394452] dark:bg-[#161b23]">
         <button
@@ -155,12 +168,24 @@ export function SyllabusTree({
               Aplicar a {cargoName(cargo.id)}
             </button>
           ))}
+        {/*
+          Excluir precisa dizer QUAL das duas coisas vai fazer. Com o filtro num cargo
+          e o item pertencendo a mais de um, exclui só daquele cargo — os outros ficam
+          com o conteúdo, o peso e a quantidade (critério "alterar um cargo não
+          contamina os demais"). Sem filtro, ou com o item pertencendo a um cargo só,
+          exclui o item inteiro, como sempre fez. Um rótulo só para os dois casos era a
+          armadilha: o usuário filtrava por um cargo e apagava o conteúdo de todos.
+        */}
         <button
           className="k-button k-button-quiet justify-start text-[10px] text-[#c94f45] dark:text-[#ff907d]"
-          onClick={() => { onRemove(item.id); setOpenMenu(null); }}
+          onClick={() => {
+            if (porCargo) onRemoveFromCargo(item.id, cargoId);
+            else onRemove(item.id);
+            setOpenMenu(null);
+          }}
           data-testid={`button-remove-${item.id}`}
         >
-          Excluir
+          {porCargo ? `Excluir de ${cargoName(cargoId)}` : (common ? 'Excluir de todos os cargos' : 'Excluir')}
         </button>
       </div>
     );

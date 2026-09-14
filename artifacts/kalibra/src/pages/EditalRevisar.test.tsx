@@ -1484,3 +1484,173 @@ describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é id
     expect(window.sessionStorage.getItem(PENDING_KEY)).toBeNull();
   });
 });
+
+/**
+ * Achado I-2 da revisão final de branch: "Excluir" apagava o item de TODOS os cargos
+ * mesmo com o filtro num cargo só, sem confirmação — violando o critério de aceite
+ * "alterar um cargo não contamina os demais". Os dois caminhos da tela são cobertos
+ * aqui: a PROPOSTA em revisão (estado `review`, nada persistido ainda) e o PROGRAMA já
+ * salvo (`syllabusApi`, grava na hora). Corrigir um só deixaria metade dos casos morta.
+ */
+describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contamina os outros cargos)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const abrirMenuDe = (label: string) => {
+    const id = itemIdOf(label);
+    fireEvent.click(screen.getByTestId(`button-item-menu-${id}`));
+    return id;
+  };
+
+  describe('na proposta em revisão (estado `review`)', () => {
+    it('exclui o item só do cargo filtrado — o outro cargo continua com ele', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      // LÍNGUA PORTUGUESA é comum a c1 e c2; INFORMÁTICA é só do c2.
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      expect(screen.getByTestId(`button-remove-${id}`).textContent).toBe('Excluir de Analista');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      // Some da visão do Analista...
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+      // ...e continua na visão do Técnico.
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+    });
+
+    it('o peso e a quantidade de questões do outro cargo ficam intactos', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      // O Técnico informa peso 30 e 7 questões para LÍNGUA PORTUGUESA.
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      const id = itemIdOf('LÍNGUA PORTUGUESA');
+      fireEvent.change(screen.getByTestId(`input-peso-${id}`), { target: { value: '30' } });
+      fireEvent.change(screen.getByTestId(`input-questoes-${id}`), { target: { value: '7' } });
+
+      // O Analista exclui o mesmo item da visão dele.
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      abrirMenuDe('LÍNGUA PORTUGUESA');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect((screen.getByTestId(`input-peso-${id}`) as HTMLInputElement).value).toBe('30');
+      expect((screen.getByTestId(`input-questoes-${id}`) as HTMLInputElement).value).toBe('7');
+    });
+
+    it('confirmar grava a topologia sem a ligação excluída — e sem perder o item', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+      fireEvent.click(screen.getByTestId('cargo-filter-todos'));
+      fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+      const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+      const item = stored.items.find((candidate: { sourceLabel: string }) => candidate.sourceLabel === 'LÍNGUA PORTUGUESA');
+      expect(item).toBeTruthy();
+      expect(stored.links
+        .filter((link: { syllabusItemId: string }) => link.syllabusItemId === item.id)
+        .map((link: { cargoId: string }) => link.cargoId)).toEqual(['c2']);
+    });
+
+    it('com "todos os cargos" selecionado, excluir continua apagando o item inteiro', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      expect(screen.getByTestId(`button-remove-${id}`).textContent).toBe('Excluir de todos os cargos');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+    });
+  });
+
+  describe('no programa já persistido (`syllabusApi`)', () => {
+    // "Crase" comum aos dois cargos, com peso e quantidade DIFERENTES por cargo — o
+    // dado do relato do achado. "Informática" é só do Técnico.
+    const SALVO = {
+      items: [
+        { id: 'i1a', workspaceId: 'setec-campinas', conceptId: 'k-crase', parentItemId: null, sourceLabel: 'Crase', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+        { id: 'i2a', workspaceId: 'setec-campinas', conceptId: 'k-info', parentItemId: null, sourceLabel: 'Informatica', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      ],
+      links: [
+        { syllabusItemId: 'i1a', cargoId: 'c1', weight: 5, questionCount: 2 },
+        { syllabusItemId: 'i1a', cargoId: 'c2', weight: 6, questionCount: 3 },
+        { syllabusItemId: 'i2a', cargoId: 'c2', weight: 20, questionCount: 5 },
+      ],
+    };
+
+    const lerSalvo = () => JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+
+    it('exclui a ligação daquele cargo e deixa a do outro intocada, peso e questões inclusive', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
+      expect(screen.getByTestId('button-remove-i1a').textContent).toBe('Excluir de Analista');
+      fireEvent.click(screen.getByTestId('button-remove-i1a'));
+
+      const stored = lerSalvo();
+      expect(stored.items.map((item: { id: string }) => item.id).sort()).toEqual(['i1a', 'i2a']);
+      expect(stored.links).toContainEqual({ syllabusItemId: 'i1a', cargoId: 'c2', weight: 6, questionCount: 3 });
+      expect(stored.links.filter((link: { syllabusItemId: string; cargoId: string }) =>
+        link.syllabusItemId === 'i1a' && link.cargoId === 'c1')).toEqual([]);
+    });
+
+    it('"Crase" continua visível para o Técnico depois de o Analista excluí-la', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
+      fireEvent.click(screen.getByTestId('button-remove-i1a'));
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.getByText('Crase')).toBeTruthy();
+    });
+
+    it('item de um cargo só: excluir apaga o item inteiro, como sempre fez', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i2a'));
+      expect(screen.getByTestId('button-remove-i2a').textContent).toBe('Excluir');
+      fireEvent.click(screen.getByTestId('button-remove-i2a'));
+
+      const stored = lerSalvo();
+      expect(stored.items.map((item: { id: string }) => item.id)).toEqual(['i1a']);
+      expect(stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === 'i2a')).toEqual([]);
+    });
+  });
+});
