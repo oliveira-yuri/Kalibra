@@ -838,4 +838,173 @@ terceiro parâmetro opcional, espelhando `approve`). Nenhum arquivo em `lib/core
   `src/components/ui/`, lógica de `lib/core`) foi tocado por Tasks 14–16 nem por nenhum dos
   três fix rounds.
 
+## 14. Fix wave da revisão final de branch inteira (pós-Fase 1B, antes do merge)
+
+Uma revisão final de **branch inteira** (não mais incremental sobre um fix round
+anterior) devolveu **não pronto para merge**: dois achados Críticos (C1, C2), quatro
+Importantes (I1, I4, I5, I6) e dois menores de texto/performance. Diferente dos fix
+rounds 1–3 (seções 10–12), que corrigiam achados sobre as Tasks 14–16 especificamente,
+esta rodada revisou o branch completo — inclusive comportamento que já existia antes
+das Tasks 14–16 (I6) e uma lacuna que atravessa `lib/core` e os adaptadores locais
+(C2/I1).
+
+### Achado C1 (Crítico) — uma entrada obsoleta da fila sequestrava a próxima importação
+
+A rota `/edital/revisar/:version` nascia de um LITERAL fixo — `1` em
+`NovoWorkspace.tsx`, `2` em `Edital.tsx` — sem contador algum em lugar nenhum (nem no
+workspace, nem no Syllabus). `EditalRevisar` resolve qual proposta retomar casando
+`workspaceId` + a versão da URL contra `payloadAfter.version` de itens `edital_structure`
+pendentes na fila. Com a URL sempre igual entre tentativas, uma reimportação
+abandonada (item ainda pendente) era encontrada e retomada por engano pela tentativa
+seguinte — "Confirmar estrutura" gravava a árvore errada. O mesmo defeito atingia uma
+primeira importação abandonada e refeita com o mesmo título: `uniqueSlug` devolve o
+mesmo slug (o workspace anterior nunca chegou a existir), a URL seria de novo `1`, e o
+item antigo — incluindo seu `workspaceDraft` obsoleto — ressurgia.
+
+**Corrigido**: `reserveNextSyllabusVersion(slug, userId)` (novo, `workspaces.ts`) — um
+contador durável (`localStorage`), namespaced por slug + usuário, reservado no momento
+em que a extração É INICIADA (não quando é confirmada). Cada chamada devolve um número
+NUNCA usado antes para aquele slug, então duas tentativas — decididas ou abandonadas —
+nunca podem colidir. Funciona mesmo para um workspace que `handleConfirm` nunca chegou
+a criar, porque a chave é pelo slug, não por um registro em `kalibra_workspaces`.
+
+Reconciliado junto: `ApprovalCard.versionFrom` (fallback `'1'`) e
+`EditalRevisar.versionFromPayload` (fallback `null`) divergiam — um payload sem
+`version` linkava para `/edital/revisar/1` mas nunca batia na retomada (`null !==
+'1'`), abrindo uma tela sem nada para revisar onde "Confirmar" ainda avançava o status
+do workspace. Unificados num módulo compartilhado
+(`domain/edital-structure-payload.ts`), fallback `'1'` nos dois lugares agora.
+
+### Achado C2 (Crítico) + I1 (Importante) — mesma causa raiz: nada produzia um alias
+
+`diffSyllabus` (`lib/core`) já lia aliases via `matchConcept` para detectar renomeação
+entre versões do edital (PD-08) — a função em si estava correta e testada, com
+cobertura dedicada em `diff.test.ts`. Mas nenhum escritor em produção jamais
+acrescentava um alias: `dedupeEntries`, `addItem`, `confirmConcept` — todos deixavam
+`aliases: []`. O próprio exemplo do PD-08 do spec (`Crase` → "Emprego do acento
+indicativo de crase") produzia `removed: ["Crase"], added: ["Emprego..."], renamed:
+[]` — precisamente o que PD-08 existe para prevenir.
+
+Do mesmo defeito: aprovar um `concept_merge` só promovia `targetConceptId` a
+`confirmed` (`applyApprovalSideEffects`) — nunca reapontava
+`syllabus_item.conceptId` do item que gerou a proposta, nem registrava alias nenhum.
+`itemId` estava no payload e o efeito o ignorava. Cada reimportação acrescentava um
+conceito provisório duplicado à biblioteca global, para sempre, sem reconciliação.
+
+**Corrigido em duas camadas**: um produtor puro em `lib/core`
+(`withAlias`/`renameConcept`, `syllabus/concept.ts`) e dois escritores reais —
+`useSyllabus.renameItem` (item já confirmado: renomeia e atualiza o conceito global
+via `renameConcept`) e `EditalRevisar.handleRename` (item ainda em revisão: quando o
+conceito pertence a `review.newConcepts`, criado por esta mesma extração, a renomeação
+atualiza esse conceito em memória) — e `applyApprovalSideEffects`, que agora reaponta
+`syllabus_item.conceptId` para o alvo (`repointSyllabusItemConcept`, novo em
+`syllabus.ts`) e acrescenta o `sourceLabel` do item como alias do alvo
+(`addConceptAlias`, novo em `concepts.ts`).
+
+Teste do exemplo completo do PD-08 (`EditalRevisar.test.tsx`): importar "Crase",
+renomear em revisão para "Emprego do acento indicativo de crase", confirmar,
+reimportar com a redação "Crase" de novo — o diff mostra `~ 1 renomeado`, `+ 0
+adicionado`, `− 0 removido`.
+
+**Escopo deliberadamente não coberto**: renomear um item em revisão cujo conceito já
+existia ANTES desta extração (não está em `review.newConcepts`) só atualiza o rótulo
+do item, não o conceito global — fora do pedido literal ("renomear no review screen" +
+"concept_merge aprovado"); o caminho equivalente para um item já confirmado
+(`useSyllabus.renameItem`) cobre isso.
+
+### Achado I4 (Importante) — efeito colateral durante o render
+
+O inicializador preguiçoso de `useState` de `EditalRevisar` chamava
+`approvalsApi.enqueue` — que grava em armazenamento durável e dispatcha `storage`
+síncronamente — DURANTE o render (podia atualizar estado de um componente ancestral no
+meio da renderização desta árvore, e fazia o app depender de `StrictMode` desligado).
+Movido para um `useEffect`, com um `enqueuedRef` cobrindo a lacuna que a guarda de
+idempotência original (achar um item já pendente na fila) sozinha não cobre.
+
+### Achado I5 (Importante) — confirmar sem trava numa falha parcial
+
+`handleConfirm` marcava o trinco de idempotência ANTES de uma sequência de escritas
+nuas sem tratamento de erro. Uma falha no meio (cota de armazenamento esgotada — o
+regime esperado, já que a fila guarda cópias inteiras do Syllabus em todo item e nunca
+poda itens decididos) deixava uma escrita pela metade E o trinco preso para sempre.
+Corrigido com um `try/catch` em torno da sequência: falha reseta o trinco e mostra o
+erro (mesmo bloco visual do achado A residual do fix round 3), sem camada transacional
+completa. `newConcepts` (já escrito na biblioteca global) vira `[]` no `payloadAfter`
+de um item decidido — poda barata do peso morto que a fila nunca remove sozinha.
+
+### Achado I6 (Importante, pré-existente, agora com carga real) — corrupção não pode ressuscitar a demo
+
+`getWorkspaces` tratava "chave ausente", "não é array" e "JSON corrompido" como o
+MESMO caso — todos devolviam os dois workspaces de demonstração
+(`defaultPrograms`). Um usuário com uma chave danificada via a demo ressuscitar, e a
+primeira escrita persistia essa lista fabricada por cima do registro original
+recuperável, enquanto `kalibra_syllabus`/`kalibra_concepts`/`kalibra_approvals`
+sobreviviam órfãos. Corrigido: só "chave genuinamente ausente" semeia a demo agora;
+corrupção devolve lista vazia.
+
+### Dois menores
+
+- A copy de `EditalRevisar` prometia "mover" um tópico — ação que não existe no menu
+  do item (`SyllabusTree` só tem renomear/separar de um cargo/excluir). Removida a
+  promessa.
+- `diffSyllabus` (O(prev × concepts × strlen²), 339 ms medidos para 260 itens) e
+  `hasCommonItems` (`isCommon` é O(links) por item) eram recomputados em todo render
+  de `EditalRevisar`, inclusive a cada tecla num campo de peso/questões. Envolvidos em
+  `useMemo`.
+
+### Gate re-executado depois da correção
+
+`pnpm run typecheck` (passou, 4 pacotes). `pnpm run test`: `lib/core` 187 → **198**
+(+11 — `withAlias`/`renameConcept`), `artifacts/kalibra` 219 → **242** (+23 —
+`applyApprovalSideEffects` +5, `useSyllabus.renameItem`/`repointSyllabusItemConcept`
++4, `reserveNextSyllabusVersion`/I6 +11, `EditalRevisar` +3). Total **440**, rodado
+três vezes sob fusos diferentes (`UTC`, `America/Sao_Paulo`, `Pacific/Kiritimati`),
+resultado idêntico nas três. `pnpm run build` (passou, mesmos dois avisos
+pré-existentes). Um único snapshot moveu (`/edital/revisar/1`, só a frase da copy
+menor) — diff lido por completo antes do `-u`, 0 escritas adicionais depois.
+
+**Arquivos tocados nesta rodada**: `lib/core/src/syllabus/concept.ts` (+ teste),
+`artifacts/kalibra/src/domain/adapters/local/{concepts,syllabus,approvals,workspaces}.ts`
+(+ testes), `artifacts/kalibra/src/domain/useWorkspaces.ts`,
+`artifacts/kalibra/src/domain/edital-structure-payload.ts` (novo),
+`artifacts/kalibra/src/pages/{EditalRevisar,NovoWorkspace,Edital}.tsx` (+ teste de
+`EditalRevisar`), `artifacts/kalibra/src/components/ApprovalCard.tsx`. Nenhum arquivo
+em `src/index.css`, `src/data.ts` ou `src/components/ui/` foi tocado. React/react-dom
+seguem em `19.1.0`.
+
+### Limites conhecidos — registrados nesta rodada, não corrigidos de propósito
+
+- `dedupeEntries` é quadrática e síncrona; um edital de 500 tópicos em dois cargos
+  congela a aba por segundos. Precisa de um efeito ou worker — mudança maior que este
+  fix wave.
+- A UI tem uma única textarea aplicada a todos os cargos — conteúdo por cargo não tem
+  caminho de entrada real ainda, então a deduplicação entre cargos não tem input do
+  mundo real para exercitar.
+- `Dashboard` e `Shell` ainda leem dados mocados de `@/data`, enquanto `Edital` lê o
+  programa real — duas telas descrevendo dois editais diferentes.
+- `workspaceId` guarda um slug em todo lugar — o schema do servidor vai ter que
+  reconciliar isso quando chegar.
+- `applyDecision` e `buildApprovalItem` são puras mas vivem no adaptador local, não em
+  `lib/core`.
+- `index.ts` (dos pacotes) exporta internals que nada consome.
+- Renomear um item em revisão cujo conceito já existia antes desta extração (fora de
+  `review.newConcepts`) só atualiza o rótulo do item, não o conceito global — ver a
+  nota de escopo do achado C2/I1 acima.
+- Um item de aprovação `edital_structure` no formato anterior ao fix round 1 da Task
+  14 (sem a chave `review` nenhuma) continua irrecuperável — dado de protótipo em
+  `localStorage`, sem usuário real; já registrado na seção 12.
+
+### Estado final confirmado (atualiza a seção 13)
+
+Com este fix wave, os dois achados Críticos e os quatro Importantes da revisão final
+de branch inteira estão corrigidos e testados: uma importação (primeira ou
+reimportação) tem identidade própria e durável, nunca mais compartilhada por acidente
+com uma tentativa abandonada; uma renomeação (em revisão ou já confirmada) e uma fusão
+de conceito aprovada de fato produzem o alias que `diffSyllabus` sempre soube ler,
+fechando o mecanismo do PD-08 ponta a ponta; o enfileiramento da proposta não é mais
+um efeito colateral de render; confirmar sobrevive a uma falha parcial sem travar; e
+um registro de workspaces corrompido não é mais indistinguível de "primeiro uso" aos
+olhos de quem lê. Relatório completo desta rodada:
+`.superpowers/sdd/2026-09-13-kalibra-fase-1b/final-fix-report.md`.
+
 **Próximo plano:** Fase 1C — diagnóstico obrigatório, plano quinzenal e sessões de estudo.
