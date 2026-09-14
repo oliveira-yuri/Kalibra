@@ -34,12 +34,16 @@ export function ApprovalCard({
   onToggleCollapse,
   onApprove,
   onReject,
+  selected,
+  onToggleSelect,
 }: {
   item: ApprovalItem;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const decided = !canDecide(item.status);
   const TypeIcon = TYPE_ICON[item.type];
@@ -48,6 +52,18 @@ export function ApprovalCard({
     <article className="k-card p-5" data-testid={`card-approval-${item.id}`}>
       <div className="flex flex-col justify-between gap-4 md:flex-row">
         <div className="flex min-w-0 gap-4">
+          {/* Item já decidido é terminal (`canDecide`) — não pode entrar numa aprovação em
+              lote, então nem oferece a caixa de seleção. */}
+          {!decided && (
+            <input
+              type="checkbox"
+              className="mt-2 h-4 w-4 shrink-0"
+              checked={selected}
+              onChange={onToggleSelect}
+              aria-label={`Selecionar "${item.title}" para aprovação em lote`}
+              data-testid={`checkbox-select-${item.id}`}
+            />
+          )}
           <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[#eef5d8] text-[#5f7900] dark:bg-[#202b20] dark:text-[#d5f35b]">
             {decided ? (item.status === 'aprovado' ? <Check size={16} /> : <X size={16} />) : <TypeIcon size={16} />}
           </span>

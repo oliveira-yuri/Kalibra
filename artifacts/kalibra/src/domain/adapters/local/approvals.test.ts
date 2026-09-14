@@ -303,4 +303,28 @@ describe('useApprovals — duas escritas síncronas no mesmo tick sobrevivem amb
 
     expect(result.current.items.find((item) => item.id === id)?.status).toBe('aprovado');
   });
+
+  it('aprovar três itens dentro do mesmo act() (a forma de uma aprovação em lote) persiste os três, não só o último', () => {
+    // Mesma forma exata de "Aprovar selecionados" em Aprovacoes.tsx: N chamadas de
+    // `approve` síncronas, uma atrás da outra, dentro do mesmo handler de clique — o
+    // handler de clique inteiro é um único `act()` aqui. Sem `itemsRef`, a segunda e a
+    // terceira chamada partiriam do `items` (estado de render) capturado no fechamento
+    // de quando o clique começou, sem ver a decisão que acabou de ser aplicada pela
+    // chamada anterior — e só a última sobreviveria.
+    const { result } = renderHook(() => useApprovals());
+    const ids: string[] = [];
+
+    act(() => {
+      ids.push(result.current.enqueue({ ...INPUT, title: 'Primeira' }, new Date('2026-01-01T00:00:00.000Z')));
+      ids.push(result.current.enqueue({ ...INPUT, title: 'Segunda' }, new Date('2026-01-01T00:00:00.000Z')));
+      ids.push(result.current.enqueue({ ...INPUT, title: 'Terceira' }, new Date('2026-01-01T00:00:00.000Z')));
+    });
+
+    act(() => {
+      ids.forEach((id) => result.current.approve(id));
+    });
+
+    expect(result.current.items.every((item) => item.status === 'aprovado')).toBe(true);
+    expect(getApprovals().filter((item) => item.status === 'aprovado')).toHaveLength(3);
+  });
 });

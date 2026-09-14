@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useUser } from '@clerk/react';
 import { ShieldAlert } from 'lucide-react';
 import { ApprovalCard } from '@/components/ApprovalCard';
-import { useApprovals, APPROVAL_TYPES, type ApprovalType } from '@/domain/useApprovals';
+import { useApprovals, canDecide, APPROVAL_TYPES, type ApprovalType } from '@/domain/useApprovals';
 
 const TYPE_LABEL: Record<ApprovalType, string> = {
   edital_structure: 'estrutura do edital',
@@ -16,6 +16,7 @@ export function Aprovacoes() {
   const { items, pending, approve, reject } = useApprovals(user?.id);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('todos');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filtered = items.filter((item) => typeFilter === 'todos' || item.type === typeFilter);
 
@@ -31,6 +32,55 @@ export function Aprovacoes() {
   const allCollapsed = filtered.length > 0 && filtered.every((item) => collapsedIds.has(item.id));
   const toggleCollapseAll = () => {
     setCollapsedIds(allCollapsed ? new Set() : new Set(filtered.map((item) => item.id)));
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Recalculado a cada render a partir de `items`, não guardado à parte: um item que
+  // deixou de poder ser decidido (aprovado/rejeitado por aqui ou por outra aba) sai da
+  // seleção sozinho, sem precisar de um efeito para "limpar" o Set depois do fato.
+  const selectableSelectedIds = items
+    .filter((item) => selectedIds.has(item.id) && canDecide(item.status))
+    .map((item) => item.id);
+
+  // Chamadas síncronas em sequência, no mesmo handler — não um `.map` construído a
+  // partir de `items` (estado de render) — para herdar a garantia já testada em
+  // `approvals.test.ts` ("duas chamadas de enqueue no mesmo act() persistem as duas"):
+  // cada `approve` lê `itemsRef.current`, já atualizado pela chamada anterior, então
+  // nenhuma das N aprovações se perde.
+  const approveSelected = () => {
+    selectableSelectedIds.forEach((id) => approve(id));
+    setSelectedIds(new Set());
+  };
+
+  // Uma decisão individual também tira o item da seleção — aprovar/rejeitar pelo botão
+  // do próprio cartão não deveria deixar o item marcado para uma aprovação em lote que
+  // `canDecide` já recusaria.
+  const approveOne = (id: string) => {
+    approve(id);
+    setSelectedIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const rejectOne = (id: string) => {
+    reject(id);
+    setSelectedIds((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
@@ -65,9 +115,19 @@ export function Aprovacoes() {
           </button>
         ))}
         {filtered.length > 0 && (
-          <button className="k-button k-button-quiet ml-auto text-[11px]" onClick={toggleCollapseAll} data-testid="button-collapse-all">
-            {allCollapsed ? 'expandir todos' : 'recolher todos'}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              className="k-button k-button-quiet text-[11px]"
+              onClick={approveSelected}
+              disabled={selectableSelectedIds.length === 0}
+              data-testid="button-approve-selected"
+            >
+              Aprovar selecionados
+            </button>
+            <button className="k-button k-button-quiet text-[11px]" onClick={toggleCollapseAll} data-testid="button-collapse-all">
+              {allCollapsed ? 'expandir todos' : 'recolher todos'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -88,8 +148,10 @@ export function Aprovacoes() {
               item={item}
               collapsed={collapsedIds.has(item.id)}
               onToggleCollapse={() => toggleCollapse(item.id)}
-              onApprove={approve}
-              onReject={reject}
+              onApprove={approveOne}
+              onReject={rejectOne}
+              selected={selectedIds.has(item.id)}
+              onToggleSelect={() => toggleSelect(item.id)}
             />
           ))}
         </div>
