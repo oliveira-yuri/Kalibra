@@ -72,6 +72,37 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const [updateError, setUpdateError] = useState('');
   const [updateSaved, setUpdateSaved] = useState(false);
 
+  /**
+   * Hidrata o editor com os blocos já salvos, no momento em que o modal ABRE.
+   *
+   * Antes disto `sourceBlocks` era write-only: os blocos eram gravados no registro do
+   * workspace, mas o estado da tela nascia `[]`, então reabrir o modal mostrava campos
+   * vazios e a edição por cargo valia uma sessão só.
+   *
+   * Por que na abertura e não num efeito: um efeito que observasse `workspace`
+   * re-sincronizaria enquanto o usuário digita — qualquer gravação no registro
+   * (inclusive as que a própria tela faz) apagaria o que ele acabou de escrever.
+   * Abrir o modal é o único momento em que hidratar não pode atropelar ninguém.
+   *
+   * Por que só quando a última importação foi por TEXTO: os blocos salvos descrevem a
+   * última importação apenas nesse caso. Se depois dela o usuário reimportou por
+   * arquivo, aquele texto já foi superado — trazê-lo de volta sugeriria que o edital
+   * vigente veio dali, e salvá-lo sem perceber reintroduziria conteúdo obsoleto.
+   *
+   * Registro anterior à Fase 1B.5 não precisa de tratamento aqui: `blocksFrom`
+   * (`workspaces.ts`) já converte o `sourceText` legado num bloco comum na leitura.
+   */
+  const openUpdateModal = () => {
+    const salvos = workspace?.sourceMode === 'text' ? workspace.sourceBlocks : [];
+    if (salvos.some((block) => block.text.trim() !== '')) {
+      setSourceBlocks(salvos);
+      // Sem trocar a aba, o conteúdo ficaria carregado atrás de "Arquivo" — hidratar
+      // sem mostrar não é "os blocos aparecem como estavam salvos".
+      setSourceMode('text');
+    }
+    setIsUpdateModalOpen(true);
+  };
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [practiceTopic, setPracticeTopic] = useState<string | null>(null);
   const { toast } = useToast();
@@ -332,7 +363,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
         <p className="mt-2 text-[12px] text-[#8e98a8]">Use o status como decisão de próxima sessão, não como checklist decorativo.</p>
       </div>
       <div className="flex items-center gap-3">
-        <button className="k-button" data-testid="button-import-syllabus" onClick={() => setIsUpdateModalOpen(true)}><UploadCloud size={14} /> Atualizar edital</button>
+        <button className="k-button" data-testid="button-import-syllabus" onClick={openUpdateModal}><UploadCloud size={14} /> Atualizar edital</button>
         <button className="k-button" data-testid="button-export-syllabus"><FileText size={14} /> Exportar recorte</button>
       </div>
     </div>

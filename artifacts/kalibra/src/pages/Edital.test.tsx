@@ -351,8 +351,13 @@ describe('Edital — rodada de correção 1, achado C1 (reimportar por Arquivo n
     const { default: App } = await import('../App');
     const { container } = render(<App />);
 
-    // Abre o modal e permanece no modo padrão ("Arquivo") — nunca clica em "Texto".
+    // Este workspace tem blocos de texto salvos, então a hidratação abre o modal já em
+    // "Texto" com o conteúdo carregado — o usuário que quer reimportar por arquivo troca
+    // de aba. Isso deixa a asserção abaixo MAIS forte do que antes da hidratação:
+    // `sourceBlocks` agora está populado no estado da tela quando o ramo "Arquivo" roda,
+    // e mesmo assim a chave não pode ser gravada.
     fireEvent.click(screen.getByTestId('button-import-syllabus'));
+    fireEvent.click(screen.getByText('Arquivo'));
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['conteudo binário qualquer'], 'edital-novo.pdf', { type: 'application/pdf' });
     fireEvent.change(fileInput, { target: { files: [file] } });
@@ -388,5 +393,132 @@ describe('Edital — rodada de correção 1, achado C1 (reimportar por Arquivo n
     const original = JSON.parse(window.localStorage.getItem(WORKSPACES_KEY)!)[0];
     const merged = { ...original, ...pending.updates };
     expect(merged.sourceBlocks).toEqual(SAVED_BLOCKS);
+  });
+});
+
+describe('Edital — hidratação dos blocos salvos ao reabrir o editor', () => {
+  // O achado que esta correção fecha: `sourceBlocks` era write-only. Os blocos eram
+  // gravados no registro do workspace, mas `Edital.tsx` sempre inicializava o estado
+  // com `[]`, então reabrir o modal mostrava campos vazios e a edição por cargo valia
+  // uma sessão só.
+  const BLOCOS_SALVOS = [
+    { cargoId: null, text: 'LÍNGUA PORTUGUESA\nInterpretação de texto' },
+    { cargoId: 'c2', text: 'INFORMÁTICA\nRedes de computadores' },
+  ];
+
+  function seedComBlocos(over: Record<string, unknown>) {
+    window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+      slug: 'setec-campinas',
+      title: 'Concurso SETEC Campinas',
+      institution: 'SETEC',
+      type: 'Concurso Público',
+      examDate: '2027-01-17',
+      cargos: [
+        { id: 'c1', name: 'Analista', examDate: '2027-01-17', period: 'A' },
+        { id: 'c2', name: 'Técnico', examDate: '2027-01-17', period: 'A' },
+      ],
+      selectedCargoId: 'c1',
+      availability: { days: [], maxSessionMinutes: 50 },
+      status: 'estudando',
+      importStatus: 'completed',
+      progress: 0,
+      nextAction: 'texto qualquer',
+      active: true,
+      ...over,
+    }]));
+  }
+
+  const abrirModal = () => fireEvent.click(screen.getByTestId('button-import-syllabus'));
+  const textarea = () => screen.getByTestId('bloco-textarea') as HTMLTextAreaElement;
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('reabrir o modal pré-carrega os blocos salvos, já na aba Texto', async () => {
+    seedComBlocos({ sourceMode: 'text', sourceBlocks: BLOCOS_SALVOS });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+
+    // Sem clicar em "Texto": hidratar e deixar o usuário atrás da aba "Arquivo"
+    // carregaria o conteúdo sem mostrá-lo, que não é "os blocos aparecem como
+    // estavam salvos".
+    expect(textarea().value).toBe('LÍNGUA PORTUGUESA\nInterpretação de texto');
+  });
+
+  it('cada bloco volta para o seu próprio cargo, não todos para o comum', async () => {
+    seedComBlocos({ sourceMode: 'text', sourceBlocks: BLOCOS_SALVOS });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+    fireEvent.click(screen.getByTestId('bloco-aba-c2'));
+    expect(textarea().value).toBe('INFORMÁTICA\nRedes de computadores');
+
+    fireEvent.click(screen.getByTestId('bloco-aba-c1'));
+    expect(textarea().value).toBe('');
+
+    fireEvent.click(screen.getByTestId('bloco-aba-comum'));
+    expect(textarea().value).toBe('LÍNGUA PORTUGUESA\nInterpretação de texto');
+  });
+
+  it('registro antigo sem sourceBlocks: o sourceText legado volta como bloco comum', async () => {
+    // Compatibilidade com dado anterior à Fase 1B.5. `blocksFrom` (em `workspaces.ts`)
+    // já converte na leitura, então a tela não precisa saber que o registro é antigo.
+    seedComBlocos({ sourceMode: 'text', sourceText: 'CONTEÚDO LEGADO DO EDITAL' });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+    expect(textarea().value).toBe('CONTEÚDO LEGADO DO EDITAL');
+  });
+
+  it('se a última importação foi por Arquivo, o modal abre vazio e não ressuscita texto superado', async () => {
+    // Os blocos salvos descrevem a última importação só quando ela foi por texto.
+    // Depois de uma reimportação por arquivo aquele texto já foi superado: trazê-lo de
+    // volta sugere que o edital vigente veio dali, o que é falso.
+    seedComBlocos({ sourceMode: 'file', sourceBlocks: BLOCOS_SALVOS });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+    expect(screen.queryByTestId('bloco-textarea')).toBeNull();
+
+    fireEvent.click(screen.getByText('Texto'));
+    expect(textarea().value).toBe('');
+  });
+
+  it('sem nada salvo, o modal abre vazio no modo Arquivo — comportamento de antes', async () => {
+    seedComBlocos({ sourceMode: 'text', sourceBlocks: [] });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+    expect(screen.queryByTestId('bloco-textarea')).toBeNull();
+
+    fireEvent.click(screen.getByText('Texto'));
+    expect(textarea().value).toBe('');
+  });
+
+  it('editar e fechar sem salvar: reabrir traz os blocos SALVOS, não o rascunho abandonado', async () => {
+    seedComBlocos({ sourceMode: 'text', sourceBlocks: BLOCOS_SALVOS });
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    abrirModal();
+    fireEvent.change(textarea(), { target: { value: 'RASCUNHO QUE O USUÁRIO ABANDONOU' } });
+    fireEvent.click(screen.getByText('Cancelar'));
+
+    abrirModal();
+    expect(textarea().value).toBe('LÍNGUA PORTUGUESA\nInterpretação de texto');
   });
 });
