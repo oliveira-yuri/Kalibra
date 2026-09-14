@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
 import {
@@ -6,13 +6,30 @@ import {
 } from 'lucide-react';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
-import { stageWorkspaceImport } from '@/domain/useWorkspaces';
-import { nextActionFor } from '@workspace/core';
+import { stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
+import { useExtraction } from '@/domain/useExtraction';
+import {
+  nextActionFor, assertTransition,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
+} from '@workspace/core';
 import { subjects, topics } from '@/data';
 import { useToast } from '@/hooks/use-toast';
 
+/** Estados de processo (enviando/extraindo/identificando) colapsam num único status de workspace — só "pronto" e "erro" têm status próprio. */
+const STATUS_FOR_STAGE: Record<ExtractionStage, WorkspaceStatus> = {
+  enviando: 'extraindo_edital',
+  extraindo: 'extraindo_edital',
+  identificando: 'extraindo_edital',
+  pronto: 'aguardando_revisao_edital',
+  erro: 'erro',
+};
+
 export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const { user } = useUser();
+  const { workspaces, updateWorkspace } = useWorkspaces(user?.id);
+  const workspace = workspaces.find((w) => w.slug === workspaceSlug);
+  const extraction = useExtraction(workspaceSlug);
+  const workspaceStatusRef = useRef<WorkspaceStatus>(workspace?.status ?? 'sem_edital');
   const [subjectFilter, setSubjectFilter] = useState('Todas');
   const [priorityFilter, setPriorityFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
@@ -45,15 +62,39 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
       return;
     }
     setUpdateError('');
+
+    // Ao contrário de NovoWorkspace (workspace ainda não existe), aqui o workspace já
+    // é real — o status caminha de verdade por `updateWorkspace`, visível em qualquer
+    // outra tela (Portal, WorkspaceStatusChip) enquanto a extração roda (Task 10).
+    const current = workspace?.status ?? 'sem_edital';
+    assertTransition(current, 'aguardando_upload');
+    workspaceStatusRef.current = 'aguardando_upload';
+    updateWorkspace(workspaceSlug, { status: 'aguardando_upload', nextAction: nextActionFor('aguardando_upload') });
+
     setIsProcessing(true);
+    extraction.start({
+      sourceMode,
+      text: sourceMode === 'text' ? sourceText : '',
+      cargoIds: workspace?.cargos.map((cargo) => cargo.id) ?? [],
+    });
   };
 
+  // Reflete cada avanço real de `useExtraction` no status do workspace (que já existe
+  // de verdade neste fluxo, diferente de NovoWorkspace) — `assertTransition` garante que
+  // só andamos por arestas válidas do grafo de `lib/core`.
+  useEffect(() => {
+    if (!isProcessing) return;
+    const nextStatus = STATUS_FOR_STAGE[extraction.progress.stage];
+    if (nextStatus === workspaceStatusRef.current) return;
+    assertTransition(workspaceStatusRef.current, nextStatus);
+    workspaceStatusRef.current = nextStatus;
+    updateWorkspace(workspaceSlug, { status: nextStatus, nextAction: nextActionFor(nextStatus) });
+  }, [extraction.progress.stage, isProcessing, workspaceSlug]);
+
   const handleReady = () => {
-    // `status` acompanha `importStatus: 'pending'` (mesmo mapeamento de
-    // STATUS_FROM_IMPORT em workspaces.ts) e `nextAction` vem de `nextActionFor(status)`
-    // — sem isso, um reimport deixava o chip de status antigo ao lado de um texto novo
-    // que já falava em "aguardando revisão" (ver regressão I2).
-    const status = 'aguardando_revisao_edital' as const;
+    // O status já foi levado a "aguardando_revisao_edital" pelo efeito acima quando
+    // `progress.stage` chegou a "pronto" — o que falta transportar até `EditalRevisar`
+    // é só o conteúdo bruto da extração (Task 11 roda `dedupeEntries` a partir dele).
     stageWorkspaceImport(workspaceSlug, {
       isNew: false,
       updates: {
@@ -61,15 +102,20 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
         sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
         sourceText: sourceMode === 'text' ? sourceText : undefined,
         importStatus: 'pending',
-        status,
-        nextAction: nextActionFor(status),
       },
+      extractionOutput: extraction.output ?? undefined,
     }, user?.id);
     setIsUpdateModalOpen(false);
     setIsProcessing(false);
     setSourceFileName('');
     setSourceText('');
     setLocation('/edital/revisar/2');
+  };
+
+  const handleExtractionAction = (kind: ExtractionErrorKind) => {
+    setIsProcessing(false);
+    if (kind === 'scanned') setSourceMode('text');
+    if (kind === 'corrupted') setSourceFileName('');
   };
 
   const filtered = topics.filter((topic) => (subjectFilter === 'Todas' || topic.subject === subjectFilter) && (priorityFilter === 'todas' || topic.priority === priorityFilter) && (statusFilter === 'todos' || topic.status === statusFilter));
@@ -85,7 +131,12 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
 
           {isProcessing ? (
             <div className="-mx-6">
-              <EditalUploadProgress onReady={handleReady} onCancel={() => setIsProcessing(false)} />
+              <EditalUploadProgress
+                progress={extraction.progress}
+                onReady={handleReady}
+                onCancel={() => { extraction.cancel(); setIsProcessing(false); }}
+                onAction={handleExtractionAction}
+              />
             </div>
           ) : (
             <>

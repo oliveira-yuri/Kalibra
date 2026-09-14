@@ -5,6 +5,7 @@ import {
   WORKSPACE_STATUSES,
   type WeeklyAvailability,
   type WorkspaceStatus,
+  type ExtractionOutput,
 } from '@workspace/core';
 
 export type SourceMode = 'file' | 'text' | 'none';
@@ -162,6 +163,12 @@ export interface PendingWorkspaceImport {
   isNew: boolean;
   workspace?: WorkspaceDraft;
   updates?: Partial<WorkspaceDraft>;
+  /**
+   * A saída bruta da extração (Task 10), levada até a tela de revisão para que ela
+   * rode `dedupeEntries` (Task 11) — nunca aplicada aqui, só transportada. `undefined`
+   * enquanto a extração ainda não chegou a "pronto".
+   */
+  extractionOutput?: ExtractionOutput;
 }
 
 const STORAGE_KEY = 'kalibra_workspaces';

@@ -1,12 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { stageWorkspaceImport, useWorkspaces, defaultCargo, WorkspaceDraft, type Cargo } from '@/domain/useWorkspaces';
-import { emptyAvailability, validateAvailability, nextActionFor, uniqueSlug } from '@workspace/core';
+import { useExtraction } from '@/domain/useExtraction';
+import {
+  emptyAvailability, validateAvailability, nextActionFor, uniqueSlug, assertTransition,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
+} from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
 import { AvailabilityFields } from '@/components/AvailabilityFields';
+
+/** Estados de processo (enviando/extraindo/identificando) colapsam num único status de workspace — só "pronto" e "erro" têm status próprio. */
+const STATUS_FOR_STAGE: Record<ExtractionStage, WorkspaceStatus> = {
+  enviando: 'extraindo_edital',
+  extraindo: 'extraindo_edital',
+  identificando: 'extraindo_edital',
+  pronto: 'aguardando_revisao_edital',
+  erro: 'erro',
+};
 
 export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark', onToggleTheme: () => void }) {
   const { user } = useUser();
@@ -26,6 +39,9 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [availabilityProblems, setAvailabilityProblems] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [createdSlug, setCreatedSlug] = useState('');
+  const extraction = useExtraction(createdSlug);
+  const pendingWorkspaceRef = useRef<WorkspaceDraft | null>(null);
+  const workspaceStatusRef = useRef<WorkspaceStatus>('aguardando_upload');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -75,7 +91,11 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     // cargo sempre) — ver regressão I3.
     const namedCargos = cargos.filter((cargo) => cargo.name.trim());
     const finalCargos = namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)];
-    const status = sourceMode === 'none' ? 'sem_edital' : 'aguardando_revisao_edital';
+    // Com edital, o workspace nasce em "aguardando_upload" — não direto em
+    // "aguardando_revisao_edital" — porque agora a extração é real (Task 10):
+    // o status caminha aguardando_upload → extraindo_edital → aguardando_revisao_edital
+    // conforme `progress.stage` avança, guiado por `assertTransition` no efeito abaixo.
+    const status = sourceMode === 'none' ? 'sem_edital' : 'aguardando_upload';
 
     const newWorkspace: WorkspaceDraft = {
       slug,
@@ -102,13 +122,52 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       return;
     }
 
+    pendingWorkspaceRef.current = newWorkspace;
+    workspaceStatusRef.current = 'aguardando_upload';
     stageWorkspaceImport(slug, { isNew: true, workspace: newWorkspace }, user?.id);
     setCreatedSlug(slug);
     setIsProcessing(true);
+    extraction.start({
+      sourceMode: sourceMode === 'text' ? 'text' : 'file',
+      text: sourceMode === 'text' ? sourceText : '',
+      cargoIds: finalCargos.map((cargo) => cargo.id),
+    });
   };
+
+  // Reflete cada avanço real de `useExtraction` no status do workspace ainda não
+  // criado (ele só passa a existir de fato quando `EditalRevisar` confirma) —
+  // por isso a transição atualiza o rascunho em `stageWorkspaceImport`, não
+  // `updateWorkspace`. `assertTransition` garante que só andamos por arestas
+  // válidas do grafo de `lib/core` (Task 10).
+  useEffect(() => {
+    if (!isProcessing || !pendingWorkspaceRef.current) return;
+    const nextStatus = STATUS_FOR_STAGE[extraction.progress.stage];
+    if (nextStatus === workspaceStatusRef.current) return;
+    assertTransition(workspaceStatusRef.current, nextStatus);
+    workspaceStatusRef.current = nextStatus;
+
+    const updatedWorkspace: WorkspaceDraft = {
+      ...pendingWorkspaceRef.current,
+      status: nextStatus,
+      nextAction: nextActionFor(nextStatus),
+    };
+    pendingWorkspaceRef.current = updatedWorkspace;
+
+    stageWorkspaceImport(createdSlug, {
+      isNew: true,
+      workspace: updatedWorkspace,
+      extractionOutput: nextStatus === 'aguardando_revisao_edital' ? (extraction.output ?? undefined) : undefined,
+    }, user?.id);
+  }, [extraction.progress.stage, extraction.output, isProcessing, createdSlug, user?.id]);
 
   const handleReady = () => {
     setLocation(`/workspace/${createdSlug}/edital/revisar/1`);
+  };
+
+  const handleExtractionAction = (kind: ExtractionErrorKind) => {
+    setIsProcessing(false);
+    if (kind === 'scanned') setSourceMode('text');
+    if (kind === 'corrupted') setSourceFileName('');
   };
 
   return (
@@ -158,7 +217,12 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
 
         {isProcessing ? (
           <div className={`rounded-[4px] border ${theme === 'dark' ? 'bg-[#131821] border-[#29313d]' : 'bg-white border-[#d5dede]'}`}>
-            <EditalUploadProgress onReady={handleReady} onCancel={() => setIsProcessing(false)} />
+            <EditalUploadProgress
+              progress={extraction.progress}
+              onReady={handleReady}
+              onCancel={() => { extraction.cancel(); setIsProcessing(false); }}
+              onAction={handleExtractionAction}
+            />
           </div>
         ) : (
           // `noValidate`: os campos de disponibilidade têm `step` (ligado à sessão máxima —
