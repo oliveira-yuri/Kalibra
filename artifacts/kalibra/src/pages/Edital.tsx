@@ -2,18 +2,37 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser } from '@clerk/react';
 import {
-  CheckCircle2, FileText, Filter, MoreHorizontal, UploadCloud, X,
+  CheckCircle2, FileText, Filter, Info, MoreHorizontal, UploadCloud, X,
 } from 'lucide-react';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
+import { CargoFilter } from '@/components/CargoFilter';
 import { stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
+import { useSyllabus } from '@/domain/useSyllabus';
 import {
-  nextActionFor, assertTransition, canTransition, WORKSPACE_STATUS_LABELS,
-  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
+  nextActionFor, assertTransition, canTransition, cargosFor, isCommon, totalQuestionsFor, WORKSPACE_STATUS_LABELS,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus, type Syllabus, type SyllabusItem,
 } from '@workspace/core';
-import { subjects, topics } from '@/data';
+import type { Topic } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+
+/** "Matéria" de um tópico (item folha): o rótulo do pai quando existe, senão o
+ * próprio rótulo (item de topo sem filhos, ex.: matéria recém-criada e ainda vazia). */
+function subjectLabelFor(syllabus: Syllabus, item: SyllabusItem): string {
+  if (!item.parentItemId) return item.sourceLabel;
+  const parent = syllabus.items.find((candidate) => candidate.id === item.parentItemId);
+  return parent ? parent.sourceLabel : item.sourceLabel;
+}
+
+/** Tópicos de verdade para a tabela: itens-folha do programa — quem tem filho vira só
+ * o agrupador ("matéria") de quem não tem, nunca uma linha própria. */
+function leafItemsOf(syllabus: Syllabus): SyllabusItem[] {
+  const parentIds = new Set(
+    syllabus.items.map((item) => item.parentItemId).filter((id): id is string => id !== null),
+  );
+  return syllabus.items.filter((item) => !parentIds.has(item.id));
+}
 
 /** Estados de processo (enviando/extraindo/identificando) colapsam num único status de workspace — só "pronto" e "erro" têm status próprio. */
 const STATUS_FOR_STAGE: Record<ExtractionStage, WorkspaceStatus> = {
@@ -29,10 +48,12 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const { workspaces, updateWorkspace } = useWorkspaces(user?.id);
   const workspace = workspaces.find((w) => w.slug === workspaceSlug);
   const extraction = useExtraction(workspaceSlug);
+  const syllabusApi = useSyllabus(workspaceSlug, user?.id);
   const workspaceStatusRef = useRef<WorkspaceStatus>(workspace?.status ?? 'sem_edital');
   const [subjectFilter, setSubjectFilter] = useState('Todas');
   const [priorityFilter, setPriorityFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
+  const [cargoFilter, setCargoFilter] = useState<string | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
@@ -59,10 +80,16 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage a uma troca de status externa (herdada ou de outra aba), não a cada render.
   }, [workspace?.status, isProcessing]);
 
+  // Task 15: a lista vem do programa realmente salvo (nunca de `@/data`) — os itens
+  // que não são pai de ninguém são os tópicos de verdade da tabela; quem tem filho
+  // vira só o agrupador ("matéria") deles.
+  const syllabus = syllabusApi.syllabus;
+  const leafItems = leafItemsOf(syllabus);
+
   const handleRegisterPractice = (topicId: string, total: number, correct: number) => {
-    const topic = topics.find(t => t.id === topicId);
+    const item = leafItems.find((candidate) => candidate.id === topicId);
     const percent = Math.round((correct / total) * 100);
-    toast({ description: `${total} questões registradas em ${topic?.name.split(' ')[0]} · ${percent}%` });
+    toast({ description: `${total} questões registradas em ${(item?.sourceLabel ?? '').split(' ')[0]} · ${percent}%` });
     setPracticeTopic(null);
   };
 
@@ -175,7 +202,39 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsProcessing(false);
   };
 
-  const filtered = topics.filter((topic) => (subjectFilter === 'Todas' || topic.subject === subjectFilter) && (priorityFilter === 'todas' || topic.priority === priorityFilter) && (statusFilter === 'todos' || topic.status === statusFilter));
+  // Matéria vem do programa real; prioridade e status ainda não existem por tópico
+  // (só chegam com o diagnóstico, Fase 1C) — um filtro que não seja "todas/todos"
+  // nesses dois não pode inventar correspondência: a lista fica honestamente vazia
+  // em vez de fingir que algum tópico já tem essa informação. "não iniciado" é a
+  // única exceção real: nenhum tópico foi estudado ainda nesta fase (não há sessão
+  // de estudo no produto até aqui), então todos batem com ele de verdade.
+  const subjectOptions = Array.from(new Set(leafItems.map((item) => subjectLabelFor(syllabus, item))))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+  const filtered = leafItems.filter((item) => {
+    if (cargoFilter && !cargosFor(syllabus, item.id).includes(cargoFilter)) return false;
+    if (subjectFilter !== 'Todas' && subjectLabelFor(syllabus, item) !== subjectFilter) return false;
+    if (priorityFilter !== 'todas') return false;
+    if (statusFilter !== 'todos' && statusFilter !== 'não iniciado') return false;
+    return true;
+  });
+
+  const commonCount = leafItems.filter((item) => isCommon(syllabus, item.id)).length;
+
+  // Só para o formulário de registro rápido de prática (`QuickPracticeRegistro`) —
+  // ele espera o formato `Topic` de `@/types` (id/name no <select>); os campos que
+  // ele não usa (status/priority/accuracy/lastStudied) nunca aparecem em tela, então
+  // um valor de preenchimento aqui não é a fabricação que a Task 15 proíbe — essa
+  // proibição é sobre o que a TABELA mostra ao aluno.
+  const practiceTopics: Topic[] = filtered.map((item) => ({
+    id: item.id,
+    subject: subjectLabelFor(syllabus, item),
+    name: item.sourceLabel,
+    status: 'não iniciado',
+    priority: 'baixa',
+    accuracy: 0,
+    lastStudied: 'nunca',
+  }));
 
   return <div className="space-y-5">
     {isUpdateModalOpen && (
@@ -240,11 +299,101 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       </div>
     )}
-    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="k-eyebrow mb-2">estrutura da prova · 84 tópicos mapeados</p><h2 className="text-[26px] font-semibold tracking-[-0.045em]">Edital em estado de estudo</h2><p className="mt-2 text-[12px] text-[#8e98a8]">Use o status como decisão de próxima sessão, não como checklist decorativo.</p></div><div className="flex items-center gap-3"><button className="k-button" data-testid="button-import-syllabus" onClick={() => setIsUpdateModalOpen(true)}><UploadCloud size={14} /> Atualizar edital</button><button className="k-button" data-testid="button-export-syllabus"><FileText size={14} /> Exportar recorte</button></div></div><div className="k-card flex flex-col gap-3 p-3 md:flex-row"><div className="flex items-center gap-2 text-[11px] text-[#8e98a8]"><Filter size={14} /> filtros ativos</div><select className="k-input md:w-[210px]" value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)} data-testid="select-subject-filter"><option>Todas</option>{subjects.map((subject) => <option key={subject.id}>{subject.name}</option>)}</select><select className="k-input md:w-[145px]" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)} data-testid="select-priority-filter"><option value="todas">Prioridade</option><option value="alta">Alta</option><option value="média">Média</option><option value="baixa">Baixa</option></select><select className="k-input md:w-[165px]" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} data-testid="select-status-filter"><option value="todos">Todos os status</option><option value="dominar">Dominar</option><option value="em andamento">Em andamento</option><option value="não iniciado">Não iniciado</option></select><span className="ml-auto hidden items-center gap-2 px-2 text-[10px] text-[#8e98a8] md:flex"><span className="h-2 w-2 rounded-full bg-[#d5f35b]" />{filtered.length} tópicos</span></div><div className="k-card overflow-hidden"><div className="hidden grid-cols-[1.2fr_1.5fr_.7fr_.7fr_.8fr_70px] gap-4 bg-[#131820] px-5 py-3 text-[10px] uppercase tracking-[.1em] text-[#697587] md:grid"><span>matéria</span><span>tópico</span><span>prioridade</span><span>acerto</span><span>status</span><span /></div>{filtered.map((topic) => <div key={topic.id} className="k-table-row grid gap-3 px-5 py-4 md:grid-cols-[1.2fr_1.5fr_.7fr_.7fr_.8fr_70px] md:items-center md:gap-4" data-testid={`row-topic-${topic.id}`}><div><span className="text-[11px] text-[#aeb8c5]">{topic.subject}</span><span className="mt-1 block text-[10px] text-[#647080]">{topic.lastStudied}</span></div><div><Link href="/estudo" className="text-[12px] font-medium hover:text-[#d5f35b]" data-testid={`link-topic-${topic.id}`}>{topic.name}</Link><div className="mt-2 k-progress md:max-w-[180px]"><span style={{ width: `${Math.max(topic.accuracy, 3)}%`, background: topic.accuracy < 55 ? '#ff907d' : '#d5f35b' }} /></div></div><span className={`k-chip w-fit ${topic.priority === 'alta' ? 'border-[#75433e] text-[#ff907d]' : ''}`}>{topic.priority}</span><span className={`k-mono text-[12px] ${topic.accuracy < 55 ? 'k-coral' : 'text-[#b9c4d0]'}`}>{topic.accuracy ? `${topic.accuracy}%` : '—'}</span><span className={`w-fit text-[10px] ${topic.status === 'dominar' ? 'text-[#8ed9ae]' : topic.status === 'em andamento' ? 'text-[#d5f35b]' : 'text-[#8e98a8]'}`}>{topic.status}</span>
-    <div className="flex items-center gap-1 justify-end relative">
-      <button className="k-button k-button-quiet k-icon-button" onClick={() => setPracticeTopic(topic.id)} aria-label={`Registrar prática para ${topic.name}`} title="Registrar prática"><CheckCircle2 size={15} className="opacity-50 hover:opacity-100" /></button>
-      <button className="k-button k-button-quiet k-icon-button" data-testid={`button-topic-menu-${topic.id}`} aria-label={`Ações para ${topic.name}`}><MoreHorizontal size={15} /></button>
-      {practiceTopic === topic.id && <QuickPracticeRegistro topics={topics} defaultTopicId={topic.id} onClose={() => setPracticeTopic(null)} onRegister={handleRegisterPractice} />}
+    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div>
+        <p className="k-eyebrow mb-2">estrutura da prova · {leafItems.length} tópicos mapeados</p>
+        <h2 className="text-[26px] font-semibold tracking-[-0.045em]">Edital em estado de estudo</h2>
+        <p className="mt-2 text-[12px] text-[#8e98a8]">Use o status como decisão de próxima sessão, não como checklist decorativo.</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <button className="k-button" data-testid="button-import-syllabus" onClick={() => setIsUpdateModalOpen(true)}><UploadCloud size={14} /> Atualizar edital</button>
+        <button className="k-button" data-testid="button-export-syllabus"><FileText size={14} /> Exportar recorte</button>
+      </div>
     </div>
-  </div>)}</div></div>;
+
+    {workspace && workspace.cargos.length > 0 && (
+      <div className="space-y-2">
+        <p className="k-eyebrow">tópicos de</p>
+        <CargoFilter cargos={workspace.cargos} selected={cargoFilter} onSelect={setCargoFilter} />
+      </div>
+    )}
+
+    {commonCount > 0 && (
+      <div className="k-card-soft p-3 flex items-start gap-3">
+        <Info size={14} className="k-muted shrink-0 mt-0.5" />
+        <p className="text-[11px] leading-5 k-muted">
+          {commonCount} {commonCount === 1 ? 'tópico é comum' : 'tópicos são comuns'} a mais de um cargo e {commonCount === 1 ? 'aparece' : 'aparecem'} uma vez só nesta lista.
+        </p>
+      </div>
+    )}
+
+    <div className="k-card flex flex-col gap-3 p-3 md:flex-row">
+      <div className="flex items-center gap-2 text-[11px] text-[#8e98a8]"><Filter size={14} /> filtros ativos</div>
+      <select className="k-input md:w-[210px]" value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)} data-testid="select-subject-filter">
+        <option>Todas</option>
+        {subjectOptions.map((subject) => <option key={subject}>{subject}</option>)}
+      </select>
+      <select
+        className="k-input md:w-[145px]"
+        value={priorityFilter}
+        onChange={(event) => setPriorityFilter(event.target.value)}
+        data-testid="select-priority-filter"
+        disabled
+        title="Prioridade chega com o diagnóstico (Fase 1C) — ainda não há dado para filtrar."
+      >
+        <option value="todas">Prioridade</option>
+        <option value="alta">Alta</option>
+        <option value="média">Média</option>
+        <option value="baixa">Baixa</option>
+      </select>
+      <select className="k-input md:w-[165px]" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} data-testid="select-status-filter">
+        <option value="todos">Todos os status</option>
+        <option value="dominar">Dominar</option>
+        <option value="em andamento">Em andamento</option>
+        <option value="não iniciado">Não iniciado</option>
+      </select>
+      <span className="ml-auto hidden items-center gap-2 px-2 text-[10px] text-[#8e98a8] md:flex">
+        <span className="h-2 w-2 rounded-full bg-[#d5f35b]" />
+        {filtered.length} tópicos{cargoFilter ? ` · ${totalQuestionsFor(syllabus, cargoFilter)} questões` : ''}
+      </span>
+    </div>
+
+    <div className="k-card overflow-hidden">
+      <div className="hidden grid-cols-[1.2fr_1.5fr_.7fr_.7fr_.8fr_70px] gap-4 bg-[#131820] px-5 py-3 text-[10px] uppercase tracking-[.1em] text-[#697587] md:grid">
+        <span>matéria</span><span>tópico</span><span>prioridade</span><span>acerto</span><span>status</span><span />
+      </div>
+      {filtered.length === 0 ? (
+        <div className="p-8 text-center text-[12px] text-[#8e98a8]" data-testid="edital-topics-empty">
+          {leafItems.length === 0
+            ? 'Nenhum tópico no programa ainda — importe e confirme um edital para ver a estrutura aqui.'
+            : 'Nenhum tópico corresponde aos filtros selecionados.'}
+        </div>
+      ) : filtered.map((item) => {
+        const itemCargos = cargosFor(syllabus, item.id);
+        const common = itemCargos.length > 1;
+        return (
+          <div key={item.id} className="k-table-row grid gap-3 px-5 py-4 md:grid-cols-[1.2fr_1.5fr_.7fr_.7fr_.8fr_70px] md:items-center md:gap-4" data-testid={`row-topic-${item.id}`}>
+            <div>
+              <span className="text-[11px] text-[#aeb8c5]">{subjectLabelFor(syllabus, item)}</span>
+              <span className="mt-1 block text-[10px] text-[#647080]">sem sessão registrada</span>
+            </div>
+            <div>
+              <Link href="/estudo" className="text-[12px] font-medium hover:text-[#d5f35b]" data-testid={`link-topic-${item.id}`}>{item.sourceLabel}</Link>
+              {common && <span className="k-chip ml-2" data-testid={`chip-common-${item.id}`}>{itemCargos.length} cargos</span>}
+            </div>
+            <span className="k-chip w-fit text-[#8e98a8]" title="Prioridade chega com o diagnóstico (Fase 1C).">sem dados</span>
+            <span className="k-mono text-[12px] text-[#8e98a8]" title="Acerto chega com o diagnóstico (Fase 1C).">sem dados até o diagnóstico</span>
+            <span className="w-fit text-[10px] text-[#8e98a8]">não iniciado</span>
+            <div className="flex items-center gap-1 justify-end relative">
+              <button className="k-button k-button-quiet k-icon-button" onClick={() => setPracticeTopic(item.id)} aria-label={`Registrar prática para ${item.sourceLabel}`} title="Registrar prática"><CheckCircle2 size={15} className="opacity-50 hover:opacity-100" /></button>
+              <button className="k-button k-button-quiet k-icon-button" data-testid={`button-topic-menu-${item.id}`} aria-label={`Ações para ${item.sourceLabel}`}><MoreHorizontal size={15} /></button>
+              {practiceTopic === item.id && (
+                <QuickPracticeRegistro topics={practiceTopics} defaultTopicId={item.id} onClose={() => setPracticeTopic(null)} onRegister={handleRegisterPractice} />
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>;
 }
