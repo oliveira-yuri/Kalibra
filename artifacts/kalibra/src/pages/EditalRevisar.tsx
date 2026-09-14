@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
@@ -9,8 +9,10 @@ import {
 import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
+import { versionFromPayload } from '@/domain/edital-structure-payload';
 import {
   nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
+  renameConcept,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
 } from '@workspace/core';
@@ -38,16 +40,6 @@ function makeReviewId(seed: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Versão de um payload de aprovação `edital_structure` — usada tanto para gravar quanto
- * para casar um item já enfileirado com a versão da URL atual (fix round 1 da Task 14). */
-function versionFromPayload(payload: unknown): string | null {
-  if (!isRecord(payload)) return null;
-  const version = payload.version;
-  if (typeof version === 'string' && version) return version;
-  if (typeof version === 'number') return String(version);
-  return null;
 }
 
 /**
@@ -215,7 +207,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   //      não persiste nada — e É ENFILEIRADA agora, uma vez.
   //   3. Senão, não há proposta para revisar (`null`): edição normal de uma estrutura
   //      já confirmada antes.
-  const [reviewState, setReviewState] = useState<{
+  type ReviewState = {
     review: DedupResult;
     approvalId: string;
     // Fix round 2 (achado B): as incertezas do PD-06 viajam com a proposta, não mais só
@@ -225,26 +217,46 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // proposta é de uma importação nova — sem isto, retomar da fila confirmava a
     // estrutura para um workspace que `handleConfirm` nunca chegava a criar.
     workspaceDraft: WorkspaceDraft | null;
-  } | null>(() => {
+  };
+
+  // Busca (1) acima: só LEITURA, nunca escreve — segura de rodar durante o render, como
+  // inicializador preguiçoso de `useState`.
+  const [reviewState, setReviewState] = useState<ReviewState | null>(() => {
     const queued = approvalsApi.items.find((item) => (
       item.type === 'edital_structure'
       && item.workspaceId === workspaceSlug
       && versionFromPayload(item.payloadAfter) === version
       && canDecide(item.status)
     ));
-    if (queued) {
-      const resumed = reviewFromPayload(queued.payloadAfter);
-      if (resumed) {
-        return {
-          review: resumed,
-          approvalId: queued.id,
-          uncertainties: uncertaintiesFromPayload(queued.payloadAfter),
-          workspaceDraft: workspaceDraftFromPayload(queued.payloadAfter),
-        };
-      }
-    }
+    if (!queued) return null;
+    const resumed = reviewFromPayload(queued.payloadAfter);
+    if (!resumed) return null;
+    return {
+      review: resumed,
+      approvalId: queued.id,
+      uncertainties: uncertaintiesFromPayload(queued.payloadAfter),
+      workspaceDraft: workspaceDraftFromPayload(queued.payloadAfter),
+    };
+  });
 
-    if (!(pending?.extractionOutput && !pending.extractionApplied)) return null;
+  // Achado I4 da revisão final: buscas (2)/enfileirar acima chamavam `approvalsApi.enqueue`
+  // — que grava em armazenamento durável e compartilhado entre abas e dispatcha
+  // `storage` síncronamente — direto do inicializador preguiçoso do `useState`, ou
+  // seja, DURANTE o render. Isso é um efeito
+  // colateral fora do ciclo de efeitos do React (podia atualizar estado de um componente
+  // ANCESTRAL de forma síncrona no meio da renderização desta árvore) e faz o app
+  // depender de `StrictMode` estar desligado — ligá-lo dispara o render duas vezes e
+  // enfileiraria a mesma proposta duas vezes. Movido para um efeito; a guarda de
+  // idempotência original (buscar um item `edital_structure` já pendente que bate
+  // workspaceId+versão antes de criar outro) continua sendo o que decide se este efeito
+  // tem algo a fazer — `enqueuedRef` cobre só a lacuna que a guarda por si só não cobre
+  // (duas invocações do efeito ANTES de o estado novo do primeiro `enqueue` se refletir
+  // em `approvalsApi.items`, exatamente o que o duplo-disparo do StrictMode faz).
+  const enqueuedRef = useRef(false);
+  useEffect(() => {
+    if (reviewState || enqueuedRef.current) return;
+    if (!(pending?.extractionOutput && !pending.extractionApplied)) return;
+    enqueuedRef.current = true;
 
     const freshReview = syllabusApi.previewExtraction(pending.extractionOutput);
     const mergedCount = freshReview.syllabus.items.filter((item) => isCommon(freshReview.syllabus, item.id)).length;
@@ -266,10 +278,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       payloadAfter: { version, review: freshReview, mergedCount, uncertainties, workspaceDraft },
     }, new Date());
 
-    return {
-      review: freshReview, approvalId: id, uncertainties, workspaceDraft,
-    };
-  });
+    setReviewState({ review: freshReview, approvalId: id, uncertainties, workspaceDraft });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma vez por montagem; só precisa enfileirar quando nada foi retomado da fila (checado acima via ref + `reviewState`), nunca de novo a cada mudança de dependência.
+  }, []);
 
   const review = reviewState?.review ?? null;
   const structureApprovalId = reviewState?.approvalId ?? null;
@@ -293,13 +304,26 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const uncertainFields = reviewState?.uncertainties ?? [];
   // Um item comum a mais de um cargo é exatamente o que `dedupeEntries` uniu — o spec
   // exige que o usuário entenda isso de cara, não que descubra sozinho (Task 12).
-  const hasCommonItems = currentSyllabus.items.some((item) => isCommon(currentSyllabus, item.id));
+  // Achado menor da revisão final: `isCommon` é O(links) por item, então este `.some`
+  // era O(itens × links) recomputado em TODO render — inclusive a cada tecla digitada
+  // num campo de peso, que não muda `currentSyllabus` nenhum. `useMemo` só recalcula
+  // quando o Syllabus exibido de fato muda.
+  const hasCommonItems = useMemo(
+    () => currentSyllabus.items.some((item) => isCommon(currentSyllabus, item.id)),
+    [currentSyllabus],
+  );
   // PD-08: comparação entre versões de edital. `syllabusApi.syllabus` continua sendo o
   // "antes" de verdade enquanto não se confirma — nada foi sobrescrito ainda — e
   // `review.syllabus` é o "depois" proposto.
-  const diff = review
-    ? diffSyllabus(syllabusApi.syllabus, review.syllabus, syllabusApi.concepts)
-    : null;
+  // Achado menor da revisão final: `diffSyllabus` é O(prev × concepts × strlen²) —
+  // medido em 339ms para 260 itens — e era recomputado em todo render sem `useMemo`,
+  // inclusive a cada tecla digitada num campo de peso/questões (que dispara re-render
+  // via `handleWeightChange`/`handleQuestionCountChange`, mas não muda nem `review.syllabus`
+  // nem `syllabusApi.syllabus` nem `syllabusApi.concepts`).
+  const diff = useMemo(
+    () => (review ? diffSyllabus(syllabusApi.syllabus, review.syllabus, syllabusApi.concepts) : null),
+    [review, syllabusApi.syllabus, syllabusApi.concepts],
+  );
 
   const handleConfirm = () => {
     if (confirmedRef.current) return;
@@ -323,106 +347,136 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     setConfirmError(null);
     confirmedRef.current = true;
 
-    // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
-    // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
-    // status ao lado dela (ver regressão I2).
-    const targetStatus = 'diagnostico_pendente' as const;
-    // `workspace` já resolve para o rascunho certo em qualquer um dos três casos
-    // (mesma aba com `pending`, retomada da fila, ou edição normal já confirmada) —
-    // não precisa mais de um `if (pending?.isNew)` separado aqui (fix round 2).
-    const statusBeforeConfirm = workspace?.status ?? targetStatus;
-    // Fix round 2 (crítico, corrige o achado menor do round 1): QUATRO dos nove status
-    // não têm aresta para "diagnostico_pendente" — `sem_edital`, `aguardando_upload`,
-    // `extraindo_edital` e `erro` (o comentário anterior dizia o contrário; estava
-    // errado, `sem_edital` não é um caso coberto). Chamar `assertTransition` sobre uma
-    // entrada vinda de estado persistido, dentro de um handler de clique sem nada para
-    // pegar o throw, é exatamente o anti-padrão do Finding 1 — e aqui era pior, porque
-    // o assert vinha DEPOIS das três escritas: uma entrada inválida deixava o Syllabus
-    // e os conceitos gravados, a fila enfileirada, mas o status preso e a importação
-    // pendente nunca limpa — um "torn write" do qual nem um segundo clique escapa
-    // (`confirmedRef` já estaria marcado). A checagem com `canTransition` roda ANTES de
-    // qualquer persistência: ou tudo acontece, ou nada acontece. Quando a aresta não é
-    // válida, a proposta ainda é confirmada (é o que o botão promete) — só o status não
-    // avança, e continua sendo o que já era.
-    const canAdvanceStatus = statusBeforeConfirm === targetStatus || canTransition(statusBeforeConfirm, targetStatus);
-    if (statusBeforeConfirm !== targetStatus && canAdvanceStatus) assertTransition(statusBeforeConfirm, targetStatus);
-    const status = canAdvanceStatus ? targetStatus : statusBeforeConfirm;
+    // Achado I5 da revisão final: esta sequência inteira (gravar conceitos, Syllabus,
+    // a decisão da fila, N `concept_merge`, e por fim o workspace) é feita de escritas
+    // NUAS no armazenamento durável — nenhuma delas trata cota esgotada, e a fila
+    // guarda cópias inteiras do Syllabus em todo item (nunca podada), então cota
+    // esgotada é o regime estacionário esperado, não uma hipótese remota. Sem este
+    // `try/catch`, uma falha NO MEIO da sequência deixava uma escrita pela metade
+    // (programa salvo, aprovação indecisa, status não avançado) E `confirmedRef` preso
+    // em `true` para sempre — um retry vira no-op silencioso porque a guarda do topo
+    // devolve cedo. O catch desfaz a trava (`confirmedRef.current = false`) e mostra o
+    // erro no mesmo bloco visual que o achado A residual já usa, para que o usuário
+    // veja que algo falhou e possa tentar de novo — não uma camada transacional
+    // completa (fora de escopo), só a garantia mínima de "nunca fica preso, sempre dá
+    // pra tentar de novo".
+    try {
+      // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
+      // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip
+      // de status ao lado dela (ver regressão I2).
+      const targetStatus = 'diagnostico_pendente' as const;
+      // `workspace` já resolve para o rascunho certo em qualquer um dos três casos
+      // (mesma aba com `pending`, retomada da fila, ou edição normal já confirmada) —
+      // não precisa mais de um `if (pending?.isNew)` separado aqui (fix round 2).
+      const statusBeforeConfirm = workspace?.status ?? targetStatus;
+      // Fix round 2 (crítico, corrige o achado menor do round 1): QUATRO dos nove status
+      // não têm aresta para "diagnostico_pendente" — `sem_edital`, `aguardando_upload`,
+      // `extraindo_edital` e `erro` (o comentário anterior dizia o contrário; estava
+      // errado, `sem_edital` não é um caso coberto). Chamar `assertTransition` sobre uma
+      // entrada vinda de estado persistido, dentro de um handler de clique sem nada para
+      // pegar o throw, é exatamente o anti-padrão do Finding 1 — e aqui era pior, porque
+      // o assert vinha DEPOIS das três escritas: uma entrada inválida deixava o Syllabus
+      // e os conceitos gravados, a fila enfileirada, mas o status preso e a importação
+      // pendente nunca limpa — um "torn write" do qual nem um segundo clique escapa
+      // (`confirmedRef` já estaria marcado). A checagem com `canTransition` roda ANTES de
+      // qualquer persistência: ou tudo acontece, ou nada acontece. Quando a aresta não é
+      // válida, a proposta ainda é confirmada (é o que o botão promete) — só o status não
+      // avança, e continua sendo o que já era.
+      const canAdvanceStatus = statusBeforeConfirm === targetStatus || canTransition(statusBeforeConfirm, targetStatus);
+      if (statusBeforeConfirm !== targetStatus && canAdvanceStatus) assertTransition(statusBeforeConfirm, targetStatus);
+      const status = canAdvanceStatus ? targetStatus : statusBeforeConfirm;
 
-    if (review) {
-      // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
-      // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
-      // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
-      // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
-      review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
-      syllabusApi.save(review.syllabus);
-      // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
-      // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
-      // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
-      // `approve(id, payload)` grava esse payload novo E decide o item numa única
-      // escrita (`useApprovals.approve`), então o registro na fila e a gravação do
-      // programa nunca podem divergir — são o MESMO objeto `review`, não duas cópias
-      // que uma edição poderia desalinhar.
-      if (structureApprovalId) {
-        const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
-        // `uncertainties` viaja para o registro aprovado por completude (fix round 2,
-        // achado B); `workspaceDraft` vira `null` — a partir daqui o workspace É real
-        // (gravado logo abaixo), não falta mais criar.
-        approvalsApi.approve(structureApprovalId, {
-          version, review, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
+      if (review) {
+        // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
+        // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
+        // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
+        // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
+        review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
+        syllabusApi.save(review.syllabus);
+        // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
+        // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
+        // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
+        // `approve(id, payload)` grava esse payload novo E decide o item numa única
+        // escrita (`useApprovals.approve`), então o registro na fila e a gravação do
+        // programa nunca podem divergir — são o MESMO objeto `review`, não duas cópias
+        // que uma edição poderia desalinhar.
+        if (structureApprovalId) {
+          const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+          // `uncertainties` viaja para o registro aprovado por completude (fix round 2,
+          // achado B); `workspaceDraft` vira `null` — a partir daqui o workspace É real
+          // (gravado logo abaixo), não falta mais criar. Achado I5 da revisão final:
+          // `newConcepts` vira `[]` — já foi escrito na biblioteca global na linha acima,
+          // então guardar outra cópia inteira dentro do item decidido é só peso morto
+          // que a fila nunca poda (o mesmo `review.syllabus` continua inteiro aqui, de
+          // propósito: é o que a Task 14/fix round 1 usa para provar que o registro
+          // aprovado é a árvore que de fato foi gravada).
+          approvalsApi.approve(structureApprovalId, {
+            version,
+            review: { ...review, newConcepts: [] },
+            mergedCount,
+            uncertainties: reviewState?.uncertainties ?? [],
+            workspaceDraft: null,
+          });
+        }
+
+        const now = new Date();
+        // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
+        // de aprovação são ref-sincronizados exatamente para que as N chamadas
+        // sobrevivam todas (ver approvals.test.ts e o teste desta tela).
+        review.proposedLinks.forEach((link) => {
+          approvalsApi.enqueue({
+            workspaceId: workspaceSlug,
+            type: 'concept_merge',
+            title: `Fundir item extraído com "${link.conceptId}"`,
+            rationale: rationaleFor(link),
+            // Proveniência (de onde a proposta veio): o item do edital que a gerou.
+            sourceRef: link.itemId,
+            // O que a decisão muta: o conceito que a ligação propõe confirmar — NUNCA
+            // `sourceRef` (achado da revisão da fila de aprovação: usar proveniência
+            // aqui faria `confirmConcept` receber um id que não bate com nada, e a
+            // aprovação "aplicaria" em silêncio, sem efeito).
+            targetConceptId: link.conceptId,
+            confidence: link.score,
+            payloadBefore: { status: 'provisional' },
+            payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
+          }, now);
         });
+
+        if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
       }
 
-      const now = new Date();
-      // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
-      // de aprovação são ref-sincronizados exatamente para que as N chamadas
-      // sobrevivam todas (ver approvals.test.ts e o teste desta tela).
-      review.proposedLinks.forEach((link) => {
-        approvalsApi.enqueue({
-          workspaceId: workspaceSlug,
-          type: 'concept_merge',
-          title: `Fundir item extraído com "${link.conceptId}"`,
-          rationale: rationaleFor(link),
-          // Proveniência (de onde a proposta veio): o item do edital que a gerou.
-          sourceRef: link.itemId,
-          // O que a decisão muta: o conceito que a ligação propõe confirmar — NUNCA
-          // `sourceRef` (achado da revisão da fila de aprovação: usar proveniência
-          // aqui faria `confirmConcept` receber um id que não bate com nada, e a
-          // aprovação "aplicaria" em silêncio, sem efeito).
-          targetConceptId: link.conceptId,
-          confidence: link.score,
-          payloadBefore: { status: 'provisional' },
-          payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
-        }, now);
-      });
-
-      if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
+      // Fix round 2 (achado A, crítico): antes, só `pending.isNew && pending.workspace`
+      // decidia entre criar e atualizar — e `pending` está vazio numa retomada da fila
+      // (aba fechada/reiniciada). O `else` rodava `updateWorkspace` sobre um slug ausente
+      // da lista: um `.map` que não casa nada, silenciosamente — a aprovação e o Syllabus
+      // ficavam gravados, mas o workspace nunca chegava a existir. `workspaceDraft` agora
+      // vem de `pending` OU do payload da fila (achado A); `workspaceExists` decide entre
+      // criar e atualizar, não mais só `pending.isNew` — cobre o caso de a criação ainda
+      // não ter acontecido, venha o rascunho de onde vier.
+      if (workspaceDraft && !workspaceExists) {
+        addWorkspace({
+          ...workspaceDraft,
+          importStatus: 'completed',
+          status,
+          nextAction: nextActionFor(status),
+        });
+      } else {
+        updateWorkspace(workspaceSlug, {
+          ...(pending?.updates || {}),
+          importStatus: 'completed',
+          status,
+          nextAction: nextActionFor(status),
+        });
+      }
+      clearPendingWorkspaceImport(workspaceSlug, user?.id);
+      setLocation('/edital');
+    } catch (error) {
+      console.error('Falha ao confirmar a estrutura do edital.', error);
+      confirmedRef.current = false;
+      setConfirmError(
+        'Não foi possível salvar a estrutura confirmada agora (armazenamento local indisponível ou cheio). Nada foi perdido — tente confirmar de novo.',
+      );
     }
-
-    // Fix round 2 (achado A, crítico): antes, só `pending.isNew && pending.workspace`
-    // decidia entre criar e atualizar — e `pending` está vazio numa retomada da fila
-    // (aba fechada/reiniciada). O `else` rodava `updateWorkspace` sobre um slug ausente
-    // da lista: um `.map` que não casa nada, silenciosamente — a aprovação e o Syllabus
-    // ficavam gravados, mas o workspace nunca chegava a existir. `workspaceDraft` agora
-    // vem de `pending` OU do payload da fila (achado A); `workspaceExists` decide entre
-    // criar e atualizar, não mais só `pending.isNew` — cobre o caso de a criação ainda
-    // não ter acontecido, venha o rascunho de onde vier.
-    if (workspaceDraft && !workspaceExists) {
-      addWorkspace({
-        ...workspaceDraft,
-        importStatus: 'completed',
-        status,
-        nextAction: nextActionFor(status),
-      });
-    } else {
-      updateWorkspace(workspaceSlug, {
-        ...(pending?.updates || {}),
-        importStatus: 'completed',
-        status,
-        nextAction: nextActionFor(status),
-      });
-    }
-    clearPendingWorkspaceImport(workspaceSlug, user?.id);
-    setLocation('/edital');
   };
 
   const handleDiscard = () => {
@@ -437,8 +491,11 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // isto, um item rejeitado guardava o texto colado para sempre (a fila não poda
       // itens decididos).
       const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+      // Achado I5 da revisão final: mesma poda de `newConcepts` que `approve` faz — um
+      // item rejeitado nunca vai gravar esses conceitos, então mantê-los aqui é só peso
+      // morto que a fila nunca poda.
       approvalsApi.reject(structureApprovalId, undefined, {
-        version, review, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
+        version, review: { ...review, newConcepts: [] }, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
       });
     }
     clearPendingWorkspaceImport(workspaceSlug, user?.id);
@@ -452,9 +509,34 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleRename = (itemId: string, label: string) => {
     if (review) {
-      setReviewState((current) => (current && {
-        ...current, review: { ...current.review, syllabus: renameSyllabusItem(current.review.syllabus, itemId, label) },
-      }));
+      // Achado C2/PD-08 da revisão final: renomear um item AINDA EM REVISÃO é o
+      // momento em que o rótulo anterior deixa de existir em qualquer lugar — se o
+      // conceito que este item aponta nasceu nesta MESMA extração (está em
+      // `review.newConcepts`, ainda não escrito na biblioteca global), a renomeação
+      // atualiza o nome canônico dele e empilha o anterior como alias
+      // (`renameConcept`, `lib/core`), para que uma reimportação futura com a redação
+      // NOVA — ou uma versão já persistida do edital com a redação ANTIGA — continue
+      // casando com o MESMO conceito em vez de virar "removido" + "adicionado" em
+      // `diffSyllabus`. Um item cujo conceito já existia ANTES desta extração (não
+      // está em `newConcepts`) só tem o rótulo do item alterado aqui — ver a nota em
+      // `useSyllabus.renameItem` para o caminho equivalente sobre um item já
+      // confirmado.
+      setReviewState((current) => {
+        if (!current) return current;
+        const item = current.review.syllabus.items.find((candidate) => candidate.id === itemId);
+        const newConcepts = item
+          ? current.review.newConcepts.map((concept) =>
+              (concept.id === item.conceptId ? renameConcept(concept, label) : concept))
+          : current.review.newConcepts;
+        return {
+          ...current,
+          review: {
+            ...current.review,
+            syllabus: renameSyllabusItem(current.review.syllabus, itemId, label),
+            newConcepts,
+          },
+        };
+      });
     } else {
       syllabusApi.renameItem(itemId, label);
     }
@@ -527,7 +609,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
           <span className="k-chip">versão {version} · {currentSyllabus.items.length} itens mapeados</span>
         </div>
         <h1 className="text-[24px] font-semibold">Revise antes de confirmar.</h1>
-        <p className="text-[13px] text-[#8e98a8]">Você pode renomear, mover, excluir e adicionar tópicos manualmente.</p>
+        <p className="text-[13px] text-[#8e98a8]">Você pode renomear, excluir e adicionar tópicos manualmente.</p>
       </header>
 
       {version !== '1' && diff && (

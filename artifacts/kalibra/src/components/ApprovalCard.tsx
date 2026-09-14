@@ -1,6 +1,7 @@
 import { Check, GitMerge, ListChecks, X } from 'lucide-react';
 import { Link } from 'wouter';
 import { canDecide, type ApprovalItem, type ApprovalType } from '@/domain/useApprovals';
+import { versionFromPayload } from '@/domain/edital-structure-payload';
 import { ApprovalDiff } from './ApprovalDiff';
 
 const TYPE_LABEL: Record<ApprovalType, string> = {
@@ -15,17 +16,6 @@ const TYPE_ICON: Record<ApprovalType, typeof ListChecks> = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** `edital_structure` carrega a árvore inteira do edital — a versão vem do
- * próprio payload quando presente; sem ela, a revisão abre na versão 1. */
-function versionFrom(payload: unknown): string {
-  if (isRecord(payload)) {
-    const version = payload.version;
-    if (typeof version === 'string' && version) return version;
-    if (typeof version === 'number') return String(version);
-  }
-  return '1';
 }
 
 /** Quantos itens da proposta são comuns a mais de um cargo (Task 14) — `null`
@@ -46,7 +36,7 @@ function mergedCountFrom(payload: unknown): number | null {
  * do app para montar o caminho absoluto do workspace certo.
  */
 function reviewHrefFor(item: ApprovalItem): string {
-  const version = versionFrom(item.payloadAfter);
+  const version = versionFromPayload(item.payloadAfter);
   if (!item.workspaceId) return `/edital/revisar/${version}`;
   return `~${import.meta.env.BASE_URL}workspace/${item.workspaceId}/edital/revisar/${version}`;
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
-import { stageWorkspaceImport } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, reserveNextSyllabusVersion } from '@/domain/useWorkspaces';
 
 vi.mock('@clerk/react', () => clerkReactMock);
 vi.mock('@clerk/react/internal', () => ({
@@ -914,5 +914,188 @@ describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar 
 
     expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
     expect(readApprovals()).toHaveLength(3);
+  });
+});
+
+describe('EditalRevisar — achado C1 da revisão final (uma reimportação abandonada não pode sequestrar a próxima)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const extractionWith = (label: string): ExtractionOutput => ({
+    entries: [entrada({ cargoId: 'c1', label })],
+    detectedCargos: ['c1'],
+    examFormat: null,
+    examDurationMinutes: null,
+    uncertainties: [],
+  });
+
+  it('jornada 1 — reimportar (workspace já existente): abandonar uma reimportação e reimportar de novo confirma a árvore da SEGUNDA tentativa, não a da primeira', async () => {
+    seedWorkspaceWithStatus('estudando');
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify({
+      items: [{ id: 'orig-1', workspaceId: 'setec-campinas', conceptId: 'concept-orig', parentItemId: null, sourceLabel: 'Programa original', sourceExcerpt: null, page: null, confidence: 1, uncertain: false }],
+      links: [{ syllabusItemId: 'orig-1', cargoId: 'c1', weight: null, questionCount: null }],
+    }));
+
+    // Primeira tentativa de reimportação — abandonada sem decidir (o usuário navega
+    // para outro lugar; nem "Confirmar" nem "Descartar" são clicados).
+    const primeiraVersao = reserveNextSyllabusVersion('setec-campinas', TEST_USER.id);
+    stageWorkspaceImport('setec-campinas', { isNew: false, updates: {}, extractionOutput: extractionWith('Importação abandonada') }, TEST_USER.id);
+    window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${primeiraVersao}`);
+    const { default: App } = await import('../App');
+    const abandonada = render(<App />);
+    expect(screen.getByText('Importação abandonada')).toBeTruthy();
+    abandonada.unmount();
+
+    // Segunda tentativa — desta vez de verdade. Antes do achado C1, a URL seria
+    // sempre o mesmo literal `/edital/revisar/2`, e o item ANTERIOR (ainda pendente
+    // na fila) seria retomado em vez desta proposta nova.
+    const segundaVersao = reserveNextSyllabusVersion('setec-campinas', TEST_USER.id);
+    expect(segundaVersao).not.toBe(primeiraVersao);
+    stageWorkspaceImport('setec-campinas', { isNew: false, updates: {}, extractionOutput: extractionWith('Importação real') }, TEST_USER.id);
+    window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${segundaVersao}`);
+    render(<App />);
+
+    // `getAllByText`, não `getByText`: com `version !== '1'` a seção de diff também
+    // lista o rótulo (como "adicionado") ao lado da árvore — duas ocorrências
+    // legítimas do mesmo texto, não uma ambiguidade.
+    expect(screen.getAllByText('Importação real').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Importação abandonada')).toBeNull();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const labels = syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel);
+    expect(labels).toContain('Importação real');
+    expect(labels).not.toContain('Importação abandonada');
+
+    // O item abandonado continua pendente — "Confirmar" na segunda tela nunca o
+    // decidiu por engano.
+    const approvals = readApprovals();
+    const abandonadoItem = approvals.find((item) => (item.payloadAfter as { version: string }).version === String(primeiraVersao));
+    expect(abandonadoItem?.status).toBe('pendente');
+  });
+
+  it('jornada 2 — primeira importação (workspace ainda não criado): abandonar e recriar com o MESMO título não resgata o rascunho nem a árvore abandonados', async () => {
+    const SLUG = 'novo-concurso-c1';
+    const SYLLABUS_NOVO_KEY = `kalibra_syllabus:${TEST_USER.id}:${SLUG}`;
+
+    const draftDe = (title: string) => ({
+      slug: SLUG, title, institution: 'Banca', type: 'Concurso Público', examDate: '2027-05-10',
+      cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }],
+      selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
+      sourceMode: 'text' as const, importStatus: 'pending' as const, progress: 0, nextAction: '', active: true,
+    });
+
+    // Primeira tentativa — mesmo título, workspace nunca chega a ser criado (só
+    // `handleConfirm` cria; abandonar antes disso não cria nada).
+    const primeiraVersao = reserveNextSyllabusVersion(SLUG, TEST_USER.id);
+    stageWorkspaceImport(SLUG, {
+      isNew: true, workspace: draftDe('Concurso Repetido'), extractionOutput: extractionWith('Rascunho abandonado'),
+    }, TEST_USER.id);
+    window.history.replaceState({}, '', `/workspace/${SLUG}/edital/revisar/${primeiraVersao}`);
+    const { default: App } = await import('../App');
+    const abandonada = render(<App />);
+    expect(screen.getByText('Rascunho abandonado')).toBeTruthy();
+    abandonada.unmount();
+
+    // Segunda tentativa — MESMO título (`uniqueSlug` devolveria o mesmo slug, já que
+    // o workspace da primeira tentativa nunca chegou a existir de verdade).
+    const segundaVersao = reserveNextSyllabusVersion(SLUG, TEST_USER.id);
+    expect(segundaVersao).not.toBe(primeiraVersao);
+    stageWorkspaceImport(SLUG, {
+      isNew: true, workspace: draftDe('Concurso Repetido'), extractionOutput: extractionWith('Rascunho de verdade'),
+    }, TEST_USER.id);
+    window.history.replaceState({}, '', `/workspace/${SLUG}/edital/revisar/${segundaVersao}`);
+    render(<App />);
+
+    // Mesma nota da jornada 1: a seção de diff também lista o rótulo, então duas
+    // ocorrências legítimas — `getAllByText`, não `getByText`.
+    expect(screen.getAllByText('Rascunho de verdade').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Rascunho abandonado')).toBeNull();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_NOVO_KEY)!);
+    const labels = syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel);
+    expect(labels).toContain('Rascunho de verdade');
+    expect(labels).not.toContain('Rascunho abandonado');
+
+    const workspaces: Array<{ slug: string }> = JSON.parse(window.localStorage.getItem(WORKSPACES_KEY) ?? '[]');
+    expect(workspaces.filter((w) => w.slug === SLUG)).toHaveLength(1);
+  });
+});
+
+describe('EditalRevisar — achados C2/I1 da revisão final (PD-08: renomear em revisão produz o alias que o diff precisa)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('exemplo completo do PD-08: importar, renomear em revisão, reimportar com a redação antiga, e o diff mostra RENOMEADO — nunca removido+adicionado', async () => {
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+
+    // Importação 1 — "Crase".
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      },
+    }, TEST_USER.id);
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+    const { default: App } = await import('../App');
+    const primeira = render(<App />);
+
+    // Renomeia AINDA EM REVISÃO, antes de confirmar — o momento em que "Crase" deixa
+    // de ser o rótulo atual do conceito recém-criado por esta mesma extração.
+    vi.spyOn(window, 'prompt').mockReturnValue('Emprego do acento indicativo de crase');
+    const row = () => screen.getByText(/^Crase$/).closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+    fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row()).getByTestId(/^button-rename-/));
+    expect(screen.getByText('Emprego do acento indicativo de crase')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+    primeira.unmount();
+
+    const conceitos = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
+    expect(conceitos).toHaveLength(1);
+    expect(conceitos[0].canonicalName).toBe('Emprego do acento indicativo de crase');
+    // A propriedade central do achado: o rótulo ANTERIOR ("Crase") virou alias — sem
+    // isto, uma reimportação com a redação antiga nunca casa de volta com este conceito.
+    expect(conceitos[0].aliases).toEqual(['Crase']);
+
+    // Importação 2 — a redação bruta volta a ser "Crase" (ex.: o mesmo edital colado de
+    // novo, ou uma retificação que reverteu a redação). Sem o alias do passo acima,
+    // isto criaria um conceito NOVO e o diff mostraria removido+adicionado — o próprio
+    // bug que C2 descreve.
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      },
+    }, TEST_USER.id);
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/2');
+    render(<App />);
+
+    const diffSection = screen.getByTestId('syllabus-diff');
+    expect(diffSection.innerHTML).toContain('~ 1 renomeado');
+    expect(diffSection.innerHTML).toContain('"Emprego do acento indicativo de crase" → "Crase"');
+    expect(diffSection.innerHTML).toContain('+ 0 adicionado');
+    expect(diffSection.innerHTML).toContain('− 0 removido');
   });
 });

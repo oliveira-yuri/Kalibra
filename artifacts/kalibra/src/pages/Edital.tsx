@@ -7,7 +7,7 @@ import {
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { CargoFilter } from '@/components/CargoFilter';
-import { stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, useWorkspaces, reserveNextSyllabusVersion } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
 import { useSyllabus } from '@/domain/useSyllabus';
 import {
@@ -50,6 +50,13 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const extraction = useExtraction(workspaceSlug);
   const syllabusApi = useSyllabus(workspaceSlug, user?.id);
   const workspaceStatusRef = useRef<WorkspaceStatus>(workspace?.status ?? 'sem_edital');
+  // Achado C1 da revisão final: a rota de revisão da reimportação era um literal fixo
+  // (`/edital/revisar/2`) — toda reimportação, não importa quantas já tinham
+  // acontecido antes (inclusive abandonadas no meio do caminho), roteava para a MESMA
+  // URL, e o inicializador de `EditalRevisar` podia retomar a proposta de uma
+  // reimportação abandonada em vez da que o usuário acabou de rodar. Reservado de
+  // forma durável (`reserveNextSyllabusVersion`) no início de CADA reimportação.
+  const reviewVersionRef = useRef(2);
   const [subjectFilter, setSubjectFilter] = useState('Todas');
   const [priorityFilter, setPriorityFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
@@ -127,6 +134,10 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     workspaceStatusRef.current = 'aguardando_upload';
     updateWorkspace(workspaceSlug, { status: 'aguardando_upload', nextAction: nextActionFor('aguardando_upload') });
 
+    // Reservado AGORA — no início desta reimportação, não em `handleReady` — pela
+    // mesma razão de `NovoWorkspace.tsx`: a identidade precisa existir mesmo que o
+    // usuário abandone antes da extração terminar.
+    reviewVersionRef.current = reserveNextSyllabusVersion(workspaceSlug, user?.id);
     setIsProcessing(true);
     extraction.start({
       sourceMode,
@@ -180,7 +191,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsProcessing(false);
     setSourceFileName('');
     setSourceText('');
-    setLocation('/edital/revisar/2');
+    setLocation(`/edital/revisar/${reviewVersionRef.current}`);
   };
 
   const handleExtractionAction = (kind: ExtractionErrorKind) => {
