@@ -96,10 +96,10 @@ describe('Aprovacoes — aprovação em lote', () => {
   });
 });
 
-function pendingStructureItem(id: string, version: string): ApprovalItem {
+function pendingStructureItem(id: string, version: string, workspaceId = 'setec-campinas'): ApprovalItem {
   return {
     id,
-    workspaceId: 'setec-campinas',
+    workspaceId,
     type: 'edital_structure',
     status: 'pendente',
     title: `Estrutura extraída do edital · versão ${version}`,
@@ -140,5 +140,39 @@ describe('Aprovacoes — edital_structure só decide na tela dedicada (Task 14)'
     expect(screen.queryByTestId('button-approve-appr-struct')).toBeNull();
     expect(screen.queryByTestId('button-reject-appr-struct')).toBeNull();
     expect(screen.queryByTestId('checkbox-select-appr-struct')).toBeNull();
+  });
+});
+
+describe('Aprovacoes — o link da estrutura sempre aponta para o workspace DONO do item (fix round 1, achado 3)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    // A fila não filtra por workspace (é um inbox entre workspaces) — visitar
+    // /aprovacoes a partir de "setec-campinas" ainda lista um item que pertence a
+    // "outro-workspace".
+    window.localStorage.setItem(storageKey(), JSON.stringify([
+      pendingStructureItem('appr-outro', '1', 'outro-workspace'),
+    ]));
+    // Visita a fila a partir de um workspace DIFERENTE do dono do item.
+    window.history.replaceState({}, '', '/workspace/setec-campinas/aprovacoes');
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it('o href de "Revisar estrutura" resolve para o workspace do item, não para o workspace atual', async () => {
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const link = screen.getByTestId('link-review-structure-appr-outro') as HTMLAnchorElement;
+    // Sem o fix, o href relativo resolveria contra a base do Router aninhado do
+    // workspace ATUAL (setec-campinas) — exatamente o achado 3: clicar levaria para
+    // dentro do workspace errado, mostrando (ou tentando mostrar) a estrutura de um
+    // workspace que não é o dono da proposta.
+    expect(link.getAttribute('href')).toBe('/workspace/outro-workspace/edital/revisar/1');
+    expect(link.getAttribute('href')).not.toContain('setec-campinas');
   });
 });

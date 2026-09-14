@@ -35,6 +35,22 @@ function mergedCountFrom(payload: unknown): number | null {
   return null;
 }
 
+/**
+ * Link para a revisão desta estrutura, sempre no workspace DONO do item — nunca relativo
+ * ao workspace em que o usuário está agora (achado da revisão do fix round 1 da Task 14:
+ * a fila lista itens de todos os workspaces sem filtrar por `workspaceId`, e um href
+ * relativo como `/edital/revisar/2` resolve contra a base do `WouterRouter` aninhado do
+ * workspace ATUAL — `WorkspaceApp.tsx` — não a do dono da proposta; abrir a fila a partir
+ * do workspace A e clicar num item do workspace B navegava para dentro de A). `~` escapa
+ * esse Router aninhado (mesma convenção já usada em `EditalRevisar.tsx`), voltando à raiz
+ * do app para montar o caminho absoluto do workspace certo.
+ */
+function reviewHrefFor(item: ApprovalItem): string {
+  const version = versionFrom(item.payloadAfter);
+  if (!item.workspaceId) return `/edital/revisar/${version}`;
+  return `~${import.meta.env.BASE_URL}workspace/${item.workspaceId}/edital/revisar/${version}`;
+}
+
 export function ApprovalCard({
   item,
   collapsed,
@@ -113,11 +129,14 @@ export function ApprovalCard({
                         {(() => {
                           const mergedCount = mergedCountFrom(item.payloadAfter);
                           if (!mergedCount) return null;
-                          return ` ${mergedCount} ${mergedCount === 1 ? 'item é comum' : 'itens são comuns'} a mais de um cargo e já vem${mergedCount === 1 ? '' : 'm'} unido${mergedCount === 1 ? '' : 's'} na proposta.`;
+                          // "vem" no plural é "vêm" (circunflexo), nunca "vemm" — daí a
+                          // palavra inteira trocada por condição, não um sufixo colado.
+                          const verb = mergedCount === 1 ? 'já vem' : 'já vêm';
+                          return ` ${mergedCount} ${mergedCount === 1 ? 'item é comum' : 'itens são comuns'} a mais de um cargo e ${verb} unido${mergedCount === 1 ? '' : 's'} na proposta.`;
                         })()}
                       </p>
                       <Link
-                        href={`/edital/revisar/${versionFrom(item.payloadAfter)}`}
+                        href={reviewHrefFor(item)}
                         className="k-button k-button-quiet self-start whitespace-nowrap"
                         data-testid={`link-review-structure-${item.id}`}
                       >
