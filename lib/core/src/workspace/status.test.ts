@@ -129,6 +129,18 @@ describe('transição obrigatória', () => {
   });
 });
 
+describe('o diagnóstico só é alcançável a partir da revisão do edital', () => {
+  it('só aguardando_revisao_edital tem aresta para diagnostico_pendente', () => {
+    // A garantia que a Fase 1C depende: nenhum caminho leva ao diagnóstico sem passar
+    // pela revisão humana da estrutura extraída (§4.4, PD-06).
+    expect(canTransition('aguardando_revisao_edital', 'diagnostico_pendente')).toBe(true);
+    expect(canTransition('sem_edital', 'diagnostico_pendente')).toBe(false);
+    expect(canTransition('aguardando_upload', 'diagnostico_pendente')).toBe(false);
+    expect(canTransition('extraindo_edital', 'diagnostico_pendente')).toBe(false);
+    expect(canTransition('erro', 'diagnostico_pendente')).toBe(false);
+  });
+});
+
 describe('derivar se há edital', () => {
   it('não há edital apenas em sem_edital e aguardando_upload', () => {
     expect(hasEdital('sem_edital')).toBe(false);

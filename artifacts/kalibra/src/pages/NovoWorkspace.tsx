@@ -8,11 +8,12 @@ import {
 import { useExtraction } from '@/domain/useExtraction';
 import {
   emptyAvailability, validateAvailability, nextActionFor, uniqueSlug, assertTransition,
-  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus, type CargoTextBlock,
 } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
 import { AvailabilityFields } from '@/components/AvailabilityFields';
+import { EditalSourceBlocks } from '@/components/EditalSourceBlocks';
 
 /** Estados de processo (enviando/extraindo/identificando) colapsam num único status de workspace — só "pronto" e "erro" têm status próprio. */
 const STATUS_FOR_STAGE: Record<ExtractionStage, WorkspaceStatus> = {
@@ -36,7 +37,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [availability, setAvailability] = useState(emptyAvailability());
   const [sourceMode, setSourceMode] = useState<'file' | 'text' | 'none'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
-  const [sourceText, setSourceText] = useState('');
+  const [sourceBlocks, setSourceBlocks] = useState<CargoTextBlock[]>([]);
   const [error, setError] = useState('');
   const [availabilityProblems, setAvailabilityProblems] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -53,6 +54,25 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   // padrão vira `null`, não `1`: um `handleReady` alcançado sem passar por
   // `handleSubmit` apura o número na hora em vez de navegar para um literal.
   const reviewVersionRef = useRef<number | null>(null);
+
+  // Achados I2/I3 da rodada 1 de correção: um cargo ainda sem nome (em preenchimento)
+  // ou um cargo já removido do formulário não pode ganhar aba em `EditalSourceBlocks`
+  // — não existe extração nenhuma para onde esse conteúdo iria (a extração só recebe
+  // `finalCargos`, os cargos NOMEADOS), então oferecer a aba era aceitar texto que o
+  // app depois descartava em silêncio. `finalCargos` é calculado aqui, no corpo do
+  // componente, e é a MESMA lista usada por `handleSubmit` e pelo componente de
+  // blocos — nunca duas listas que podem divergir (essa divergência entre a lista
+  // passada ao componente e a lista passada à extração era a raiz dos dois achados).
+  const namedCargos = cargos.filter((cargo) => cargo.name.trim());
+  const finalCargos = namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)];
+  const finalCargoIds = new Set(finalCargos.map((cargo) => cargo.id));
+  // Poda blocos órfãos: um bloco cujo `cargoId` não é nem comum (`null`) nem um dos
+  // cargos que de fato vão para a extração — sobra de um cargo que tinha conteúdo
+  // digitado e foi removido do formulário depois (achado I3). Sem isto o texto ficava
+  // preso para sempre em `sourceBlocks`, nunca extraído nem mostrado a ninguém.
+  const activeSourceBlocks = sourceBlocks.filter(
+    (block) => block.cargoId === null || finalCargoIds.has(block.cargoId),
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,7 +100,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       setAvailabilityProblems([]);
       return;
     }
-    if (sourceMode === 'text' && !sourceText.trim()) {
+    if (sourceMode === 'text' && activeSourceBlocks.every((block) => block.text.trim() === '')) {
       setError('Cole o texto do edital.');
       setAvailabilityProblems([]);
       return;
@@ -95,13 +115,12 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
 
     const slug = uniqueSlug(title, workspaces.map((workspace) => workspace.slug));
 
-    // O estado inicial é um único cargo em branco, e nada exige que o campo Nome seja
-    // preenchido — então "ignorar a seção Cargos" é o caminho mais comum, não uma
-    // exceção. Sem isto, `cargos` ficava vazio e `selectedCargoId` apontava para um id
+    // `finalCargos` (calculado acima, no corpo do componente): o estado inicial é um
+    // único cargo em branco, e nada exige que o campo Nome seja preenchido — então
+    // "ignorar a seção Cargos" é o caminho mais comum, não uma exceção. Sem o
+    // fallback, `cargos` ficava vazio e `selectedCargoId` apontava para um id
     // inexistente, quebrando o invariante que `migrateWorkspace` garante (ao menos um
-    // cargo sempre) — ver regressão I3.
-    const namedCargos = cargos.filter((cargo) => cargo.name.trim());
-    const finalCargos = namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)];
+    // cargo sempre) — ver regressão I3 (fix round anterior).
     // Com edital, o workspace nasce em "aguardando_upload" — não direto em
     // "aguardando_revisao_edital" — porque agora a extração é real (Task 10):
     // o status caminha aguardando_upload → extraindo_edital → aguardando_revisao_edital
@@ -120,7 +139,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       status,
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
-      sourceText: sourceMode === 'text' ? sourceText : undefined,
+      sourceBlocks: sourceMode === 'text' ? activeSourceBlocks : [],
       importStatus: 'pending',
       progress: 0,
       nextAction: nextActionFor(status),
@@ -145,7 +164,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     setIsProcessing(true);
     extraction.start({
       sourceMode: sourceMode === 'text' ? 'text' : 'file',
-      text: sourceMode === 'text' ? sourceText : '',
+      blocks: sourceMode === 'text' ? activeSourceBlocks : [],
       cargoIds: finalCargos.map((cargo) => cargo.id),
     });
   };
@@ -377,11 +396,11 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                   <span>Conteúdo Programático</span>
                   <span className="normal-case tracking-normal">Apenas a seção de matérias</span>
                 </label>
-                <textarea 
-                  className="k-input min-h-[200px] resize-y font-mono text-[11px] leading-relaxed" 
-                  placeholder="Cole aqui o conteúdo programático do edital..."
-                  value={sourceText}
-                  onChange={(e) => setSourceText(e.target.value)}
+                <EditalSourceBlocks
+                  cargos={finalCargos}
+                  blocks={sourceBlocks}
+                  onChange={setSourceBlocks}
+                  textareaClassName="min-h-[200px] resize-y font-mono text-[11px] leading-relaxed"
                 />
               </div>
             )}

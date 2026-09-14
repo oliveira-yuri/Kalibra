@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateExtractionOutput, EXTRACTION_ERROR_MESSAGES } from './extraction';
+import { validateExtractionOutput, EXTRACTION_ERROR_MESSAGES, expandBlocks } from './extraction';
 
 const VALIDO = {
   entries: [{
@@ -94,5 +94,54 @@ describe('mensagens de erro', () => {
         action: 'Montar manualmente',
       },
     });
+  });
+});
+
+describe('expandBlocks', () => {
+  it('um bloco comum vira uma entrada por cargo, com o mesmo texto', () => {
+    const result = expandBlocks([{ cargoId: null, text: 'PORTUGUÊS' }], ['c1', 'c2']);
+    expect(result).toEqual([
+      { cargoId: 'c1', text: 'PORTUGUÊS' },
+      { cargoId: 'c2', text: 'PORTUGUÊS' },
+    ]);
+  });
+
+  it('um bloco de cargo vale só para aquele cargo', () => {
+    const result = expandBlocks([{ cargoId: 'c2', text: 'INFORMÁTICA' }], ['c1', 'c2']);
+    expect(result).toEqual([{ cargoId: 'c2', text: 'INFORMÁTICA' }]);
+  });
+
+  it('bloco de um cargo que não existe mais é DESCARTADO, nunca promovido a comum', () => {
+    // O usuário digitou o específico do cargo c3 e depois removeu c3 do workspace.
+    // Tratar isso como conteúdo comum daria a todos os cargos um conteúdo que
+    // ninguém pediu — contaminação silenciosa, que é o que esta fase existe para matar.
+    const result = expandBlocks(
+      [{ cargoId: null, text: 'COMUM' }, { cargoId: 'c3', text: 'ÓRFÃO' }],
+      ['c1', 'c2'],
+    );
+    expect(result).toEqual([
+      { cargoId: 'c1', text: 'COMUM' },
+      { cargoId: 'c2', text: 'COMUM' },
+    ]);
+  });
+
+  it('bloco vazio ou só com espaços não produz nada', () => {
+    const result = expandBlocks(
+      [{ cargoId: null, text: '   \n  ' }, { cargoId: 'c1', text: '' }],
+      ['c1'],
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('sem cargo nenhum, um bloco comum não tem a quem pertencer e não produz nada', () => {
+    expect(expandBlocks([{ cargoId: null, text: 'PORTUGUÊS' }], [])).toEqual([]);
+  });
+
+  it('preserva a ordem dos blocos e, dentro do comum, a ordem dos cargos', () => {
+    const result = expandBlocks(
+      [{ cargoId: 'c2', text: 'B' }, { cargoId: null, text: 'A' }],
+      ['c1', 'c2'],
+    );
+    expect(result.map((pair) => pair.cargoId + ':' + pair.text)).toEqual(['c2:B', 'c1:A', 'c2:A']);
   });
 });

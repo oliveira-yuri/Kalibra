@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, screen, fireEvent } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react';
 import type { WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 
@@ -39,7 +39,10 @@ function readWorkspaceStatus(): WorkspaceStatus {
 function openReimportModalWithText() {
   fireEvent.click(screen.getByTestId('button-import-syllabus'));
   fireEvent.click(screen.getByText('Texto'));
-  fireEvent.change(screen.getByPlaceholderText('Cole o conteúdo programático atualizado...'), {
+  // `bloco-textarea` (não mais placeholder) porque o textarea único virou
+  // `EditalSourceBlocks` (Task 6) — com um cargo só ele não mostra abas, então o
+  // testid do textarea continua sendo o único jeito estável de achar o campo.
+  fireEvent.change(screen.getByTestId('bloco-textarea'), {
     target: { value: 'DIREITO CONSTITUCIONAL\nPrincípios fundamentais' },
   });
 }
@@ -251,5 +254,139 @@ describe('Edital — Task 15 (a lista vem do programa salvo, não de @/data)', (
     expect(screen.getByTestId('row-topic-etica')).toBeTruthy();
     expect(screen.queryByTestId('row-topic-razao')).toBeNull();
     expect(screen.getByText(/3 questões/)).toBeTruthy();
+  });
+});
+
+describe('Edital — Task 6 (blocos do edital por cargo na reimportação)', () => {
+  function seedTwoCargoWorkspace() {
+    window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+      slug: 'setec-campinas',
+      title: 'Concurso SETEC Campinas',
+      institution: 'SETEC',
+      type: 'Concurso Público',
+      examDate: '2027-01-17',
+      cargos: [
+        { id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' },
+        { id: 'c2', name: 'Agente de Suporte Técnico', examDate: '2027-01-17', period: 'B' },
+      ],
+      selectedCargoId: 'c1',
+      availability: { days: [], maxSessionMinutes: 50 },
+      status: 'diagnostico_pendente',
+      sourceMode: 'text',
+      importStatus: 'completed',
+      progress: 0,
+      nextAction: 'texto qualquer',
+      active: true,
+    }]));
+  }
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('a reimportação oferece blocos por cargo quando o workspace tem mais de um', async () => {
+    seedTwoCargoWorkspace();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('button-import-syllabus'));
+    fireEvent.click(screen.getByText('Texto'));
+
+    expect(screen.getByTestId('bloco-aba-comum')).toBeTruthy();
+  });
+});
+
+describe('Edital — rodada de correção 1, achado C1 (reimportar por Arquivo não pode apagar sourceBlocks já salvos)', () => {
+  const PENDING_KEY = `kalibra_pending_edital:${TEST_USER.id}:setec-campinas`;
+
+  const SAVED_BLOCKS = [
+    { cargoId: null, text: 'CONTEUDO COMUM ANTIGO' },
+    { cargoId: 'c2', text: 'ESPECIFICO ANTIGO' },
+  ];
+
+  function seedWorkspaceComBlocos() {
+    window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+      slug: 'setec-campinas',
+      title: 'Concurso SETEC Campinas',
+      institution: 'SETEC',
+      type: 'Concurso Público',
+      examDate: '2027-01-17',
+      cargos: [
+        { id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' },
+        { id: 'c2', name: 'Agente de Suporte Técnico', examDate: '2027-01-17', period: 'B' },
+      ],
+      selectedCargoId: 'c1',
+      availability: { days: [], maxSessionMinutes: 50 },
+      status: 'diagnostico_pendente',
+      sourceMode: 'text',
+      sourceBlocks: SAVED_BLOCKS,
+      importStatus: 'completed',
+      progress: 0,
+      nextAction: 'texto qualquer',
+      active: true,
+    }]));
+  }
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('reimportar por Arquivo (sem tocar em "Texto") não grava sourceBlocks: [] em cima do que já existia', async () => {
+    seedWorkspaceComBlocos();
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+
+    // Abre o modal e permanece no modo padrão ("Arquivo") — nunca clica em "Texto".
+    fireEvent.click(screen.getByTestId('button-import-syllabus'));
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['conteudo binário qualquer'], 'edital-novo.pdf', { type: 'application/pdf' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('Salvar nova versão'));
+    // Corre a extração inteira (modo Arquivo usa `demoFileEntries`, nunca falha por
+    // palavra mínima) até `handleReady` gravar o `updates` em sessionStorage.
+    // Em três passos, não um só: o `setTimeout` de 600ms que `EditalUploadProgress`
+    // agenda quando o estágio vira "pronto" só é registrado quando o efeito que o
+    // cria roda — e isso só acontece num flush de `act` POSTERIOR ao avanço que fez
+    // o estágio chegar a "pronto". Avançar tudo de uma vez faz `advanceTimersByTimeAsync`
+    // terminar antes desse `setTimeout` sequer existir, e `handleReady` nunca dispara.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400 + 900 + 900); // enviando + extraindo + identificando → "pronto"
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0); // flush do efeito que agenda o timer de "pronto"
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700); // dispara onReady (READY_DELAY_MS = 600) → handleReady
+    });
+    vi.useRealTimers();
+
+    const pending = JSON.parse(window.sessionStorage.getItem(PENDING_KEY)!);
+    // O ponto exato do achado C1: o ramo Arquivo não pode nem GRAVAR a chave
+    // `sourceBlocks` no objeto que será mesclado (raso) em cima do workspace salvo.
+    expect('sourceBlocks' in pending.updates).toBe(false);
+
+    // Reproduz o merge raso que `EditalRevisar.tsx` faz de verdade
+    // (`updateWorkspace(slug, { ...pending.updates, ... })`) e confirma que o
+    // conteúdo salvo antes da reimportação sobrevive intacto.
+    const original = JSON.parse(window.localStorage.getItem(WORKSPACES_KEY)!)[0];
+    const merged = { ...original, ...pending.updates };
+    expect(merged.sourceBlocks).toEqual(SAVED_BLOCKS);
   });
 });

@@ -11,7 +11,7 @@ import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
 import { versionFromPayload, comparedSyllabusVersion } from '@/domain/edital-structure-payload';
 import {
-  nextActionFor, isCommon, hasCommonItems, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
+  nextActionFor, isCommon, hasCommonItems, diffSyllabus, splitItem, linkItemToCargo, unlinkItemFromCargo, slugify, assertTransition, canTransition, canDecide,
   renameConcept,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
@@ -552,7 +552,8 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // humano olhou a proposta e recusou, em vez de deixá-la pendente para sempre.
     if (structureApprovalId && review) {
       // Fix round 3 (achado B): rejeitar também anula `workspaceDraft` — ele carrega o
-      // edital colado inteiro (`sourceText`), e uma decisão rejeitada é tão terminal
+      // edital colado inteiro (`sourceBlocks`, um bloco por cargo mais o comum, desde a
+      // Fase 1B.5), e uma decisão rejeitada é tão terminal
       // quanto uma aprovada; nada volta a ler esse rascunho depois de decidido. Sem
       // isto, um item rejeitado guardava o texto colado para sempre (a fila não poda
       // itens decididos).
@@ -618,6 +619,23 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     }
   };
 
+  /**
+   * Exclui o item de UM cargo — os demais continuam com ele, com peso e quantidade
+   * intactos (critério de aceite "alterar um cargo não contamina os demais"). Os dois
+   * ramos existem porque as duas fontes de verdade desta tela existem: a proposta em
+   * revisão, que ainda não foi gravada em lugar nenhum, e o programa já persistido.
+   * Implementar um só deixaria metade dos casos sem a correção.
+   */
+  const handleRemoveFromCargo = (itemId: string, cargoId: string) => {
+    if (review) {
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: unlinkItemFromCargo(current.review.syllabus, itemId, cargoId) },
+      }));
+    } else {
+      syllabusApi.unlinkFromCargo(itemId, cargoId);
+    }
+  };
+
   const handleSplit = (itemId: string, cargoId: string) => {
     if (review) {
       setReviewState((current) => (current && {
@@ -625,6 +643,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       }));
     } else {
       syllabusApi.splitFromCargo(itemId, cargoId);
+    }
+  };
+
+  /** Liga um item existente a mais um cargo — a direção contrária à de `handleSplit` (Fase 1B.5). */
+  const handleLinkToCargo = (itemId: string, cargoId: string) => {
+    if (review) {
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: linkItemToCargo(current.review.syllabus, itemId, cargoId) },
+      }));
+    } else {
+      syllabusApi.linkToCargo(itemId, cargoId);
     }
   };
 
@@ -750,8 +779,10 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         cargos={workspace?.cargos ?? []}
         onRename={handleRename}
         onRemove={handleRemove}
+        onRemoveFromCargo={handleRemoveFromCargo}
         onAdd={handleAdd}
         onSplit={handleSplit}
+        onLinkToCargo={handleLinkToCargo}
         onWeightChange={handleWeightChange}
         onQuestionCountChange={handleQuestionCountChange}
       />

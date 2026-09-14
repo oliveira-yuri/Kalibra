@@ -9,6 +9,7 @@ import {
   type WeeklyAvailability,
   type WorkspaceStatus,
   type ExtractionOutput,
+  type CargoTextBlock,
 } from '@workspace/core';
 
 export type SourceMode = 'file' | 'text' | 'none';
@@ -46,6 +47,12 @@ export interface WorkspaceDraft {
   sourceMode: SourceMode;
   sourceFileName?: string;
   sourceText?: string;
+  /**
+   * Blocos do edital por cargo (Fase 1B.5). `sourceText` continua no tipo porque
+   * registros antigos gravados no navegador do usuário ainda o têm — `migrateWorkspace`
+   * converte um em outro na leitura. Escrita nova sempre usa `sourceBlocks`.
+   */
+  sourceBlocks: CargoTextBlock[];
   importStatus: ImportStatus;
   progress: number;
   nextAction: string;
@@ -115,6 +122,32 @@ function str(value: unknown, fallback: string | undefined): string | undefined {
   return typeof value === 'string' ? value : fallback;
 }
 
+function isValidBlock(value: unknown): value is CargoTextBlock {
+  if (typeof value !== 'object' || value === null) return false;
+  const block = value as Record<string, unknown>;
+  const cargoOk = block.cargoId === null || typeof block.cargoId === 'string';
+  return cargoOk && typeof block.text === 'string';
+}
+
+/**
+ * Blocos do edital a partir de um registro cru. Migração total e idempotente:
+ * - já tem `sourceBlocks` válidos → preserva (só os elementos válidos);
+ * - só tem `sourceText` → vira UM bloco comum, que é o que aquele texto de fato era:
+ *   um conteúdo aplicado a todos os cargos;
+ * - não tem nada → lista vazia.
+ *
+ * Um elemento inválido é descartado sozinho, sem derrubar o registro: a Fase 1A
+ * aprendeu isso da pior forma, quando um `cargos: [null]` fazia `.map` abortar o array
+ * inteiro e o fallback devolvia dados de demonstração no lugar do histórico real.
+ */
+function blocksFrom(raw: Record<string, unknown>): CargoTextBlock[] {
+  if (Array.isArray(raw.sourceBlocks)) {
+    return raw.sourceBlocks.filter(isValidBlock).map((block) => ({ cargoId: block.cargoId, text: block.text }));
+  }
+  const legacy = str(raw.sourceText, undefined);
+  return legacy ? [{ cargoId: null, text: legacy }] : [];
+}
+
 /**
  * Converte um registro salvo em qualquer formato anterior para o formato atual.
  * Devolve null quando o registro não tem o mínimo para ser um workspace.
@@ -155,6 +188,7 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     sourceMode: isValidSourceMode(raw.sourceMode) ? raw.sourceMode : 'text',
     sourceFileName: str(raw.sourceFileName, undefined),
     sourceText: str(raw.sourceText, undefined),
+    sourceBlocks: blocksFrom(raw),
     importStatus,
     progress: typeof raw.progress === 'number' ? raw.progress : 0,
     nextAction: str(raw.nextAction, ''),
@@ -231,6 +265,7 @@ const defaultPrograms: WorkspaceDraft[] = [
     nextAction: 'Resolver 8 questões de porcentagem',
     active: true,
     sourceMode: 'text' as const,
+    sourceBlocks: [],
     importStatus: 'completed' as const
   },
   {
@@ -247,6 +282,7 @@ const defaultPrograms: WorkspaceDraft[] = [
     nextAction: 'Leitura inicial: Sistema Financeiro',
     active: false,
     sourceMode: 'text' as const,
+    sourceBlocks: [],
     importStatus: 'completed' as const
   }
 ];

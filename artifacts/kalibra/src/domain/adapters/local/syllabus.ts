@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   emptySyllabus,
   splitItem,
+  linkItemToCargo,
+  unlinkItemFromCargo,
   slugify,
   dedupeEntries,
   type Syllabus,
@@ -259,6 +261,21 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     persist(splitItem(syllabusRef.current, itemId, cargoId, makeId));
   };
 
+  /** Liga um item existente a mais um cargo — a direção contrária à de `splitFromCargo` (Fase 1B.5). */
+  const linkToCargo = (itemId: string, cargoId: string) => {
+    persist(linkItemToCargo(syllabusRef.current, itemId, cargoId));
+  };
+
+  /**
+   * Exclui o item DAQUELE cargo — os outros cargos ficam com o item, o peso e a
+   * quantidade de questões intactos. É o que "Excluir" faz quando o filtro está num
+   * cargo só; `removeItem` (acima) continua sendo a exclusão de tudo. A regra de
+   * subtópicos e a de "sem ligação nenhuma deixa de existir" vivem em `lib/core`.
+   */
+  const unlinkFromCargo = (itemId: string, cargoId: string) => {
+    persist(unlinkItemFromCargo(syllabusRef.current, itemId, cargoId));
+  };
+
   /** Peso e quantidade de questões vivem na ligação item-cargo (o mesmo tópico vale diferente para cargos diferentes) — nunca no item. */
   const updateLink = (
     itemId: string,
@@ -300,6 +317,8 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     removeItem,
     addItem,
     splitFromCargo,
+    linkToCargo,
+    unlinkFromCargo,
     updateLink,
     previewExtraction,
   };

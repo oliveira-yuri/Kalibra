@@ -89,3 +89,95 @@ export function consolidatedQuestionCount(syllabus: Syllabus, itemId: string): n
     .map((link) => link.questionCount ?? 0);
   return counts.length === 0 ? 0 : Math.max(...counts);
 }
+
+/**
+ * Liga um item já existente a mais um cargo — a direção contrária à de `splitItem`
+ * (que TIRA um cargo do item), e a metade que faltava para o usuário conseguir
+ * revisar vínculos nas duas direções. Não é o inverso exato: `splitItem` sempre cria
+ * um item NOVO para o cargo separado, então ligar e separar de volta devolve dois
+ * itens onde havia um só — o conteúdo sobrevive nos dois cargos, a topologia não
+ * volta a ser a mesma. Quem quer tirar um cargo SEM criar item novo usa
+ * `unlinkItemFromCargo`, abaixo.
+ *
+ * Peso e quantidade nascem `null` de propósito: são valores por cargo (§4.1), e
+ * herdá-los do outro cargo inventaria um dado que o edital não afirma. A ausência é
+ * visível na interface (campo vazio) e pede o olho do usuário; um número herdado
+ * passaria despercebido.
+ *
+ * Nunca cria item novo: conteúdo comum a vários cargos é UMA entidade com várias
+ * ligações, e é isso que mantém nota, histórico e FSRS inteiros.
+ */
+export function linkItemToCargo(syllabus: Syllabus, itemId: string, cargoId: string): Syllabus {
+  const item = syllabus.items.find((candidate) => candidate.id === itemId);
+  if (!item) return syllabus;
+
+  const already = syllabus.links.some(
+    (link) => link.syllabusItemId === itemId && link.cargoId === cargoId,
+  );
+  if (already) return syllabus;
+
+  const link: SyllabusItemCargo = { syllabusItemId: itemId, cargoId, weight: null, questionCount: null };
+  return { items: syllabus.items, links: [...syllabus.links, link] };
+}
+
+/**
+ * Tira UM cargo de um item — sem criar item novo (é isso que a distingue de
+ * `splitItem`) e sem tocar nos outros cargos: é a operação por trás de "excluir este
+ * conteúdo do cargo que estou vendo".
+ *
+ * Três regras, todas consequência de "alterar um cargo não contamina os demais":
+ *
+ * 1. Os subtópicos vão junto. Um item que deixa de pertencer ao cargo não pode deixar
+ *    os filhos dele pendurados naquele cargo — o usuário excluiu a matéria, não pediu
+ *    para ficar com os tópicos soltos.
+ * 2. Um item que fica sem NENHUMA ligação deixa de existir. O modelo não tem lugar
+ *    para conteúdo que não pertence a cargo nenhum: ele não apareceria em tela alguma
+ *    e só engordaria o registro. Tirar o último cargo é, portanto, excluir o item.
+ * 3. Um filho que SOBREVIVE (porque ainda pertence a outro cargo) e cujo pai foi
+ *    removido vira raiz (`parentItemId: null`), nunca fica apontando para um pai que
+ *    já não existe.
+ *
+ * Itens que não fazem parte da subárvore afetada nunca são removidos, mesmo que já
+ * estivessem sem ligação antes — esta função responde por uma exclusão, não por uma
+ * faxina geral do registro.
+ */
+export function unlinkItemFromCargo(syllabus: Syllabus, itemId: string, cargoId: string): Syllabus {
+  const target = syllabus.items.find((candidate) => candidate.id === itemId);
+  if (!target) return syllabus;
+
+  const hasLink = syllabus.links.some(
+    (link) => link.syllabusItemId === itemId && link.cargoId === cargoId,
+  );
+  if (!hasLink) return syllabus;
+
+  // A subárvore inteira do item. O laço cresce um conjunto monotônico, então termina
+  // mesmo diante de uma hierarquia corrompida com ciclo — o que `migrateSyllabus`
+  // aceita hoje e nenhuma tela deve conseguir travar.
+  const afetados = new Set<string>([itemId]);
+  let cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    for (const candidate of syllabus.items) {
+      if (candidate.parentItemId === null) continue;
+      if (afetados.has(candidate.parentItemId) && !afetados.has(candidate.id)) {
+        afetados.add(candidate.id);
+        cresceu = true;
+      }
+    }
+  }
+
+  const links = syllabus.links.filter(
+    (link) => !(afetados.has(link.syllabusItemId) && link.cargoId === cargoId),
+  );
+  const comLigacao = new Set(links.map((link) => link.syllabusItemId));
+  const items = syllabus.items.filter((item) => !afetados.has(item.id) || comLigacao.has(item.id));
+  const sobreviventes = new Set(items.map((item) => item.id));
+
+  return {
+    items: items.map((item) =>
+      (item.parentItemId !== null && !sobreviventes.has(item.parentItemId)
+        ? { ...item, parentItemId: null }
+        : item)),
+    links,
+  };
+}

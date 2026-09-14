@@ -81,6 +81,61 @@ function readApprovals(): Array<Record<string, unknown>> {
   return raw ? JSON.parse(raw) : [];
 }
 
+function seedWorkspaceDoisCargos(status: WorkspaceStatus = 'aguardando_revisao_edital') {
+  window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+    slug: 'setec-campinas',
+    title: 'Concurso SETEC Campinas',
+    institution: 'SETEC',
+    type: 'Concurso Público',
+    examDate: '2027-01-17',
+    cargos: [
+      { id: 'c1', name: 'Analista', examDate: '2027-01-17', period: 'A' },
+      { id: 'c2', name: 'Técnico', examDate: '2027-01-17', period: 'A' },
+    ],
+    selectedCargoId: 'c1',
+    availability: { days: [], maxSessionMinutes: 50 },
+    status,
+    sourceMode: 'text',
+    sourceBlocks: [],
+    importStatus: 'completed',
+    progress: 0,
+    nextAction: 'texto qualquer',
+    active: true,
+  }]));
+}
+
+/**
+ * A saída que blocos por cargo produzem: "LÍNGUA PORTUGUESA" veio do bloco comum
+ * (uma entrada por cargo, que `dedupeEntries` une num item com duas ligações) e
+ * "INFORMÁTICA" veio do bloco específico do c2 (uma entrada só).
+ */
+function seedImportDoisCargos() {
+  stageWorkspaceImport('setec-campinas', {
+    isNew: false,
+    updates: {},
+    extractionOutput: {
+      entries: [
+        entrada({ cargoId: 'c1', label: 'LÍNGUA PORTUGUESA' }),
+        entrada({ cargoId: 'c2', label: 'LÍNGUA PORTUGUESA' }),
+        entrada({ cargoId: 'c2', label: 'INFORMÁTICA' }),
+      ],
+      detectedCargos: ['c1', 'c2'],
+      examFormat: null,
+      examDurationMinutes: null,
+      uncertainties: [],
+    },
+  }, TEST_USER.id);
+}
+
+/** A linha da árvore que contém aquele rótulo — os ids de item são gerados. */
+function rowOf(label: string): HTMLElement {
+  return screen.getByText(label).closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+}
+
+function itemIdOf(label: string): string {
+  return rowOf(label).getAttribute('data-testid')!.replace('row-syllabus-item-', '');
+}
+
 describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em produção)', () => {
   beforeEach(() => {
     cleanup();
@@ -370,7 +425,9 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     const { container, getByTestId } = render(<App />);
 
     expect(container.innerHTML).toContain('unidos e aparecem uma vez só');
-    expect(getByTestId(/^chip-common-/).textContent).toContain('2 cargos');
+    // setec-campinas só tem 2 cargos (c1, c2) e o item está ligado aos dois — o chip
+    // agora lê "comum a todos" (Fase 1B.5), não mais a contagem "2 cargos".
+    expect(getByTestId(/^chip-common-/).textContent).toContain('comum a todos');
   });
 
   it('sem nenhum item comum, o aviso de união não aparece', async () => {
@@ -379,6 +436,82 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     const { container } = render(<App />);
 
     expect(container.innerHTML).not.toContain('unidos e aparecem uma vez só');
+  });
+});
+
+describe('EditalRevisar — Fase 1B.5, Task 7 (aplicar item a mais um cargo — os dois caminhos do handler)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const PERSISTED_SYLLABUS = {
+    items: [
+      { id: 'item-persistido', workspaceId: 'setec-campinas', conceptId: 'concept-persistido', parentItemId: null, sourceLabel: 'Direito Administrativo', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'item-persistido', cargoId: 'c1', weight: 20, questionCount: 5 },
+    ],
+  };
+
+  it('caminho persistido (sem proposta em revisão): aplicar a um cargo grava direto no programa já salvo', async () => {
+    // Sem stageWorkspaceImport nenhum: `pending` fica null, o efeito de enfileirar não
+    // roda, e `review` continua null — a árvore mostra `syllabusApi.syllabus` (o mesmo
+    // caminho já coberto pelo teste "sem importação pendente..." da Task 11).
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(PERSISTED_SYLLABUS));
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const row = screen.getByText('Direito Administrativo').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+    fireEvent.click(within(row).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row).getByTestId('button-link-item-persistido-c2'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const links = stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === 'item-persistido');
+    expect(links).toHaveLength(2);
+    // A ligação com c1 (já existente, com peso) não pode ser tocada.
+    expect(links.find((link: { cargoId: string }) => link.cargoId === 'c1').weight).toBe(20);
+    // A ligação nova com c2 nasce com peso e quantidade nulos.
+    expect(links.find((link: { cargoId: string }) => link.cargoId === 'c2').weight).toBeNull();
+  });
+
+  it('caminho da proposta em revisão: aplicar a um cargo muda a proposta em memória e só grava ao confirmar', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Direito Constitucional' })],
+        detectedCargos: ['c1', 'c2'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const row = () => screen.getByText('Direito Constitucional').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+    fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row()).getByTestId(/^button-link-.*-c2$/));
+
+    // Antes de confirmar, nada foi persistido — mesma regra do Finding 2 do fix round 1
+    // (`review` é a fonte de verdade em memória até "Confirmar estrutura").
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const item = stored.items.find((entry: { sourceLabel: string }) => entry.sourceLabel === 'Direito Constitucional');
+    const links = stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === item.id);
+    expect(links.map((link: { cargoId: string }) => link.cargoId).sort()).toEqual(['c1', 'c2']);
   });
 });
 
@@ -501,7 +634,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
         slug: 'setec-campinas', title: 'Concurso SETEC Campinas', institution: 'SETEC', type: 'Concurso Público',
         examDate: '2027-01-17', cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-01-17' }],
         selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
-        sourceMode: 'text', importStatus: 'pending', progress: 0, nextAction: '', active: true,
+        sourceMode: 'text', sourceBlocks: [], importStatus: 'pending', progress: 0, nextAction: '', active: true,
       },
       extractionOutput: {
         entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
@@ -668,7 +801,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
         examDate: '2027-05-10',
         cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }, { id: 'c2', name: 'Técnico', examDate: '2027-05-10' }],
         selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
-        sourceMode: 'text', importStatus: 'pending', progress: 0, nextAction: '', active: true,
+        sourceMode: 'text', sourceBlocks: [], importStatus: 'pending', progress: 0, nextAction: '', active: true,
       },
       extractionOutput: {
         entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
@@ -993,7 +1126,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
       slug: SLUG, title, institution: 'Banca', type: 'Concurso Público', examDate: '2027-05-10',
       cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }],
       selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
-      sourceMode: 'text' as const, importStatus: 'pending' as const, progress: 0, nextAction: '', active: true,
+      sourceMode: 'text' as const, sourceBlocks: [], importStatus: 'pending' as const, progress: 0, nextAction: '', active: true,
     });
 
     // Primeira tentativa — mesmo título, workspace nunca chega a ser criado (só
@@ -1144,6 +1277,109 @@ describe('EditalRevisar — achado R5 da re-revisão (confirmar sem proposta rec
   });
 });
 
+describe('critérios de aceite da Fase 1B.5', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(CONCEPTS_KEY, JSON.stringify([]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+    seedWorkspaceDoisCargos();
+    seedImportDoisCargos();
+  });
+
+  afterEach(() => { cleanup(); });
+
+  const renderApp = async () => {
+    const { default: App } = await import('../App');
+    return render(<App />);
+  };
+
+  it('conteúdo específico de um cargo não aparece no outro cargo', async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect(screen.queryByText('INFORMÁTICA')).toBeNull();
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect(screen.getByText('INFORMÁTICA')).toBeTruthy();
+  });
+
+  it('conteúdo comum aparece UMA vez, marcado como comum a todos', async () => {
+    await renderApp();
+
+    expect(screen.getAllByText('LÍNGUA PORTUGUESA')).toHaveLength(1);
+    expect(screen.getByTestId(`chip-common-${itemIdOf('LÍNGUA PORTUGUESA')}`).textContent).toContain('comum a todos');
+  });
+
+  it('conteúdo específico é marcado com o nome do cargo, não fica sem marca', async () => {
+    await renderApp();
+    expect(screen.getByTestId(`chip-escopo-${itemIdOf('INFORMÁTICA')}`).textContent).toContain('só Técnico');
+  });
+
+  it('editar o peso de um cargo não altera o peso do outro', async () => {
+    await renderApp();
+    const itemId = itemIdOf('LÍNGUA PORTUGUESA');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    fireEvent.change(screen.getByTestId(`input-peso-${itemId}`), { target: { value: '30' } });
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('30');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('30');
+  });
+
+  it('aplicar um item a outro cargo não altera o peso já informado no primeiro', async () => {
+    await renderApp();
+    const itemId = itemIdOf('INFORMÁTICA');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    fireEvent.change(screen.getByTestId(`input-peso-${itemId}`), { target: { value: '40' } });
+
+    fireEvent.click(screen.getByTestId('cargo-filter-todos'));
+    fireEvent.click(within(rowOf('INFORMÁTICA')).getByLabelText('Ações para INFORMÁTICA'));
+    fireEvent.click(screen.getByTestId(`button-link-${itemId}-c1`));
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('40');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('');
+  });
+
+  it('separar um item de um cargo não remove o conteúdo do outro cargo', async () => {
+    await renderApp();
+    const itemId = itemIdOf('LÍNGUA PORTUGUESA');
+
+    fireEvent.click(within(rowOf('LÍNGUA PORTUGUESA')).getByLabelText('Ações para LÍNGUA PORTUGUESA'));
+    fireEvent.click(screen.getByTestId(`button-split-${itemId}-c2`));
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+  });
+
+  it('confirmar grava a topologia revisada: um item comum com duas ligações, um item só do c2', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const idComum = syllabus.items.find((item: { sourceLabel: string }) => item.sourceLabel === 'LÍNGUA PORTUGUESA').id;
+    const idEspecifico = syllabus.items.find((item: { sourceLabel: string }) => item.sourceLabel === 'INFORMÁTICA').id;
+
+    expect(syllabus.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === idComum)
+      .map((link: { cargoId: string }) => link.cargoId).sort()).toEqual(['c1', 'c2']);
+    expect(syllabus.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === idEspecifico)
+      .map((link: { cargoId: string }) => link.cargoId)).toEqual(['c2']);
+  });
+});
+
 describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é idempotente)', () => {
   beforeEach(() => {
     cleanup();
@@ -1246,5 +1482,175 @@ describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é id
     );
     expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
     expect(window.sessionStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+});
+
+/**
+ * Achado I-2 da revisão final de branch: "Excluir" apagava o item de TODOS os cargos
+ * mesmo com o filtro num cargo só, sem confirmação — violando o critério de aceite
+ * "alterar um cargo não contamina os demais". Os dois caminhos da tela são cobertos
+ * aqui: a PROPOSTA em revisão (estado `review`, nada persistido ainda) e o PROGRAMA já
+ * salvo (`syllabusApi`, grava na hora). Corrigir um só deixaria metade dos casos morta.
+ */
+describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contamina os outros cargos)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const abrirMenuDe = (label: string) => {
+    const id = itemIdOf(label);
+    fireEvent.click(screen.getByTestId(`button-item-menu-${id}`));
+    return id;
+  };
+
+  describe('na proposta em revisão (estado `review`)', () => {
+    it('exclui o item só do cargo filtrado — o outro cargo continua com ele', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      // LÍNGUA PORTUGUESA é comum a c1 e c2; INFORMÁTICA é só do c2.
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      expect(screen.getByTestId(`button-remove-${id}`).textContent).toBe('Excluir de Analista');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      // Some da visão do Analista...
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+      // ...e continua na visão do Técnico.
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+    });
+
+    it('o peso e a quantidade de questões do outro cargo ficam intactos', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      // O Técnico informa peso 30 e 7 questões para LÍNGUA PORTUGUESA.
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      const id = itemIdOf('LÍNGUA PORTUGUESA');
+      fireEvent.change(screen.getByTestId(`input-peso-${id}`), { target: { value: '30' } });
+      fireEvent.change(screen.getByTestId(`input-questoes-${id}`), { target: { value: '7' } });
+
+      // O Analista exclui o mesmo item da visão dele.
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      abrirMenuDe('LÍNGUA PORTUGUESA');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect((screen.getByTestId(`input-peso-${id}`) as HTMLInputElement).value).toBe('30');
+      expect((screen.getByTestId(`input-questoes-${id}`) as HTMLInputElement).value).toBe('7');
+    });
+
+    it('confirmar grava a topologia sem a ligação excluída — e sem perder o item', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+      fireEvent.click(screen.getByTestId('cargo-filter-todos'));
+      fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+      const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+      const item = stored.items.find((candidate: { sourceLabel: string }) => candidate.sourceLabel === 'LÍNGUA PORTUGUESA');
+      expect(item).toBeTruthy();
+      expect(stored.links
+        .filter((link: { syllabusItemId: string }) => link.syllabusItemId === item.id)
+        .map((link: { cargoId: string }) => link.cargoId)).toEqual(['c2']);
+    });
+
+    it('com "todos os cargos" selecionado, excluir continua apagando o item inteiro', async () => {
+      seedWorkspaceDoisCargos();
+      seedImportDoisCargos();
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      const id = abrirMenuDe('LÍNGUA PORTUGUESA');
+      expect(screen.getByTestId(`button-remove-${id}`).textContent).toBe('Excluir de todos os cargos');
+      fireEvent.click(screen.getByTestId(`button-remove-${id}`));
+
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.queryByText('LÍNGUA PORTUGUESA')).toBeNull();
+    });
+  });
+
+  describe('no programa já persistido (`syllabusApi`)', () => {
+    // "Crase" comum aos dois cargos, com peso e quantidade DIFERENTES por cargo — o
+    // dado do relato do achado. "Informática" é só do Técnico.
+    const SALVO = {
+      items: [
+        { id: 'i1a', workspaceId: 'setec-campinas', conceptId: 'k-crase', parentItemId: null, sourceLabel: 'Crase', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+        { id: 'i2a', workspaceId: 'setec-campinas', conceptId: 'k-info', parentItemId: null, sourceLabel: 'Informatica', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      ],
+      links: [
+        { syllabusItemId: 'i1a', cargoId: 'c1', weight: 5, questionCount: 2 },
+        { syllabusItemId: 'i1a', cargoId: 'c2', weight: 6, questionCount: 3 },
+        { syllabusItemId: 'i2a', cargoId: 'c2', weight: 20, questionCount: 5 },
+      ],
+    };
+
+    const lerSalvo = () => JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+
+    it('exclui a ligação daquele cargo e deixa a do outro intocada, peso e questões inclusive', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
+      expect(screen.getByTestId('button-remove-i1a').textContent).toBe('Excluir de Analista');
+      fireEvent.click(screen.getByTestId('button-remove-i1a'));
+
+      const stored = lerSalvo();
+      expect(stored.items.map((item: { id: string }) => item.id).sort()).toEqual(['i1a', 'i2a']);
+      expect(stored.links).toContainEqual({ syllabusItemId: 'i1a', cargoId: 'c2', weight: 6, questionCount: 3 });
+      expect(stored.links.filter((link: { syllabusItemId: string; cargoId: string }) =>
+        link.syllabusItemId === 'i1a' && link.cargoId === 'c1')).toEqual([]);
+    });
+
+    it('"Crase" continua visível para o Técnico depois de o Analista excluí-la', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
+      fireEvent.click(screen.getByTestId('button-remove-i1a'));
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      expect(screen.getByText('Crase')).toBeTruthy();
+    });
+
+    it('item de um cargo só: excluir apaga o item inteiro, como sempre fez', async () => {
+      seedWorkspaceDoisCargos('aguardando_revisao_edital');
+      window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
+      const { default: App } = await import('../App');
+      render(<App />);
+
+      fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+      fireEvent.click(screen.getByTestId('button-item-menu-i2a'));
+      expect(screen.getByTestId('button-remove-i2a').textContent).toBe('Excluir');
+      fireEvent.click(screen.getByTestId('button-remove-i2a'));
+
+      const stored = lerSalvo();
+      expect(stored.items.map((item: { id: string }) => item.id)).toEqual(['i1a']);
+      expect(stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === 'i2a')).toEqual([]);
+    });
   });
 });

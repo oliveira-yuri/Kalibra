@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import {
+  expandBlocks,
   validateExtractionOutput,
+  type CargoTextBlock,
   type ExtractionOutput,
   type ExtractionProgress,
   type RawSyllabusEntry,
@@ -10,7 +12,8 @@ export type ExtractionSourceMode = 'file' | 'text';
 
 export type ExtractionInput = {
   sourceMode: ExtractionSourceMode;
-  text: string;
+  /** Blocos do edital: `cargoId: null` é o conteúdo comum a todos os cargos. */
+  blocks: CargoTextBlock[];
   cargoIds: string[];
 };
 
@@ -40,25 +43,15 @@ function isFirstLevelHeading(line: string): boolean {
 }
 
 /**
- * Deriva `RawSyllabusEntry[]` de texto colado, deterministicamente: uma linha
- * em CAIXA ALTA ou com numeração de primeiro nível vira disciplina; as
- * demais viram tópico da última disciplina vista. Uma linha antes de
- * qualquer disciplina identificada é descartada — é assim que um texto sem
- * estrutura nenhuma (sem títulos reconhecíveis) produz zero entradas e
- * alcança o erro `structure`.
- *
- * Sem regra de negócio além disso: normalização e deduplicação de verdade
- * vivem em `lib/core` (`dedupeEntries`) e são chamadas por quem consome este
- * output, não reimplementadas aqui. Este é o único arquivo desta fase que a
- * Fase 4 (extração por IA) vai substituir — mantido pequeno de propósito.
+ * Analisa UM bloco de texto em linhas rotuladas. Sem nenhuma noção de cargo: uma
+ * linha em CAIXA ALTA ou com numeração de primeiro nível vira disciplina, as demais
+ * viram tópico da última disciplina vista, e uma linha antes de qualquer disciplina
+ * é descartada (é assim que um texto sem estrutura produz zero entradas e alcança o
+ * erro `structure`).
  */
-function extractEntriesFromText(text: string, cargoIds: string[]): RawSyllabusEntry[] {
-  // Sem cargoIds, nenhuma entrada teria a quem pertencer — um edital bem
-  // formado não pode virar erro de `structure` só porque o chamador não
-  // informou cargos ainda. `demoFileEntries` já se defende assim; consistente.
-  const cargos = cargoIds.length > 0 ? cargoIds : ['c1'];
+function parseBlockLines(text: string): Array<{ label: string; parentLabel: string | null }> {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const entries: RawSyllabusEntry[] = [];
+  const parsed: Array<{ label: string; parentLabel: string | null }> = [];
   let currentDiscipline: string | null = null;
 
   for (const line of lines) {
@@ -68,12 +61,32 @@ function extractEntriesFromText(text: string, cargoIds: string[]): RawSyllabusEn
     } else if (currentDiscipline === null) {
       continue;
     }
+    parsed.push({ label: line, parentLabel: isDiscipline ? null : currentDiscipline });
+  }
 
-    for (const cargoId of cargos) {
+  return parsed;
+}
+
+/**
+ * Converte blocos em `RawSyllabusEntry[]`. `expandBlocks` (`lib/core`) decide a quem
+ * cada bloco pertence; aqui só se analisa o texto resultante.
+ *
+ * Antes da Fase 1B.5 esta função recebia UM texto e o distribuía para todos os cargos
+ * num laço — então todo tópico nascia comum a todos, e a deduplicação multi-cargo,
+ * construída e testada, nunca tinha duas entradas diferentes para distinguir.
+ */
+function entriesFromBlocks(blocks: readonly CargoTextBlock[], cargoIds: string[]): RawSyllabusEntry[] {
+  // Sem cargoIds, nenhuma entrada teria a quem pertencer — um edital bem formado não
+  // pode virar erro de `structure` só porque o chamador não informou cargos ainda.
+  const cargos = cargoIds.length > 0 ? cargoIds : ['c1'];
+  const entries: RawSyllabusEntry[] = [];
+
+  for (const pair of expandBlocks(blocks, cargos)) {
+    for (const line of parseBlockLines(pair.text)) {
       entries.push({
-        cargoId,
-        label: line,
-        parentLabel: isDiscipline ? null : currentDiscipline,
+        cargoId: pair.cargoId,
+        label: line.label,
+        parentLabel: line.parentLabel,
         weight: null,
         questionCount: null,
         sourceExcerpt: null,
@@ -135,7 +148,9 @@ export function useExtraction(workspaceSlug: string) {
       await delay(STAGE_DELAY_MS.enviando);
       if (cancelledRef.current) return;
 
-      const words = wordCount(input.text);
+      // Cada bloco conta UMA vez. Contar o resultado expandido faria um edital curto
+      // passar do limiar só por ter muitos cargos — o bloco comum contado N vezes.
+      const words = input.blocks.reduce((total, block) => total + wordCount(block.text), 0);
 
       if (input.sourceMode === 'text' && words < MIN_WORDS) {
         setProgress({ stage: 'erro', wordCount: words, errorKind: 'short' });
@@ -152,7 +167,7 @@ export function useExtraction(workspaceSlug: string) {
 
       const entries = input.sourceMode === 'file'
         ? demoFileEntries(input.cargoIds)
-        : extractEntriesFromText(input.text, input.cargoIds);
+        : entriesFromBlocks(input.blocks, input.cargoIds);
 
       const validated = validateExtractionOutput({
         entries,
