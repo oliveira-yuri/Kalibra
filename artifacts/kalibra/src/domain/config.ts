@@ -11,4 +11,5 @@ export const domainConfig = {
   theme: 'local',
   extraction: 'local',
   syllabus: 'local',
+  approvals: 'local',
 } satisfies Record<string, ModuleSource>;
