@@ -39,7 +39,10 @@ function readWorkspaceStatus(): WorkspaceStatus {
 function openReimportModalWithText() {
   fireEvent.click(screen.getByTestId('button-import-syllabus'));
   fireEvent.click(screen.getByText('Texto'));
-  fireEvent.change(screen.getByPlaceholderText('Cole o conteúdo programático atualizado...'), {
+  // `bloco-textarea` (não mais placeholder) porque o textarea único virou
+  // `EditalSourceBlocks` (Task 6) — com um cargo só ele não mostra abas, então o
+  // testid do textarea continua sendo o único jeito estável de achar o campo.
+  fireEvent.change(screen.getByTestId('bloco-textarea'), {
     target: { value: 'DIREITO CONSTITUCIONAL\nPrincípios fundamentais' },
   });
 }
@@ -251,5 +254,51 @@ describe('Edital — Task 15 (a lista vem do programa salvo, não de @/data)', (
     expect(screen.getByTestId('row-topic-etica')).toBeTruthy();
     expect(screen.queryByTestId('row-topic-razao')).toBeNull();
     expect(screen.getByText(/3 questões/)).toBeTruthy();
+  });
+});
+
+describe('Edital — Task 6 (blocos do edital por cargo na reimportação)', () => {
+  function seedTwoCargoWorkspace() {
+    window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+      slug: 'setec-campinas',
+      title: 'Concurso SETEC Campinas',
+      institution: 'SETEC',
+      type: 'Concurso Público',
+      examDate: '2027-01-17',
+      cargos: [
+        { id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' },
+        { id: 'c2', name: 'Agente de Suporte Técnico', examDate: '2027-01-17', period: 'B' },
+      ],
+      selectedCargoId: 'c1',
+      availability: { days: [], maxSessionMinutes: 50 },
+      status: 'diagnostico_pendente',
+      sourceMode: 'text',
+      importStatus: 'completed',
+      progress: 0,
+      nextAction: 'texto qualquer',
+      active: true,
+    }]));
+  }
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('a reimportação oferece blocos por cargo quando o workspace tem mais de um', async () => {
+    seedTwoCargoWorkspace();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByTestId('button-import-syllabus'));
+    fireEvent.click(screen.getByText('Texto'));
+
+    expect(screen.getByTestId('bloco-aba-comum')).toBeTruthy();
   });
 });

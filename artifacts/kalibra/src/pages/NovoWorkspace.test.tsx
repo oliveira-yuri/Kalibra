@@ -109,3 +109,39 @@ describe('NovoWorkspace — regressão M3 (erros de disponibilidade não podem f
     expect(container.innerHTML).not.toContain('A sessão máxima é maior que a disponibilidade de domingo.');
   });
 });
+
+describe('NovoWorkspace — Task 6 (blocos do edital por cargo)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/portal/novo-workspace');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('com dois cargos, a criação oferece blocos comum e por cargo', async () => {
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.change(screen.getByPlaceholderText('Ex: Auditor Fiscal'), { target: { value: 'Título Dois Cargos' } });
+    fireEvent.change(screen.getByPlaceholderText('Ex: FGV'), { target: { value: 'Banca Y' } });
+    fireEvent.change(screen.getByTestId('input-cargo-nome-0'), { target: { value: 'Cargo Um' } });
+
+    // O segundo cargo nasce com id `c${Date.now()}` (CargoFields.add) — sem o relógio
+    // congelado o id seria imprevisível e não daria para checar `bloco-aba-c2` direto.
+    vi.useFakeTimers();
+    vi.setSystemTime(2);
+    fireEvent.click(screen.getByTestId('button-adicionar-cargo'));
+    vi.useRealTimers();
+    fireEvent.change(screen.getByTestId('input-cargo-nome-1'), { target: { value: 'Cargo Dois' } });
+
+    fireEvent.click(screen.getByText('Colar Texto'));
+
+    expect(screen.getByTestId('bloco-aba-comum')).toBeTruthy();
+    expect(screen.getByTestId('bloco-aba-c2')).toBeTruthy();
+  });
+});

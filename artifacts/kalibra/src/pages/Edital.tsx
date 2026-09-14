@@ -7,12 +7,13 @@ import {
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { CargoFilter } from '@/components/CargoFilter';
+import { EditalSourceBlocks } from '@/components/EditalSourceBlocks';
 import { stageWorkspaceImport, useWorkspaces, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
 import { useSyllabus } from '@/domain/useSyllabus';
 import {
   nextActionFor, assertTransition, canTransition, cargosFor, isCommon, totalQuestionsFor, WORKSPACE_STATUS_LABELS,
-  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus, type Syllabus, type SyllabusItem,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus, type Syllabus, type SyllabusItem, type CargoTextBlock,
 } from '@workspace/core';
 import type { Topic } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -67,7 +68,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<'file' | 'text'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
-  const [sourceText, setSourceText] = useState('');
+  const [sourceBlocks, setSourceBlocks] = useState<CargoTextBlock[]>([]);
   const [updateError, setUpdateError] = useState('');
   const [updateSaved, setUpdateSaved] = useState(false);
 
@@ -108,7 +109,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
       setUpdateError('Selecione um arquivo antes de continuar.');
       return;
     }
-    if (sourceMode === 'text' && !sourceText.trim()) {
+    if (sourceMode === 'text' && sourceBlocks.every((block) => block.text.trim() === '')) {
       setUpdateError('Cole o conteúdo atualizado do edital antes de continuar.');
       return;
     }
@@ -143,7 +144,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsProcessing(true);
     extraction.start({
       sourceMode,
-      blocks: sourceMode === 'text' ? [{ cargoId: null, text: sourceText }] : [],
+      blocks: sourceMode === 'text' ? sourceBlocks : [],
       cargoIds: workspace?.cargos.map((cargo) => cargo.id) ?? [],
     });
   };
@@ -184,7 +185,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
       updates: {
         sourceMode,
         sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
-        sourceText: sourceMode === 'text' ? sourceText : undefined,
+        sourceBlocks: sourceMode === 'text' ? sourceBlocks : [],
         importStatus: 'pending',
       },
       extractionOutput: extraction.output ?? undefined,
@@ -192,7 +193,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsUpdateModalOpen(false);
     setIsProcessing(false);
     setSourceFileName('');
-    setSourceText('');
+    setSourceBlocks([]);
     // `??` e não `!`: se este `handleReady` foi alcançado sem passar por
     // `saveEditalUpdate` (achado R2 da re-revisão), o número é apurado agora em vez de
     // cair num literal que ninguém apurou.
@@ -303,7 +304,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
                   </div>
                 </div>
               ) : (
-                <textarea className="k-input min-h-[150px] mb-6 resize-y text-[12px]" placeholder="Cole o conteúdo programático atualizado..." value={sourceText} onChange={(event) => setSourceText(event.target.value)} />
+                <EditalSourceBlocks cargos={workspace?.cargos ?? []} blocks={sourceBlocks} onChange={setSourceBlocks} />
               )}
 
               <div className="flex justify-end gap-3">

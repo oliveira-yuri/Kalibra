@@ -8,11 +8,12 @@ import {
 import { useExtraction } from '@/domain/useExtraction';
 import {
   emptyAvailability, validateAvailability, nextActionFor, uniqueSlug, assertTransition,
-  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
+  type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus, type CargoTextBlock,
 } from '@workspace/core';
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { CargoFields } from '@/components/CargoFields';
 import { AvailabilityFields } from '@/components/AvailabilityFields';
+import { EditalSourceBlocks } from '@/components/EditalSourceBlocks';
 
 /** Estados de processo (enviando/extraindo/identificando) colapsam num único status de workspace — só "pronto" e "erro" têm status próprio. */
 const STATUS_FOR_STAGE: Record<ExtractionStage, WorkspaceStatus> = {
@@ -36,7 +37,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [availability, setAvailability] = useState(emptyAvailability());
   const [sourceMode, setSourceMode] = useState<'file' | 'text' | 'none'>('file');
   const [sourceFileName, setSourceFileName] = useState('');
-  const [sourceText, setSourceText] = useState('');
+  const [sourceBlocks, setSourceBlocks] = useState<CargoTextBlock[]>([]);
   const [error, setError] = useState('');
   const [availabilityProblems, setAvailabilityProblems] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -80,7 +81,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       setAvailabilityProblems([]);
       return;
     }
-    if (sourceMode === 'text' && !sourceText.trim()) {
+    if (sourceMode === 'text' && sourceBlocks.every((block) => block.text.trim() === '')) {
       setError('Cole o texto do edital.');
       setAvailabilityProblems([]);
       return;
@@ -120,8 +121,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       status,
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
-      sourceText: sourceMode === 'text' ? sourceText : undefined,
-      sourceBlocks: [],
+      sourceBlocks: sourceMode === 'text' ? sourceBlocks : [],
       importStatus: 'pending',
       progress: 0,
       nextAction: nextActionFor(status),
@@ -146,7 +146,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     setIsProcessing(true);
     extraction.start({
       sourceMode: sourceMode === 'text' ? 'text' : 'file',
-      blocks: sourceMode === 'text' ? [{ cargoId: null, text: sourceText }] : [],
+      blocks: sourceMode === 'text' ? sourceBlocks : [],
       cargoIds: finalCargos.map((cargo) => cargo.id),
     });
   };
@@ -378,12 +378,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                   <span>Conteúdo Programático</span>
                   <span className="normal-case tracking-normal">Apenas a seção de matérias</span>
                 </label>
-                <textarea 
-                  className="k-input min-h-[200px] resize-y font-mono text-[11px] leading-relaxed" 
-                  placeholder="Cole aqui o conteúdo programático do edital..."
-                  value={sourceText}
-                  onChange={(e) => setSourceText(e.target.value)}
-                />
+                <EditalSourceBlocks cargos={cargos} blocks={sourceBlocks} onChange={setSourceBlocks} />
               </div>
             )}
           </section>
