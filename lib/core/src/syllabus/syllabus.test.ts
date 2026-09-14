@@ -145,8 +145,8 @@ describe('hasCommonItems — a mesma pergunta de `items.some(isCommon)`, numa pa
 describe('linkItemToCargo', () => {
   const base: Syllabus = {
     items: [
-      { id: 'i1', workspaceId: 'w', parentItemId: null, conceptId: 'k1', sourceLabel: 'Português', uncertain: false },
-      { id: 'i2', workspaceId: 'w', parentItemId: null, conceptId: 'k2', sourceLabel: 'Informática', uncertain: false },
+      { id: 'i1', workspaceId: 'w', parentItemId: null, conceptId: 'k1', sourceLabel: 'Português', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      { id: 'i2', workspaceId: 'w', parentItemId: null, conceptId: 'k2', sourceLabel: 'Informática', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
     ],
     links: [
       { syllabusItemId: 'i1', cargoId: 'c1', weight: 30, questionCount: 10 },
