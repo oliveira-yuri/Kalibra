@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Plus, MoreHorizontal } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { clearPendingWorkspaceImport, getPendingWorkspaceImport, useWorkspaces } from '@/store/workspaces';
+import { clearPendingWorkspaceImport, getPendingWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
 
 export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const { user } = useUser();

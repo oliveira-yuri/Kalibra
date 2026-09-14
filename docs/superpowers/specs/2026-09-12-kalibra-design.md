@@ -388,7 +388,7 @@ Se algo não tem padrão, compor a partir de dois existentes antes de inventar u
 
 ## 6. Telas novas
 
-Oito rotas, todas validadas em mockup navegável com os tokens reais (`.superpowers/brainstorm/439-1789245285/content/telas-novas-v2.html`).
+Oito rotas, todas validadas em mockup navegável com os tokens reais (`docs/superpowers/specs/assets/kalibra-telas-novas-v2.html`).
 
 | Rota | Conteúdo |
 |---|---|

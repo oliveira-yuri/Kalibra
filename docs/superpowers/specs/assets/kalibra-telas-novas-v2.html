@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalibra · 8 telas novas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:'class'}</script>
+<style>
+/* ————— tokens e classes k-* copiados de artifacts/kalibra/src/index.css ————— */
+:root{--app-font-sans:'Space Grotesk',sans-serif;--app-font-mono:'DM Mono',monospace}
+*{box-sizing:border-box}
+html{background:#f6f8f7}
+body{margin:0;min-width:320px;font-family:var(--app-font-sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.kalibra-shell{min-height:100dvh;background:#f6f8f7;color:#16232b}
+.k-sidebar{background:#edf1f0;border-right:1px solid #d7dedf}
+.k-main{background:#f6f8f7}
+.k-card{background:#fff;border:1px solid #d5dede}
+.k-card-soft{background:#f1f4f2;border:1px solid #dfe6e4}
+.k-grid{background-image:linear-gradient(#e3e9e7 1px,transparent 1px),linear-gradient(90deg,#e3e9e7 1px,transparent 1px);background-size:32px 32px}
+.k-mono{font-family:var(--app-font-mono);letter-spacing:-.02em}
+.k-muted{color:#6f7b85}
+.k-eyebrow{color:#52616c;font:500 10px/1 var(--app-font-mono);letter-spacing:.13em;text-transform:uppercase}
+.k-focus{color:#5f7900}
+.k-coral{color:#c94f45}
+.k-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #cfd9d7;background:#f0f4f2;border-radius:3px;padding:4px 7px;font:500 10px/1 var(--app-font-mono);color:#52616c}
+.k-chip-active{border-color:#6b8d00;color:#5f7900;background:#eef5d8}
+/* chips por tipo de sinal — só valores de cor que já existem no index.css */
+.k-chip-weight{border-color:#6b8d00;color:#5f7900;background:#eef5d8}
+.k-chip-risk{border-color:#db8f83;color:#c94f45;background:#fff0ee}
+.k-chip-fsrs{border-color:#7fc3c5;color:#2b9a9f;background:#e2f3f3}
+.k-chip-banca{border-color:#c99a6e;color:#b76b21;background:#fbf1e4}
+.k-sig{width:6px;height:6px;border-radius:999px;background:currentColor;display:inline-block}
+.k-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:34px;border-radius:3px;border:1px solid #c4d0ce;padding:0 12px;font-size:12px;font-weight:600;background:transparent;color:inherit;transition:background-color .18s ease,border-color .18s ease,color .18s ease,transform .18s ease}
+.k-button:hover{border-color:#718087;background:#e9efed}
+.k-button:active{transform:translateY(1px)}
+.k-button-primary{color:#fff;background:#6b8d00;border-color:#6b8d00}
+.k-button-primary:hover{color:#fff;background:#587700;border-color:#587700}
+.k-button-quiet{background:transparent;border-color:transparent;color:#52616c}
+.k-button-quiet:hover{background:#e9efed;color:#16232b}
+.k-icon-button{width:32px;height:32px;padding:0}
+.k-nav-item{display:flex;align-items:center;gap:10px;width:100%;border-left:2px solid transparent;padding:9px 13px;color:#6f7b85;font-size:12px;text-align:left;background:none;border-top:0;border-right:0;border-bottom:0;transition:background-color .18s ease,color .18s ease,border-color .18s ease}
+.k-nav-item:hover{color:#16232b;background:#e3eae8}
+.k-nav-item-active{color:#5f7900;background:#e5eed5;border-left-color:#6b8d00}
+.k-progress{height:5px;overflow:hidden;border-radius:1px;background:#d5dede}
+.k-progress>span{display:block;height:100%;background:#6b8d00;transition:width .45s cubic-bezier(.22,1,.36,1)}
+.k-table-row{border-top:1px solid #dfe6e4}
+.k-table-row:hover{background:#f0f4f2}
+.k-input{width:100%;border:1px solid #c4d0ce;border-radius:3px;background:#fff;color:#16232b;padding:8px 10px;outline:none;font-size:12px}
+.k-input:focus{border-color:#6b8d00;box-shadow:0 0 0 2px rgba(107,141,0,.14)}
+.k-option{border:1px solid #cbd6d4;background:#fff;border-radius:3px;transition:border-color .18s ease,background-color .18s ease}
+.k-option:hover{border-color:#718087;background:#f0f4f2}
+.k-option-selected{border-color:#6b8d00;background:#eef5d8}
+.k-option-correct{border-color:#6aa17b;background:#edf8ef}
+.k-option-wrong{border-color:#d4867e;background:#fff0ee}
+.k-plan-grid{display:grid;grid-template-columns:repeat(7,minmax(148px,1fr));gap:8px;overflow-x:auto;padding-bottom:3px}
+.k-plan-item{min-height:174px;border:1px solid #dfe6e4;background:#fbfcfb;padding:13px;transition:border-color .18s ease,background-color .18s ease,transform .18s ease}
+.k-plan-item:hover{border-color:#9eaeaa;background:#f5f8f6;transform:translateY(-1px)}
+.k-plan-focus{border-top:2px solid #6b8d00}
+.k-plan-review{border-top:2px solid #64b5b8}
+.k-plan-quiet{border-top:2px solid #c4d0ce}
+.k-plan-dot{width:7px;height:7px;border-radius:999px;background:#6b8d00;box-shadow:0 0 0 3px #eef5d8}
+.k-plan-review .k-plan-dot{background:#2b9a9f;box-shadow:0 0 0 3px #e2f3f3}
+.k-plan-quiet .k-plan-dot{background:#95a4a1;box-shadow:0 0 0 3px #edf1f0}
+.k-plan-kind{display:inline-flex;border:1px solid #d5dede;padding:4px 6px;color:#6f7b85;font:500 9px/1 var(--app-font-mono);text-transform:uppercase;letter-spacing:.08em}
+.k-interactive-card{transition:transform .2s cubic-bezier(.22,1,.36,1),border-color .2s ease,background-color .2s ease,box-shadow .2s ease}
+.k-interactive-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgb(20 32 38/8%)}
+@keyframes k-page-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes k-item-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.k-page-enter{animation:k-page-enter .28s cubic-bezier(.22,1,.36,1) both}
+.k-stagger>*{animation:k-item-enter .35s cubic-bezier(.22,1,.36,1) backwards}
+.k-stagger>*:nth-child(2){animation-delay:55ms}.k-stagger>*:nth-child(3){animation-delay:110ms}.k-stagger>*:nth-child(4){animation-delay:165ms}
+/* ————— dark ————— */
+html.dark{background:#10131a}
+html.dark .kalibra-shell{background:#10131a;color:#f0f0e8}
+html.dark .k-sidebar{background:#0b0e13;border-color:#242a34}
+html.dark .k-main{background:#10131a}
+html.dark .k-card{background:#161b23;border-color:#29313d}
+html.dark .k-card-soft{background:#131821;border-color:#242c37}
+html.dark .k-grid{background-image:linear-gradient(#202630 1px,transparent 1px),linear-gradient(90deg,#202630 1px,transparent 1px)}
+html.dark .k-muted{color:#8e98a8}
+html.dark .k-eyebrow{color:#aeb8c5}
+html.dark .k-focus{color:#d5f35b}
+html.dark .k-coral{color:#ff907d}
+html.dark .k-chip{border-color:#313a48;background:#1c232e;color:#aeb8c5}
+html.dark .k-chip-active{border-color:#d5f35b;color:#d5f35b;background:#202b20}
+html.dark .k-chip-weight{border-color:#d5f35b;color:#d5f35b;background:#202b20}
+html.dark .k-chip-risk{border-color:#ff907d;color:#ff907d;background:#30201f}
+html.dark .k-chip-fsrs{border-color:#64d4d5;color:#64d4d5;background:#1c2d30}
+html.dark .k-chip-banca{border-color:#ffb28a;color:#ffb28a;background:#2a211b}
+html.dark .k-button{border-color:#34404d}
+html.dark .k-button:hover{border-color:#68788b;background:#212a36}
+html.dark .k-button-primary{color:#10131a;background:#d5f35b;border-color:#d5f35b}
+html.dark .k-button-primary:hover{color:#10131a;background:#e2fb78;border-color:#e2fb78}
+html.dark .k-button-quiet{color:#aeb8c5}
+html.dark .k-button-quiet:hover{background:#1a202a;color:#f0f0e8}
+html.dark .k-nav-item{color:#8e98a8}
+html.dark .k-nav-item:hover{color:#f0f0e8;background:#151a22}
+html.dark .k-nav-item-active{color:#d5f35b;background:#171f1e;border-left-color:#d5f35b}
+html.dark .k-progress{background:#29313d}
+html.dark .k-progress>span{background:#d5f35b}
+html.dark .k-table-row{border-color:#242c37}
+html.dark .k-table-row:hover{background:#1a2029}
+html.dark .k-input{border-color:#34404d;background:#11161d;color:#f0f0e8}
+html.dark .k-input:focus{border-color:#d5f35b;box-shadow:0 0 0 2px rgba(213,243,91,.11)}
+html.dark .k-option{border-color:#303a48;background:#171e27}
+html.dark .k-option:hover{border-color:#9aa7b8;background:#1c2530}
+html.dark .k-option-selected{border-color:#d5f35b;background:#202b20}
+html.dark .k-option-correct{border-color:#80d8a5;background:#172c26}
+html.dark .k-option-wrong{border-color:#ff907d;background:#30201f}
+html.dark .k-plan-item{border-color:#29313d;background:#131821}
+html.dark .k-plan-item:hover{border-color:#68788b;background:#1a2029}
+html.dark .k-plan-focus{border-top-color:#d5f35b}
+html.dark .k-plan-review{border-top-color:#64d4d5}
+html.dark .k-plan-quiet{border-top-color:#35404e}
+html.dark .k-plan-dot{background:#d5f35b;box-shadow:0 0 0 3px #202b20}
+html.dark .k-plan-review .k-plan-dot{background:#64d4d5;box-shadow:0 0 0 3px #1c2d30}
+html.dark .k-plan-quiet .k-plan-dot{background:#8e98a8;box-shadow:0 0 0 3px #1c232e}
+html.dark .k-plan-kind{border-color:#35404e;color:#8e98a8}
+html.dark .k-interactive-card:hover{box-shadow:0 12px 26px rgb(0 0 0/22%)}
+/* ————— chrome do mockup (não faz parte do produto) ————— */
+.mk-bar{position:sticky;top:0;z-index:50;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:9px 14px;background:#11161d;border-bottom:1px solid #242a34}
+.mk-bar b{color:#d5f35b;font-size:11px;font-weight:700;letter-spacing:-.03em;margin-right:6px}
+.mk-tab{border:1px solid #34404d;background:transparent;color:#8e98a8;border-radius:3px;padding:5px 9px;font:500 10px/1 var(--app-font-mono);letter-spacing:.04em}
+.mk-tab:hover{color:#f0f0e8;border-color:#68788b}
+.mk-tab[aria-selected="true"]{background:#d5f35b;border-color:#d5f35b;color:#10131a}
+.mk-note{margin-left:auto;color:#68788b;font:400 10px/1.4 var(--app-font-mono)}
+.screen{display:none}
+.screen.on{display:block}
+.divider{width:1px;height:18px;background:#29313d}
+</style>
+</head>
+<body>
+
+<div class="mk-bar">
+  <b>kalibra ·</b>
+  <button class="mk-tab" aria-selected="true" data-s="plano">/plano</button>
+  <button class="mk-tab" data-s="sessoes">/sessoes</button>
+  <button class="mk-tab" data-s="revisoes">/revisoes</button>
+  <button class="mk-tab" data-s="simulados">/simulados</button>
+  <button class="mk-tab" data-s="pesquisa">/pesquisa</button>
+  <button class="mk-tab" data-s="padroes">/padroes</button>
+  <button class="mk-tab" data-s="fontes">/fontes</button>
+  <button class="mk-tab" data-s="aprovacoes">/aprovacoes</button>
+  <span class="divider"></span>
+  <button class="mk-tab" id="themeBtn">tema escuro</button>
+  <span class="mk-note">preview de desenvolvimento — no produto, a navegação é só a sidebar</span>
+</div>
+
+<div class="kalibra-shell flex">
+
+  <!-- ————— sidebar agrupada (decisão aprovada) ————— -->
+  <aside class="k-sidebar flex w-[224px] shrink-0 flex-col">
+    <div class="flex h-[68px] items-center border-b border-[#d7dedf] px-5 dark:border-[#242a34]">
+      <span class="flex items-center gap-3">
+        <span class="flex h-7 w-7 items-center justify-center rounded-sm bg-[#d5f35b] text-[#10131a] text-[15px] font-bold">◈</span>
+        <span class="text-[15px] font-bold tracking-[-0.04em]">kalibra<span class="text-[#d5f35b]">.</span></span>
+      </span>
+    </div>
+
+    <div class="px-4 py-5">
+      <p class="k-eyebrow mb-2">workspace ativo</p>
+      <p class="text-[12px] font-medium">Concurso SETEC Campinas</p>
+      <p class="mt-1 text-[11px] k-muted">Analista Técnico (Informática) ▾</p>
+      <div class="mt-3 flex items-center gap-2 text-[10px] k-muted">
+        <span class="k-mono">17 jan 2027</span><span class="k-mono">· per. A</span>
+        <span class="ml-auto k-focus k-mono">D−129</span>
+      </div>
+    </div>
+
+    <nav class="flex-1 px-3 pb-3">
+      <p class="k-eyebrow px-3 pb-2 pt-1">navegação</p>
+      <button class="k-nav-item" data-nav="visao">◎ <span>Visão geral</span></button>
+      <button class="k-nav-item" data-nav="plano">▦ <span>Plano</span></button>
+
+      <p class="k-eyebrow px-3 pb-2 pt-4">conteúdo</p>
+      <button class="k-nav-item" data-nav="edital">☰ <span>Edital</span></button>
+      <button class="k-nav-item" data-nav="notas">✎ <span>Notas</span></button>
+      <button class="k-nav-item" data-nav="fontes">◈ <span>Fontes</span></button>
+
+      <p class="k-eyebrow px-3 pb-2 pt-4">prática</p>
+      <button class="k-nav-item" data-nav="sessoes">▶ <span>Sessões</span></button>
+      <button class="k-nav-item" data-nav="questoes">▤ <span>Questões</span></button>
+      <button class="k-nav-item" data-nav="simulados">▥ <span>Simulados</span></button>
+      <button class="k-nav-item" data-nav="diagnostico">◫ <span>Diagnóstico</span></button>
+
+      <p class="k-eyebrow px-3 pb-2 pt-4">revisão</p>
+      <button class="k-nav-item" data-nav="ativa">✍ <span>Revisão ativa</span><span class="ml-auto rounded-sm bg-[#ff907d] px-1.5 py-0.5 text-[9px] font-bold text-[#171416]">3</span></button>
+      <button class="k-nav-item" data-nav="revisoes">↻ <span>Revisões FSRS</span><span class="ml-auto rounded-sm bg-[#ff907d] px-1.5 py-0.5 text-[9px] font-bold text-[#171416]">7</span></button>
+      <button class="k-nav-item" data-nav="erros">⚠ <span>Caderno de erros</span></button>
+
+      <p class="k-eyebrow px-3 pb-2 pt-4">inteligência</p>
+      <button class="k-nav-item" data-nav="pesquisa">⌕ <span>Pesquisa técnica</span></button>
+      <button class="k-nav-item" data-nav="padroes">◎ <span>Padrões da prova</span></button>
+      <button class="k-nav-item" data-nav="aprovacoes">✓ <span>Aprovações</span><span class="ml-auto rounded-sm bg-[#ff907d] px-1.5 py-0.5 text-[9px] font-bold text-[#171416]">4</span></button>
+    </nav>
+  </aside>
+
+  <!-- ————— main ————— -->
+  <main class="k-main min-h-dvh flex-1">
+    <header class="flex min-h-[68px] items-center justify-between border-b border-[#d5dede] px-9 dark:border-[#242a34]">
+      <div><p class="k-eyebrow mb-1" id="hdrEyebrow">plano</p><h1 class="text-[15px] font-semibold tracking-[-0.02em]" id="hdrTitle">Plano</h1></div>
+      <div class="flex items-center gap-2">
+        <button class="k-button k-button-quiet k-icon-button">⌕</button>
+        <button class="k-button k-button-quiet k-icon-button">◍</button>
+        <span class="mx-1 h-5 w-px bg-[#d5dede] dark:bg-[#29313d]"></span>
+        <span class="text-right"><span class="block text-[11px] font-medium">sexta, 12 set</span><span class="k-mono block text-[9px] k-muted">16:20 BRT</span></span>
+      </div>
+    </header>
+
+    <div class="mx-auto max-w-[1440px] p-9">
+
+<!-- ═══════════ 1 · PLANO ═══════════ -->
+<section class="screen on k-page-enter" id="s-plano">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">plano quinzenal · gerado pelo diagnóstico de 10 set</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Duas semanas com um porquê.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Cada bloco abaixo carrega os sinais que o colocaram ali. Nada entra no seu calendário antes de você aprovar.</p>
+    </div>
+    <span class="k-chip k-chip-active">aguardando aprovação</span>
+  </div>
+
+  <div class="k-card mt-5 p-4" style="border-color:#6b8d00">
+    <div class="flex flex-col gap-4 md:flex-row md:items-center">
+      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[#eef5d8] text-[15px] k-focus dark:bg-[#2b3024]">⚡</span>
+      <div class="flex-1">
+        <p class="text-[13px] font-semibold">Este plano ainda não está valendo</p>
+        <p class="mt-1 text-[11px] leading-5 k-muted">Aprovar substitui o ciclo atual a partir de segunda, 15 set. Seu histórico e suas revisões pendentes continuam intactos.</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="k-button k-button-quiet k-coral">Rejeitar</button>
+        <button class="k-button">Gerar outra proposta</button>
+        <button class="k-button k-button-primary">✓ Aprovar plano</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 k-stagger">
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">até a prova</p><p class="k-mono text-[25px] font-medium tracking-[-.06em] k-focus">129</p><p class="mt-2 text-[11px] k-muted">dias · 18 quinzenas</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">blocos propostos</p><p class="k-mono text-[25px] font-medium tracking-[-.06em]">22</p><p class="mt-2 text-[11px] k-muted">14 prática · 6 revisão · 2 teoria</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">carga semanal</p><p class="k-mono text-[25px] font-medium tracking-[-.06em]">8h 30</p><p class="mt-2 text-[11px] k-muted">dentro da sua disponibilidade</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">tópicos priorizados</p><p class="k-mono text-[25px] font-medium tracking-[-.06em] k-coral">7</p><p class="mt-2 text-[11px] k-muted">4 por erro com convicção</p></div>
+  </div>
+
+  <section class="k-card mt-5 p-5">
+    <div class="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+      <div>
+        <p class="k-eyebrow mb-2">semana 1 · 15 a 21 de setembro</p>
+        <h3 class="text-[18px] font-semibold tracking-[-.04em]">O que estudar em cada dia</h3>
+      </div>
+      <span class="k-chip">11 blocos nesta semana</span>
+    </div>
+    <div class="k-plan-grid">
+      <article class="k-plan-item k-plan-focus"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">segunda</p><p class="k-mono mt-1 text-[17px] font-medium">15 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Porcentagem · erro com convicção</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>Matemática</span><span class="k-mono">45 min</span></div><span class="k-plan-kind mt-3">prática</span></article>
+      <article class="k-plan-item k-plan-review"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">terça</p><p class="k-mono mt-1 text-[17px] font-medium">16 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Revisões FSRS vencidas</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>7 itens</span><span class="k-mono">25 min</span></div><span class="k-plan-kind mt-3">revisão</span></article>
+      <article class="k-plan-item k-plan-focus"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">quarta</p><p class="k-mono mt-1 text-[17px] font-medium">17 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Lei 14.133 · peso 50% no edital</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>Específicas</span><span class="k-mono">50 min</span></div><span class="k-plan-kind mt-3">prática</span></article>
+      <article class="k-plan-item k-plan-quiet"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">quinta</p><p class="k-mono mt-1 text-[17px] font-medium">18 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Sem bloco · dia indisponível</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>—</span><span class="k-mono">0 min</span></div><span class="k-plan-kind mt-3">livre</span></article>
+      <article class="k-plan-item k-plan-focus"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">sexta</p><p class="k-mono mt-1 text-[17px] font-medium">19 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Revisão ativa · Concordância</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>Português</span><span class="k-mono">30 min</span></div><span class="k-plan-kind mt-3">recall</span></article>
+      <article class="k-plan-item k-plan-review"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">sábado</p><p class="k-mono mt-1 text-[17px] font-medium">20 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Simulado parcial · 20 questões</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>Consolidado</span><span class="k-mono">1h 40</span></div><span class="k-plan-kind mt-3">simulado</span></article>
+      <article class="k-plan-item k-plan-quiet"><div class="flex items-start justify-between gap-3"><div><p class="k-eyebrow">domingo</p><p class="k-mono mt-1 text-[17px] font-medium">21 set</p></div><span class="k-plan-dot"></span></div><p class="mt-5 text-[12px] font-semibold leading-5">Folga programada</p><div class="mt-3 flex items-center justify-between gap-2 text-[10px] k-muted"><span>—</span><span class="k-mono">0 min</span></div><span class="k-plan-kind mt-3">livre</span></article>
+    </div>
+  </section>
+
+  <section class="k-card mt-5 p-5">
+    <p class="k-eyebrow mb-1">por que estes tópicos</p>
+    <h3 class="text-[16px] font-semibold">Os sinais que montaram o plano</h3>
+    <p class="mt-2 text-[12px] leading-5 k-muted">Cada linha é o <span class="k-mono">rationale</span> gravado no bloco — não é texto gerado depois. A cor do chip diz de que família é o sinal.</p>
+
+    <div class="mt-4 flex flex-wrap items-center gap-4 border-b border-[#dfe6e4] pb-4 text-[10px] k-muted dark:border-[#242c37]">
+      <span class="flex items-center gap-1.5 k-focus"><span class="k-sig"></span><span class="k-mono">peso do edital</span></span>
+      <span class="flex items-center gap-1.5 k-coral"><span class="k-sig"></span><span class="k-mono">erro e confiança</span></span>
+      <span class="flex items-center gap-1.5" style="color:#2b9a9f"><span class="k-sig"></span><span class="k-mono">fsrs e retenção</span></span>
+      <span class="flex items-center gap-1.5" style="color:#b76b21"><span class="k-sig"></span><span class="k-mono">padrão da banca</span></span>
+      <span class="flex items-center gap-1.5"><span class="k-sig"></span><span class="k-mono">contexto</span></span>
+    </div>
+
+    <div>
+      <div class="k-table-row flex flex-col gap-2 py-4 md:flex-row md:items-center md:gap-4">
+        <p class="w-[230px] shrink-0 text-[12px] font-medium">Porcentagem e juros simples</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="k-chip k-chip-weight">peso edital 25%</span><span class="k-chip k-chip-risk">3 erros com convicção</span><span class="k-chip k-chip-risk">acerto 47%</span><span class="k-chip k-chip-fsrs">1 revisão vencida</span>
+        </div>
+        <span class="k-mono ml-auto text-[10px] k-focus">prioridade 1</span>
+      </div>
+      <div class="k-table-row flex flex-col gap-2 py-4 md:flex-row md:items-center md:gap-4">
+        <p class="w-[230px] shrink-0 text-[12px] font-medium">Lei nº 14.133/2021</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="k-chip k-chip-weight">peso edital 50%</span><span class="k-chip">comum aos 2 cargos</span><span class="k-chip k-chip-banca">banca cobra literalidade</span><span class="k-chip k-chip-risk">acerto 39%</span>
+        </div>
+        <span class="k-mono ml-auto text-[10px] k-focus">prioridade 2</span>
+      </div>
+      <div class="k-table-row flex flex-col gap-2 py-4 md:flex-row md:items-center md:gap-4">
+        <p class="w-[230px] shrink-0 text-[12px] font-medium">Concordância e regência</p>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="k-chip k-chip-weight">peso edital 25%</span><span class="k-chip">nunca estudado</span><span class="k-chip k-chip-banca">tema recorrente da banca</span>
+        </div>
+        <span class="k-mono ml-auto text-[10px] k-muted">prioridade 3</span>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ═══════════ 2 · SESSÕES ═══════════ -->
+<section class="screen k-page-enter" id="s-sessoes">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">sessão de hoje · sugerida pelo plano</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Monte a sessão antes de começar.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Troque, remova ou reordene os blocos. Durante a sessão você ainda pode mudar — o que ficou de fora só é marcado como ignorado, sem penalidade.</p>
+    </div>
+    <span class="k-chip">1h 20 estimado</span>
+  </div>
+
+  <div class="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_290px]">
+    <section class="k-card overflow-hidden">
+      <div class="flex items-center justify-between border-b border-[#d5dede] px-5 py-3 dark:border-[#29313d]">
+        <p class="k-eyebrow">blocos da sessão</p>
+        <span class="text-[11px] k-muted">4 blocos</span>
+      </div>
+      <div class="p-3">
+        <div class="k-option k-option-selected mb-2 flex items-center gap-3 p-3">
+          <span class="k-mono cursor-grab text-[13px] k-muted">⠿</span>
+          <span class="k-plan-kind">revisão</span>
+          <div class="min-w-0 flex-1"><p class="text-[12px] font-semibold">Revisões FSRS vencidas</p><p class="mt-1 text-[10px] k-muted">7 itens · 3 de Matemática, 2 de Português, 2 específicas</p></div>
+          <span class="k-mono text-[11px]">10 min</span>
+          <button class="k-button k-button-quiet k-icon-button">↔</button>
+          <button class="k-button k-button-quiet k-icon-button k-coral">×</button>
+        </div>
+        <div class="k-option mb-2 flex items-center gap-3 p-3">
+          <span class="k-mono cursor-grab text-[13px] k-muted">⠿</span>
+          <span class="k-plan-kind">prática</span>
+          <div class="min-w-0 flex-1"><p class="text-[12px] font-semibold">Questões · Porcentagem e juros simples</p><p class="mt-1 text-[10px] k-muted">8 questões · mistura de cálculo e interpretação</p></div>
+          <span class="k-mono text-[11px]">15 min</span>
+          <button class="k-button k-button-quiet k-icon-button">↔</button>
+          <button class="k-button k-button-quiet k-icon-button k-coral">×</button>
+        </div>
+        <div class="k-option mb-2 flex items-center gap-3 p-3">
+          <span class="k-mono cursor-grab text-[13px] k-muted">⠿</span>
+          <span class="k-plan-kind">teoria</span>
+          <div class="min-w-0 flex-1"><p class="text-[12px] font-semibold">Estudo · Porcentagem e juros simples</p><p class="mt-1 text-[10px] k-muted">abre a tela de estudo do tópico, com as 6 abas</p></div>
+          <span class="k-mono text-[11px]">25 min</span>
+          <button class="k-button k-button-quiet k-icon-button">↔</button>
+          <button class="k-button k-button-quiet k-icon-button k-coral">×</button>
+        </div>
+        <div class="k-option flex items-center gap-3 p-3">
+          <span class="k-mono cursor-grab text-[13px] k-muted">⠿</span>
+          <span class="k-plan-kind">recall</span>
+          <div class="min-w-0 flex-1"><p class="text-[12px] font-semibold">Revisão ativa · Lei de Acesso à Informação</p><p class="mt-1 text-[10px] k-muted">escrita livre + feedback da IA contra sua nota e as fontes</p></div>
+          <span class="k-mono text-[11px]">30 min</span>
+          <button class="k-button k-button-quiet k-icon-button">↔</button>
+          <button class="k-button k-button-quiet k-icon-button k-coral">×</button>
+        </div>
+        <button class="k-button k-button-quiet mt-3 w-full justify-center text-[11px]" style="border-style:dashed;border-color:#c4d0ce">＋ adicionar bloco</button>
+      </div>
+      <div class="flex items-center justify-between border-t border-[#d5dede] px-5 py-4 dark:border-[#29313d]">
+        <span class="text-[11px] k-muted">Sessão registra o que foi feito, não o que foi planejado.</span>
+        <button class="k-button k-button-primary px-6">▶ Iniciar sessão</button>
+      </div>
+    </section>
+
+    <aside class="space-y-3">
+      <div class="k-card p-4">
+        <p class="k-eyebrow mb-4">hoje</p>
+        <div class="space-y-3 text-[11px]">
+          <div class="flex justify-between"><span class="k-muted">disponibilidade</span><span class="k-mono">1h 30</span></div>
+          <div class="flex justify-between"><span class="k-muted">sessão máxima</span><span class="k-mono">50 min</span></div>
+          <div class="flex justify-between"><span class="k-muted">revisões vencidas</span><span class="k-mono k-coral">7</span></div>
+          <div class="flex justify-between"><span class="k-muted">última sessão</span><span class="k-mono">ontem · 42 min</span></div>
+        </div>
+      </div>
+      <div class="k-card-soft p-4"><div class="flex gap-2"><span class="k-focus shrink-0">◆</span><p class="text-[11px] leading-5 k-muted">Sugerimos começar pelas revisões vencidas: elas decaem mais rápido que o resto e destravam o bloco de questões.</p></div></div>
+      <div class="k-card p-4">
+        <p class="k-eyebrow mb-3">sessões recentes</p>
+        <div class="space-y-2">
+          <div class="k-table-row flex items-center gap-2 pt-2 text-[11px]"><span class="k-mono k-muted">11 set</span><span class="flex-1 truncate">Matemática · parcial</span><span class="k-mono k-coral">42/60</span></div>
+          <div class="k-table-row flex items-center gap-2 pt-2 text-[11px]"><span class="k-mono k-muted">10 set</span><span class="flex-1 truncate">Diagnóstico inicial</span><span class="k-mono k-focus">completa</span></div>
+          <div class="k-table-row flex items-center gap-2 pt-2 text-[11px]"><span class="k-mono k-muted">09 set</span><span class="flex-1 truncate">Específicas · questões</span><span class="k-mono k-focus">completa</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ═══════════ 3 · REVISÕES FSRS ═══════════ -->
+<section class="screen k-page-enter" id="s-revisoes">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">fila de revisão · fsrs</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">O que está prestes a escapar.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Revisões do que acontece dentro do Kalibra: recuperação escrita, questões erradas e tópicos frágeis. Flashcards continuam no Anki.</p>
+    </div>
+    <button class="k-button k-button-primary">▶ Revisar 7 itens</button>
+  </div>
+
+  <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 k-stagger">
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">vencidas</p><p class="k-mono text-[25px] font-medium tracking-[-.06em] k-coral">07</p><p class="mt-2 text-[11px] k-muted">a mais antiga há 4 dias</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">para hoje</p><p class="k-mono text-[25px] font-medium tracking-[-.06em] k-focus">03</p><p class="mt-2 text-[11px] k-muted">≈ 12 minutos</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">próximos 7 dias</p><p class="k-mono text-[25px] font-medium tracking-[-.06em]">28</p><p class="mt-2 text-[11px] k-muted">pico na quarta · 9 itens</p></div>
+    <div class="k-card p-4"><p class="k-eyebrow mb-4">retenção prevista</p><p class="k-mono text-[25px] font-medium tracking-[-.06em]">88%</p><p class="mt-2 text-[11px] k-muted">alvo configurado · 90%</p></div>
+  </div>
+
+  <div class="mt-5 grid gap-5 xl:grid-cols-[1.3fr_.7fr]">
+    <section class="k-card overflow-hidden">
+      <div class="hidden grid-cols-[1.4fr_.7fr_.6fr_.6fr_auto] gap-4 bg-[#f1f4f2] px-5 py-3 text-[10px] uppercase tracking-[.1em] k-muted md:grid dark:bg-[#131820]">
+        <span>item</span><span>origem</span><span>vencimento</span><span>estabilidade</span><span></span>
+      </div>
+      <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.4fr_.7fr_.6fr_.6fr_auto] md:items-center md:gap-4">
+        <div class="flex items-center gap-3"><span class="h-2 w-2 shrink-0 rounded-full bg-[#ff907d]"></span><div><p class="text-[12px] font-medium">Lei de Acesso à Informação</p><p class="mt-1 text-[10px] k-muted">Conhecimentos Específicos</p></div></div>
+        <span class="k-plan-kind w-fit">recall</span>
+        <span class="k-mono text-[11px] k-coral">há 4 dias</span>
+        <span class="k-mono text-[11px] k-muted">2,1 d</span>
+        <button class="k-button k-button-quiet text-[11px]">Revisar →</button>
+      </div>
+      <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.4fr_.7fr_.6fr_.6fr_auto] md:items-center md:gap-4">
+        <div class="flex items-center gap-3"><span class="h-2 w-2 shrink-0 rounded-full bg-[#ff907d]"></span><div><p class="text-[12px] font-medium">Porcentagem e juros simples</p><p class="mt-1 text-[10px] k-muted">Matemática · errou com confiança alta</p></div></div>
+        <span class="k-plan-kind w-fit">questão</span>
+        <span class="k-mono text-[11px] k-coral">há 2 dias</span>
+        <span class="k-mono text-[11px] k-muted">1,4 d</span>
+        <button class="k-button k-button-quiet text-[11px]">Revisar →</button>
+      </div>
+      <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.4fr_.7fr_.6fr_.6fr_auto] md:items-center md:gap-4">
+        <div class="flex items-center gap-3"><span class="h-2 w-2 shrink-0 rounded-full bg-[#d5f35b]"></span><div><p class="text-[12px] font-medium">Razão, proporção e regra de três</p><p class="mt-1 text-[10px] k-muted">Matemática</p></div></div>
+        <span class="k-plan-kind w-fit">tópico</span>
+        <span class="k-mono text-[11px]">hoje</span>
+        <span class="k-mono text-[11px] k-muted">9,8 d</span>
+        <button class="k-button k-button-quiet text-[11px]">Revisar →</button>
+      </div>
+      <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.4fr_.7fr_.6fr_.6fr_auto] md:items-center md:gap-4">
+        <div class="flex items-center gap-3"><span class="h-2 w-2 shrink-0 rounded-full bg-[#d5f35b]"></span><div><p class="text-[12px] font-medium">Interpretação de textos</p><p class="mt-1 text-[10px] k-muted">Português · reutilizado de 2 workspaces</p></div></div>
+        <span class="k-plan-kind w-fit">recall</span>
+        <span class="k-mono text-[11px]">hoje</span>
+        <span class="k-mono text-[11px] k-muted">14,2 d</span>
+        <button class="k-button k-button-quiet text-[11px]">Revisar →</button>
+      </div>
+    </section>
+
+    <aside class="space-y-3">
+      <div class="k-card p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <p class="k-eyebrow">carga dos próximos 7 dias</p>
+          <span class="k-mono text-[9px] k-muted">min · disponível</span>
+        </div>
+        <div class="space-y-3">
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>sáb 13</span><span class="k-mono k-muted">12 · 90</span></div><div class="k-progress"><span style="width:13%"></span></div></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>dom 14</span><span class="k-mono k-muted">8 · 90</span></div><div class="k-progress"><span style="width:9%"></span></div></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>seg 15</span><span class="k-mono k-muted">20 · 60</span></div><div class="k-progress"><span style="width:33%"></span></div></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>ter 16</span><span class="k-mono k-muted">16 · 60</span></div><div class="k-progress"><span style="width:27%"></span></div></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>qua 17</span><span class="k-mono" style="color:#2b9a9f">38 · 60</span></div><div class="k-progress"><span style="width:63%;background:#2b9a9f"></span></div><p class="mt-1 text-[9px] k-muted">pico da semana · ainda cabe</p></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>qui 18</span><span class="k-mono k-coral">34 · 20</span></div><div class="k-progress"><span style="width:100%;background:#c94f45"></span></div><p class="mt-1 text-[9px] k-coral">excede sua disponibilidade em 14 min</p></div>
+          <div><div class="mb-1 flex justify-between text-[11px]"><span>sex 19</span><span class="k-mono k-muted">9 · 60</span></div><div class="k-progress"><span style="width:15%"></span></div></div>
+        </div>
+      </div>
+      <div class="k-card-soft p-4"><div class="flex gap-2"><span class="k-coral shrink-0">⚠</span><p class="text-[11px] leading-5 k-muted">Só quinta estoura: 34 min de revisão para 20 min disponíveis. O plano propõe antecipar 3 itens para quarta, que ainda tem folga.</p></div></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ═══════════ 4 · SIMULADOS ═══════════ -->
+<section class="screen k-page-enter" id="s-simulados">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">simulados · formato real da prova</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Ensaiar a prova, não só o conteúdo.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Mesma tela do diagnóstico em modo foco: cronômetro do servidor, pausa, retomada e confiança por questão.</p>
+    </div>
+    <button class="k-button k-button-primary">＋ Novo simulado</button>
+  </div>
+
+  <div class="mt-5 grid gap-5 lg:grid-cols-3 k-stagger">
+    <article class="k-card k-interactive-card p-5">
+      <div class="mb-3 flex items-start justify-between"><span class="k-chip k-chip-active">consolidado</span><span class="k-mono text-[10px] k-muted">10 set</span></div>
+      <h3 class="text-[16px] font-semibold tracking-[-.02em]">Diagnóstico inicial</h3>
+      <p class="mt-1 text-[11px] k-muted">40 questões · 3h30 · 2 cargos</p>
+      <div class="mt-5 flex items-end gap-2"><span class="k-mono text-[29px] leading-none k-focus">27</span><span class="k-mono mb-1 text-[13px] k-muted">/ 40 · 67,5%</span></div>
+      <div class="k-progress mt-3"><span style="width:67.5%"></span></div>
+      <div class="mt-4 space-y-1.5 border-t border-[#dfe6e4] pt-3 text-[10px] dark:border-[#242c37]">
+        <div class="flex justify-between"><span class="k-muted">duração</span><span class="k-mono">3h30 · usou 3h04</span></div>
+        <div class="flex justify-between"><span class="k-muted">blueprint</span><span class="k-mono">10 / 10 / 20</span></div>
+        <div class="flex justify-between"><span class="k-muted">cargos</span><span class="k-mono">2 · consolidado</span></div>
+        <div class="flex justify-between"><span class="k-muted">confiança</span><span class="k-mono k-focus">obrigatória</span></div>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-1.5"><span class="k-chip">Port 8/10</span><span class="k-chip">Mat 6/10</span><span class="k-chip">Esp 13/20</span></div>
+      <button class="k-button k-button-quiet mt-4 w-full text-[11px]">Ver relatório →</button>
+    </article>
+
+    <article class="k-card k-interactive-card p-5">
+      <div class="mb-3 flex items-start justify-between"><span class="k-chip">parcial</span><span class="k-mono text-[10px] k-muted">em andamento</span></div>
+      <h3 class="text-[16px] font-semibold tracking-[-.02em]">Simulado · Específicas</h3>
+      <p class="mt-1 text-[11px] k-muted">20 questões · 1h40 · Analista Técnico</p>
+      <div class="mt-5 flex items-end gap-2"><span class="k-mono text-[29px] leading-none">12</span><span class="k-mono mb-1 text-[13px] k-muted">/ 20 respondidas</span></div>
+      <div class="k-progress mt-3"><span style="width:60%"></span></div>
+      <div class="mt-4 space-y-1.5 border-t border-[#dfe6e4] pt-3 text-[10px] dark:border-[#242c37]">
+        <div class="flex justify-between"><span class="k-muted">duração</span><span class="k-mono">1h40</span></div>
+        <div class="flex justify-between"><span class="k-muted">blueprint</span><span class="k-mono">0 / 0 / 20</span></div>
+        <div class="flex justify-between"><span class="k-muted">cargos</span><span class="k-mono">1 · Analista Técnico</span></div>
+        <div class="flex justify-between"><span class="k-muted">confiança</span><span class="k-mono k-focus">obrigatória</span></div>
+      </div>
+      <div class="mt-3 flex items-center gap-2 text-[11px] k-coral"><span>⏱</span><span class="k-mono">pausado há 2h · restam 48:12</span></div>
+      <button class="k-button k-button-primary mt-4 w-full text-[11px]">Retomar</button>
+    </article>
+
+    <article class="k-card p-5" style="border-style:dashed">
+      <div class="flex min-h-[220px] flex-col items-center justify-center text-center">
+        <span class="text-[20px] k-focus">▥</span>
+        <p class="mt-4 text-[13px] font-medium">Simulado quinzenal</p>
+        <p class="mt-2 max-w-[220px] text-[11px] leading-5 k-muted">Disponível a partir de 24 set, ao fechar a quinzena do plano atual.</p>
+        <button class="k-button mt-4 text-[11px]">Antecipar</button>
+      </div>
+    </article>
+  </div>
+
+  <section class="k-card mt-5 p-5">
+    <p class="k-eyebrow mb-1">evolução</p>
+    <h3 class="text-[16px] font-semibold">Acerto por matéria ao longo dos simulados</h3>
+    <div class="mt-5 space-y-5">
+      <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="flex items-center gap-2 font-medium"><span class="h-2 w-2 rounded-full" style="background:#64d4d5"></span>Língua Portuguesa</span><span class="k-mono k-muted">80% <span class="k-muted">/ peso 25%</span></span></div><div class="k-progress"><span style="width:80%;background:#64d4d5"></span></div></div>
+      <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="flex items-center gap-2 font-medium"><span class="h-2 w-2 rounded-full" style="background:#6b8d00"></span>Matemática</span><span class="k-mono k-muted">60% <span class="k-muted">/ peso 25%</span></span></div><div class="k-progress"><span style="width:60%"></span></div></div>
+      <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="flex items-center gap-2 font-medium"><span class="h-2 w-2 rounded-full" style="background:#c94f45"></span>Conhecimentos Específicos</span><span class="k-mono k-muted">65% <span class="k-muted">/ peso 50%</span></span></div><div class="k-progress"><span style="width:65%;background:#c94f45"></span></div></div>
+    </div>
+  </section>
+</section>
+
+<!-- ═══════════ 5 · PESQUISA TÉCNICA ═══════════ -->
+<section class="screen k-page-enter" id="s-pesquisa">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">pesquisa técnica · executada com sua autorização</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Pesquisa que você manda fazer.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">O Kalibra monta o trabalho; nada sai daqui sem você autorizar. O Hermes executa e devolve fontes, PDFs e dossiê.</p>
+    </div>
+    <span class="k-chip">3 trabalhos concluídos</span>
+  </div>
+
+  <div class="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <section class="k-card p-5">
+      <p class="k-eyebrow mb-1">novo trabalho</p>
+      <h3 class="text-[16px] font-semibold">O que o Hermes deve buscar</h3>
+      <div class="mt-5 grid gap-1.5 sm:grid-cols-2">
+        <button class="k-option k-option-selected flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-focus">✓</span><span class="flex-1">Buscar provas antigas</span><span class="text-[10px] k-muted">5 anos</span></button>
+        <button class="k-option k-option-selected flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-focus">✓</span><span class="flex-1">Analisar estilo de cobrança</span><span class="text-[10px] k-muted">→ padrões</span></button>
+        <button class="k-option flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-muted"></span><span class="flex-1 k-muted">Pesquisar banca</span></button>
+        <button class="k-option flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-muted"></span><span class="flex-1 k-muted">Notícias e retificações</span></button>
+        <button class="k-option k-option-selected flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-focus">✓</span><span class="flex-1">Buscar fontes de conteúdo</span><span class="text-[10px] k-muted">41 conceitos</span></button>
+        <button class="k-option flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px]"><span class="k-mono w-3 shrink-0 text-[11px] k-muted"></span><span class="flex-1 k-muted">Gerar dossiê</span></button>
+      </div>
+
+      <div class="k-card-soft mt-5 p-4">
+        <p class="k-eyebrow mb-2">trabalho que será enviado</p>
+        <pre class="k-mono overflow-x-auto text-[11px] leading-relaxed" style="margin:0;white-space:pre-wrap">escopo:   provas_antigas, estilo_cobranca, fontes
+banca:    SETEC
+cargo:    Analista Técnico (Informática)
+período:  2019–2025
+conceitos: 41 do edital aprovado
+critérios: fonte pública, sem paywall, sem login,
+           preferência por oficial/acadêmica/governamental</pre>
+      </div>
+
+      <div class="mt-5 flex flex-col gap-3 border-t border-[#d5dede] pt-5 dark:border-[#29313d] sm:flex-row sm:items-center">
+        <p class="text-[11px] leading-5 k-muted">O Hermes vai acessar sites externos e baixar arquivos. Downloads pedem confirmação extra.</p>
+        <div class="ml-auto flex gap-2">
+          <button class="k-button">Salvar rascunho</button>
+          <button class="k-button k-button-primary">Autorizar e enviar</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="space-y-3">
+      <div class="k-card overflow-hidden">
+        <div class="border-b border-[#d5dede] px-4 py-3 dark:border-[#29313d]"><p class="k-eyebrow">histórico</p></div>
+        <div class="p-2">
+          <div class="k-option mb-2 p-3">
+            <div class="flex items-center justify-between"><span class="k-chip k-chip-active">concluído</span><span class="k-mono text-[10px] k-muted">11 set</span></div>
+            <p class="mt-2 text-[12px] font-medium">Provas antigas · SETEC</p>
+            <p class="mt-1 text-[10px] k-muted">6 PDFs · 240 questões extraídas</p>
+            <p class="mt-2 text-[10px] k-focus">importado ✓</p>
+          </div>
+          <div class="k-option mb-2 p-3">
+            <div class="flex items-center justify-between"><span class="k-chip">aguardando decisão</span><span class="k-mono text-[10px] k-muted">11 set</span></div>
+            <p class="mt-2 text-[12px] font-medium">Fontes · 41 conceitos</p>
+            <p class="mt-1 text-[10px] k-muted">58 fontes candidatas</p>
+            <p class="mt-2 text-[10px] k-coral">revisar em /fontes →</p>
+          </div>
+          <div class="k-option p-3">
+            <div class="flex items-center justify-between"><span class="k-chip">executando</span><span class="k-mono text-[10px] k-muted">agora</span></div>
+            <p class="mt-2 text-[12px] font-medium">Retificações do edital</p>
+            <div class="k-progress mt-2"><span style="width:40%"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="k-card-soft p-4"><div class="flex gap-2"><span class="k-focus shrink-0">◆</span><p class="text-[11px] leading-5 k-muted">Resultado volta como proposta. Nada vira conteúdo oficial sem passar pela fila de aprovação.</p></div></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ═══════════ 6 · PADRÕES DA PROVA ═══════════ -->
+<section class="screen k-page-enter" id="s-padroes">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">padrões da prova · setec · 6 provas · 240 questões</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Não é só o que cai. É como cai.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Análise das provas antigas desta banca, cruzada com o edital aprovado deste workspace.</p>
+    </div>
+    <span class="k-chip" style="border-color:#db8f83;color:#c94f45">não aprovado</span>
+  </div>
+
+  <div class="k-card mt-5 p-4" style="border-color:#db8f83">
+    <div class="flex flex-col gap-4 md:flex-row md:items-center">
+      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[15px] k-coral" style="background:#fff0ee">⚠</span>
+      <div class="flex-1"><p class="text-[13px] font-semibold">Este relatório ainda não influencia nada</p><p class="mt-1 text-[11px] leading-5 k-muted">Depois de aprovado, ele passa a orientar geração de questões, montagem de simulados e priorização do plano.</p></div>
+      <div class="flex gap-2"><button class="k-button k-button-quiet k-coral">Rejeitar</button><button class="k-button k-button-primary">✓ Aprovar relatório</button></div>
+    </div>
+  </div>
+
+  <section class="k-grid k-card relative mt-5 overflow-hidden p-5 md:p-7">
+    <div class="relative z-10">
+      <div class="mb-4 flex flex-wrap items-center gap-2"><span class="k-chip k-chip-active">RESUMO EXECUTIVO</span><span class="k-chip">confiança alta · 240 questões</span></div>
+      <h3 class="max-w-[720px] text-[22px] font-semibold leading-[1.15] tracking-[-.04em]">A SETEC cobra <span class="k-focus">literalidade de lei</span> e pune <span class="k-coral">troca de prazo e de competência</span>.</h3>
+      <p class="mt-4 max-w-[620px] text-[12px] leading-6 k-muted">Enunciados curtos (média de 34 palavras), 4 alternativas, raro uso de "exceto". Em Específicas, 7 de cada 10 questões citam o texto legal quase literalmente, com uma palavra trocada. Matemática é direta, sem pegadinha de enunciado — o erro vem de conversão de porcentagem.</p>
+    </div>
+  </section>
+
+  <div class="mt-5 grid gap-5 lg:grid-cols-[1.2fr_.8fr]">
+    <section class="k-card p-5">
+      <p class="k-eyebrow mb-1">recorrência por tópico</p>
+      <h3 class="mb-5 text-[16px] font-semibold">O que a banca repete</h3>
+      <div class="space-y-5">
+        <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="font-medium">Lei 14.133 · prazos</span><span class="k-mono k-muted">em 6 de 6 provas</span></div><div class="k-progress"><span style="width:100%"></span></div><p class="mt-2 text-[10px] k-muted">peso 50% no edital · seu acerto 39%</p></div>
+        <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="font-medium">LAI · sigilo como exceção</span><span class="k-mono k-muted">em 5 de 6 provas</span></div><div class="k-progress"><span style="width:83%"></span></div><p class="mt-2 text-[10px] k-muted">peso 50% no edital · seu acerto 39%</p></div>
+        <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="font-medium">Concordância verbal</span><span class="k-mono k-muted">em 4 de 6 provas</span></div><div class="k-progress"><span style="width:66%"></span></div><p class="mt-2 text-[10px] k-muted">peso 25% · nunca estudado</p></div>
+        <div><div class="mb-2 flex items-center justify-between text-[12px]"><span class="font-medium">Juros compostos</span><span class="k-mono k-muted">em 1 de 6 provas</span></div><div class="k-progress"><span style="width:16%;background:#95a4a1"></span></div><p class="mt-2 text-[10px] k-coral">raro, mas apareceu em 2024 — risco de extrapolação baixa</p></div>
+      </div>
+    </section>
+
+    <div class="space-y-5">
+      <section class="k-card p-5">
+        <p class="k-eyebrow mb-1">pegadinhas recorrentes</p>
+        <h3 class="mb-4 text-[16px] font-semibold">Como o erro é induzido</h3>
+        <div class="space-y-2">
+          <div class="k-card-soft p-3" style="border-left:2px solid #c94f45"><div class="flex items-center justify-between gap-2"><p class="text-[12px] font-medium">Troca de prazo</p><span class="k-mono text-[10px] k-coral">11×</span></div><p class="mt-1 text-[10px] k-muted">"5 dias úteis" no lugar de "5 dias corridos"</p></div>
+          <div class="k-card-soft p-3" style="border-left:2px solid #c94f45"><div class="flex items-center justify-between gap-2"><p class="text-[12px] font-medium">Troca de competência</p><span class="k-mono text-[10px] k-coral">8×</span></div><p class="mt-1 text-[10px] k-muted">atribui a atribuição ao órgão errado</p></div>
+          <div class="k-card-soft p-3" style="border-left:2px solid #c94f45"><div class="flex items-center justify-between gap-2"><p class="text-[12px] font-medium">Generalização indevida</p><span class="k-mono text-[10px] k-coral">6×</span></div><p class="mt-1 text-[10px] k-muted">"sempre"/"nunca" onde a lei prevê exceção</p></div>
+        </div>
+      </section>
+      <section class="k-card-soft p-5">
+        <p class="k-eyebrow mb-3">exemplo que sustenta o padrão</p>
+        <p class="text-[12px] leading-6">"De acordo com a LAI, a publicidade é regra e o sigilo é <span class="k-coral font-medium">a regra para dados administrativos</span>."</p>
+        <p class="mt-3 text-[10px] k-muted">SETEC 2023 · questão 34 · alternativa B (incorreta) — inverte a relação regra/exceção.</p>
+        <button class="k-button k-button-quiet mt-3 px-0 text-[11px]">Ver as 240 questões →</button>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ 7 · FONTES ═══════════ -->
+<section class="screen k-page-enter" id="s-fontes">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">biblioteca de fontes · 58 candidatas · 23 aprovadas</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">O que o sistema pode citar.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Fonte aprovada é o que sustenta correção de nota, feedback da revisão ativa, explicação de erro e geração de questão.</p>
+    </div>
+    <button class="k-button">↓ Importar do Hermes</button>
+  </div>
+
+  <div class="k-card mt-5 grid gap-3 p-3 md:grid-cols-[minmax(180px,1fr)_155px_150px_135px_auto]">
+    <div class="relative min-w-0"><input class="k-input pl-8" placeholder="Buscar fonte ou conceito"><span class="absolute left-3 top-2 text-[12px] k-muted">⌕</span></div>
+    <select class="k-input"><option>Todos os status</option><option>Candidata</option><option>Aprovada</option><option>Rejeitada</option></select>
+    <select class="k-input"><option>Todos os tipos</option><option>Oficial</option><option>Acadêmica</option><option>Governamental</option><option>Educacional</option></select>
+    <select class="k-input"><option>Confiança</option><option>Alta</option><option>Média</option><option>Baixa</option></select>
+    <span class="hidden items-center gap-2 whitespace-nowrap px-2 text-[10px] k-muted md:flex">⚟ 58 registros</span>
+  </div>
+
+  <div class="k-card mt-5 overflow-hidden">
+    <div class="hidden grid-cols-[1.6fr_.7fr_1fr_.5fr_.5fr_auto] gap-4 bg-[#f1f4f2] px-5 py-3 text-[10px] uppercase tracking-[.1em] k-muted md:grid dark:bg-[#131820]">
+      <span>fonte</span><span>tipo</span><span>conceitos</span><span>confiança</span><span>status</span><span></span>
+    </div>
+    <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.6fr_.7fr_1fr_.5fr_.5fr_auto] md:items-center md:gap-4">
+      <div><p class="text-[12px] font-medium">Lei nº 14.133/2021 — Planalto</p><p class="k-mono mt-1 text-[10px] k-muted">planalto.gov.br/ccivil_03/… · coletada 11 set</p></div>
+      <span class="k-chip k-chip-active w-fit">oficial</span>
+      <p class="text-[11px] k-muted">Licitações · Prazos · Modalidades</p>
+      <span class="k-mono text-[11px] k-focus">alta</span>
+      <span class="text-[10px] k-focus">aprovada</span>
+      <div class="flex gap-1"><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Abrir</button><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Revisar</button></div>
+    </div>
+    <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.6fr_.7fr_1fr_.5fr_.5fr_auto] md:items-center md:gap-4">
+      <div><p class="text-[12px] font-medium">Lei de Acesso à Informação — CGU</p><p class="k-mono mt-1 text-[10px] k-muted">gov.br/cgu/… · coletada 11 set</p></div>
+      <span class="k-chip k-chip-active w-fit">governamental</span>
+      <p class="text-[11px] k-muted">LAI · Sigilo · Transparência</p>
+      <span class="k-mono text-[11px] k-focus">alta</span>
+      <span class="text-[10px] k-focus">aprovada</span>
+      <div class="flex gap-1"><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Abrir</button><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Revisar</button></div>
+    </div>
+    <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.6fr_.7fr_1fr_.5fr_.5fr_auto] md:items-center md:gap-4">
+      <div><p class="text-[12px] font-medium">Matemática Básica — USP/IME (apostila aberta)</p><p class="k-mono mt-1 text-[10px] k-muted">ime.usp.br/… · coletada 11 set</p></div>
+      <span class="k-chip w-fit">acadêmica</span>
+      <p class="text-[11px] k-muted">Porcentagem · Razão e proporção</p>
+      <span class="k-mono text-[11px]">média</span>
+      <span class="text-[10px] k-focus">aprovada</span>
+      <div class="flex gap-1"><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Abrir</button><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Revisar</button></div>
+    </div>
+    <div class="k-table-row grid gap-2 px-5 py-4 md:grid-cols-[1.6fr_.7fr_1fr_.5fr_.5fr_auto] md:items-center md:gap-4">
+      <div><p class="text-[12px] font-medium">Blog Concursos · resumo de licitações</p><p class="k-mono mt-1 text-[10px] k-muted">exemplo.com.br/… · coletada 11 set</p></div>
+      <span class="k-chip w-fit">complementar</span>
+      <p class="text-[11px] k-muted">Licitações</p>
+      <span class="k-mono text-[11px] k-coral">baixa</span>
+      <span class="text-[10px] k-coral">candidata</span>
+      <div class="flex gap-1"><button class="k-button k-button-quiet !h-7 !px-2 text-[10px]">Abrir</button><button class="k-button !h-7 !px-2 text-[10px]">Revisar</button></div>
+    </div>
+  </div>
+
+  <div class="k-card-soft mt-5 flex items-start gap-3 p-4">
+    <span class="k-focus mt-0.5 shrink-0">◆</span>
+    <p class="text-[11px] leading-5 k-muted">Fontes com paywall ou que exigem login são marcadas como <span class="k-mono">rejeitada</span> automaticamente, com o motivo registrado. Nada é descartado em silêncio.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 8 · APROVAÇÕES ═══════════ -->
+<section class="screen k-page-enter" id="s-aprovacoes">
+  <div class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <p class="k-eyebrow mb-2">fila única · nada da IA entra sem você</p>
+      <h2 class="text-[27px] font-semibold tracking-[-.05em]">Quatro decisões esperando.</h2>
+      <p class="mt-2 max-w-[650px] text-[12px] leading-5 k-muted">Todo item traz o antes, o depois, a fonte e a confiança. Rejeitar não apaga: arquiva com o motivo.</p>
+    </div>
+    <span class="k-chip k-chip-active">4 pendentes</span>
+  </div>
+
+  <div class="mt-5 flex flex-wrap items-center gap-1.5">
+    <span class="k-chip k-chip-active">todos · 4</span><span class="k-chip">edital</span><span class="k-chip">questão · 1</span><span class="k-chip">flashcard · 1</span><span class="k-chip">nota · 1</span><span class="k-chip">plano</span><span class="k-chip">erro</span><span class="k-chip">fonte</span><span class="k-chip">padrão · 1</span><span class="k-chip">conceito</span>
+    <button class="k-button k-button-quiet ml-auto text-[11px]" id="collapseAll">Recolher todos</button>
+    <button class="k-button k-button-quiet text-[11px]">Aprovar selecionados</button>
+  </div>
+
+  <div class="mt-5 space-y-3 k-stagger">
+    <article class="k-card p-5">
+      <div class="flex flex-col justify-between gap-4 md:flex-row">
+        <div class="flex gap-4">
+          <span class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[14px] k-focus" style="background:#eef5d8">✎</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2"><span class="k-chip">correção de nota</span><span class="k-chip" style="border-color:#db8f83;color:#c94f45">erro conceitual</span><span class="k-mono text-[10px] k-muted">confiança 0,91</span></div>
+            <p class="mt-2 text-[14px] font-semibold">"Sigilo é a regra para dados administrativos" está invertido</p>
+            <p class="mt-2 max-w-[700px] text-[12px] leading-5 k-muted">Na LAI a publicidade é o preceito geral e o sigilo é exceção nas hipóteses legais. Sua nota afirma o contrário e já gerou 2 erros em questões.</p>
+            <div class="mt-4 grid gap-3 md:grid-cols-2">
+              <div class="k-card-soft p-3"><p class="k-eyebrow mb-2">sua nota (atual)</p><p class="text-[11px] leading-5"><span style="background:#fff0ee;color:#c94f45">O sigilo é a regra para dados administrativos internos</span>, e a publicidade se aplica quando solicitada.</p></div>
+              <div class="k-card-soft p-3"><p class="k-eyebrow mb-2">sugestão</p><p class="text-[11px] leading-5"><span style="background:#edf8ef;color:#23824d">A publicidade é a regra e o sigilo é exceção</span>, nas hipóteses previstas em lei.</p></div>
+            </div>
+            <p class="k-mono mt-3 text-[10px] k-muted">fonte · Lei 12.527/2011 art. 3º, I — CGU (aprovada)</p>
+          </div>
+        </div>
+        <div class="flex shrink-0 gap-2 self-start"><button class="k-button k-button-quiet k-coral">Rejeitar</button><button class="k-button k-button-primary">✓ Aprovar</button></div>
+      </div>
+    </article>
+
+    <article class="k-card p-5 apv">
+      <div class="flex flex-col justify-between gap-4 md:flex-row">
+        <div class="flex gap-4">
+          <span class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[14px] k-focus" style="background:#eef5d8">▤</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2"><span class="k-chip">questão gerada</span><span class="k-chip">Matemática · Porcentagem</span><span class="k-mono text-[10px] k-muted">confiança 0,78</span></div>
+            <button class="apv-toggle mt-2 flex items-center gap-2 text-left text-[14px] font-semibold"><span class="k-mono text-[11px] k-muted apv-caret">▾</span>Uma taxa de R$ 80 sofreu reajuste de 12,5%. O valor final é:</button>
+            <div class="apv-body mt-3 grid gap-2 sm:grid-cols-2">
+              <div class="k-option p-2 text-[11px]"><span class="k-mono mr-2">A</span>R$ 88,00</div>
+              <div class="k-option k-option-correct p-2 text-[11px]"><span class="k-mono mr-2">B</span>R$ 90,00 ✓</div>
+              <div class="k-option p-2 text-[11px]"><span class="k-mono mr-2">C</span>R$ 92,50</div>
+              <div class="k-option p-2 text-[11px]"><span class="k-mono mr-2">D</span>R$ 100,00</div>
+            </div>
+            <p class="apv-body k-mono mt-3 text-[10px] k-muted">gerada a partir do padrão "cálculo direto, 4 alternativas, sem pegadinha de enunciado" · SETEC</p>
+          </div>
+        </div>
+        <div class="flex shrink-0 gap-2 self-start"><button class="k-button k-button-quiet k-coral">Rejeitar</button><button class="k-button">Editar</button><button class="k-button k-button-primary">✓ Aprovar</button></div>
+      </div>
+    </article>
+
+    <article class="k-card p-5 apv">
+      <div class="flex flex-col justify-between gap-4 md:flex-row">
+        <div class="flex gap-4">
+          <span class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[14px] k-focus" style="background:#eef5d8">◈</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2"><span class="k-chip">flashcard</span><span class="k-chip">deck: Kalibra::SETEC::Específicas</span><span class="k-chip">cloze</span></div>
+            <button class="apv-toggle mt-2 flex items-center gap-2 text-left text-[14px] font-semibold"><span class="k-mono text-[11px] k-muted apv-caret">▾</span>Gerado a partir do seu erro de 08 set</button>
+            <div class="apv-body k-card-soft mt-3 p-3"><p class="text-[11px] leading-5">Na LAI, a {{c1::publicidade}} é a regra e o {{c2::sigilo}} é exceção.</p></div>
+            <p class="apv-body k-mono mt-3 text-[10px] k-muted">ao aprovar, entra no próximo lote de exportação para o Anki (.apkg)</p>
+          </div>
+        </div>
+        <div class="flex shrink-0 gap-2 self-start"><button class="k-button k-button-quiet k-coral">Rejeitar</button><button class="k-button k-button-primary">✓ Aprovar</button></div>
+      </div>
+    </article>
+
+    <article class="k-card p-5">
+      <div class="flex flex-col justify-between gap-4 md:flex-row">
+        <div class="flex gap-4">
+          <span class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[14px] k-coral" style="background:#fff0ee">◎</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2"><span class="k-chip">relatório de padrões</span><span class="k-chip">SETEC · 240 questões</span><span class="k-mono text-[10px] k-muted">confiança 0,84</span></div>
+            <p class="mt-2 text-[14px] font-semibold">Padrões da prova · SETEC 2019–2025</p>
+            <p class="mt-2 max-w-[700px] text-[12px] leading-5 k-muted">Aprovar faz este relatório orientar geração de questões, montagem de simulados e priorização do plano. Rejeitar mantém o relatório visível, mas sem efeito.</p>
+          </div>
+        </div>
+        <div class="flex shrink-0 gap-2 self-start"><button class="k-button k-button-quiet k-coral">Rejeitar</button><button class="k-button">Ver relatório</button><button class="k-button k-button-primary">✓ Aprovar</button></div>
+      </div>
+    </article>
+  </div>
+
+  <div class="k-card-soft mt-5 flex items-start gap-3 p-4">
+    <span class="k-coral mt-0.5 shrink-0">⚠</span>
+    <p class="text-[11px] leading-5 k-muted">Questões geradas <span class="font-medium">para o diagnóstico inicial</span> não passam por aqui — o diagnóstico é obrigatório e aprovar item a item travaria o começo. Elas continuam rastreáveis: fonte, edital, banca, tópico e justificativa.</p>
+  </div>
+</section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+const titles={
+ plano:['plano','Plano quinzenal'],
+ sessoes:['sessões','Sessão de estudo'],
+ revisoes:['revisões fsrs','Fila de revisão'],
+ simulados:['simulados','Simulados'],
+ pesquisa:['pesquisa técnica','Pesquisa técnica'],
+ padroes:['padrões da prova','Padrões da prova'],
+ fontes:['fontes','Biblioteca de fontes'],
+ aprovacoes:['aprovações','Fila de aprovação']
+};
+function show(id){
+ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+ const el=document.getElementById('s-'+id); el.classList.add('on');
+ el.style.animation='none'; el.offsetHeight; el.style.animation='';
+ document.querySelectorAll('.mk-tab[data-s]').forEach(t=>t.setAttribute('aria-selected',t.dataset.s===id));
+ document.querySelectorAll('.k-nav-item').forEach(n=>n.classList.toggle('k-nav-item-active',n.dataset.nav===id));
+ document.getElementById('hdrEyebrow').textContent=titles[id][0];
+ document.getElementById('hdrTitle').textContent=titles[id][1];
+ window.scrollTo({top:0});
+}
+document.querySelectorAll('.mk-tab[data-s]').forEach(t=>t.onclick=()=>show(t.dataset.s));
+document.querySelectorAll('.apv-toggle').forEach(b=>b.onclick=function(){
+ const art=this.closest('.apv'),hide=!art.classList.contains('apv-closed');
+ art.classList.toggle('apv-closed',hide);
+ art.querySelectorAll('.apv-body').forEach(x=>x.style.display=hide?'none':'');
+ this.querySelector('.apv-caret').textContent=hide?'▸':'▾';
+});
+document.getElementById('collapseAll').onclick=()=>document.querySelectorAll('.apv .apv-toggle').forEach(b=>{if(!b.closest('.apv').classList.contains('apv-closed'))b.click()});
+document.querySelectorAll('.k-nav-item').forEach(n=>n.onclick=()=>{if(titles[n.dataset.nav])show(n.dataset.nav)});
+document.getElementById('themeBtn').onclick=function(){
+ const d=document.documentElement.classList.toggle('dark');
+ this.textContent=d?'tema claro':'tema escuro';
+};
+show('plano');
+</script>
+</body>
+</html>
