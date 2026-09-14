@@ -2,16 +2,17 @@
 
 Data: 2026-09-14
 Branch: `fase-1b-edital-aprovacoes`
-Commits da fase: `6cfd665` (modelar conceito global em `lib/core`) .. `c6fd346` (fix round 1:
-link da fila sempre aponta para o workspace dono do item) + este registro — 30 commits antes
-deste documento, 31 com ele.
-Escopo direto deste registro: Tasks 14–16 (`f1c8f9e`, `cf5c2b0`, `f79a96d`) e o fix round 1
-sobre elas (`4092764`, `c6fd346`), motivado por uma revisão de código que encontrou dois
-achados Críticos/Importantes e um Importante adicional, mais três menores — detalhados na
-seção 10. As Tasks 1–13 já têm sua própria verificação implícita nas mensagens de commit e
+Commits da fase: `6cfd665` (modelar conceito global em `lib/core`) .. `114d55c` (fix round 2:
+retomar importação nova sem sessionStorage não escreve dado órfão) + este registro — 32
+commits antes deste documento, 33 com ele.
+Escopo direto deste registro: Tasks 14–16 (`f1c8f9e`, `cf5c2b0`, `f79a96d`), o fix round 1
+sobre elas (`4092764`, `c6fd346` — dois achados Críticos/Importantes e um Importante
+adicional, mais três menores, seção 10) e o fix round 2 sobre o próprio fix round 1
+(`114d55c` — um achado Importante que virou uma escrita órfã, e um achado menor de PD-06,
+seção 11). As Tasks 1–13 já têm sua própria verificação implícita nas mensagens de commit e
 nos fix rounds registrados nelas; este documento não re-deriva o que já foi decidido lá, só
-confirma que o estado final (depois de Tasks 14–16 e do fix round 1) continua consistente com
-tudo isso.
+confirma que o estado final (depois de Tasks 14–16 e dos dois fix rounds) continua consistente
+com tudo isso.
 
 ## 1. Contagem de testes por pacote
 
@@ -22,10 +23,10 @@ $ pnpm run test
 | Pacote | Arquivos de teste | Testes |
 |---|---|---|
 | `lib/core` | 11 | 187 |
-| `artifacts/kalibra` | 16 | 213 |
-| **Total** | **27** | **400** |
+| `artifacts/kalibra` | 16 | 216 |
+| **Total** | **27** | **403** |
 
-Detalhe por arquivo, `lib/core` (187, intocado por Tasks 14–16 e pelo fix round 1):
+Detalhe por arquivo, `lib/core` (187, intocado por Tasks 14–16 e pelos dois fix rounds):
 
 | Arquivo | Testes |
 |---|---|
@@ -41,13 +42,13 @@ Detalhe por arquivo, `lib/core` (187, intocado por Tasks 14–16 e pelo fix roun
 | `approval/approval.test.ts` | 8 |
 | `workspace/slug.test.ts` | 8 |
 
-Detalhe por arquivo, `artifacts/kalibra` (213):
+Detalhe por arquivo, `artifacts/kalibra` (216):
 
 | Arquivo | Testes |
 |---|---|
 | `domain/adapters/local/workspaces.test.ts` | 37 |
+| `pages/EditalRevisar.test.tsx` | 31 |
 | `domain/adapters/local/approvals.test.ts` | 28 |
-| `pages/EditalRevisar.test.tsx` | 28 |
 | `__tests__/screens.snapshot.test.tsx` | 22 |
 | `domain/adapters/local/syllabus.test.ts` | 18 |
 | `domain/adapters/local/concepts.test.ts` | 16 |
@@ -69,7 +70,9 @@ de versões e fila de aprovação, tudo testado sem tocar `localStorage`/`fetch`
 Evolução dos números de `artifacts/kalibra` nesta rodada: 200 (antes de Tasks 14–16) → 210
 (Task 14 +5, Task 15 +5) → 213 no fix round 1 (`EditalRevisar.test.tsx` 26 → 28: um teste
 para cada achado Crítico/Importante do "fix único" — seção 10; `Aprovacoes.test.tsx` 3 → 4:
-um teste para o achado do link cruzando workspace).
+um teste para o achado do link cruzando workspace) → 216 no fix round 2
+(`EditalRevisar.test.tsx` 28 → 31: um teste para o achado A confirmando, um para o achado A
+descartando, um para o achado B — seção 11).
 
 ## 2. Saída do portão
 
@@ -87,16 +90,16 @@ artifacts/kalibra typecheck: Done
 Resultado: **passou** (exit 0), sem erros em nenhum dos 4 pacotes com typecheck. (O fix round
 1 quebrou o typecheck uma vez no caminho — `within(row())` recebendo `Element` em vez de
 `HTMLElement` num teste novo — corrigido com um cast antes deste resultado final; não chegou
-a ser commitado quebrado.)
+a ser commitado quebrado. O fix round 2 não quebrou o typecheck em nenhum momento.)
 
 ### `pnpm run test`
 
 ```
 lib/core:            11 arquivos, 187 testes — passou
-artifacts/kalibra:   16 arquivos, 213 testes — passou
+artifacts/kalibra:   16 arquivos, 216 testes — passou
 ```
-Resultado: **passou**. Ver seção 4 para as três execuções sob fusos diferentes (mesmo
-resultado nas três, 0 snapshots reescritos, incluindo depois do fix round 1).
+Resultado: **passou**. Ver seção 4 para as execuções sob fusos diferentes (mesmo resultado nas
+três, 0 snapshots reescritos, tanto depois do fix round 1 quanto depois do fix round 2).
 
 ### `pnpm run build`
 
@@ -169,9 +172,9 @@ novo" — não é uma regressão desta fase, é uma limitação do padrão de bu
 ## 4. A suíte em três fusos (Task 16, Step 3)
 
 O Bash desta sessão descarta `TZ` — rodado via PowerShell, como o brief instruiu. Executado
-duas vezes: uma vez ao final de Tasks 14–16 (210 testes em `artifacts/kalibra`), e de novo
-depois do fix round 1 (213 testes), para confirmar que a correção não introduziu nenhuma
-dependência de relógio nova.
+três vezes: ao final de Tasks 14–16 (210 testes em `artifacts/kalibra`), de novo depois do fix
+round 1 (213 testes) e de novo depois do fix round 2 (216 testes), para confirmar a cada
+rodada que a correção não introduziu nenhuma dependência de relógio nova.
 
 ```powershell
 foreach ($tz in @("UTC","America/Sao_Paulo","Pacific/Kiritimati")) { $env:TZ = $tz; pnpm run test }
@@ -179,18 +182,19 @@ foreach ($tz in @("UTC","America/Sao_Paulo","Pacific/Kiritimati")) { $env:TZ = $
 
 | Fuso | `lib/core` | `artifacts/kalibra` | Snapshots reescritos |
 |---|---|---|---|
-| `UTC` | 187 passou | 213 passou | 0 |
-| `America/Sao_Paulo` | 187 passou | 213 passou | 0 |
-| `Pacific/Kiritimati` | 187 passou | 213 passou | 0 |
+| `UTC` | 187 passou | 216 passou | 0 |
+| `America/Sao_Paulo` | 187 passou | 216 passou | 0 |
+| `Pacific/Kiritimati` | 187 passou | 216 passou | 0 |
 
-Resultado idêntico nos três fusos (400 testes passando em cada rodada, depois do fix round
-1), nenhuma linha `Snapshots … written/updated` em nenhuma das três execuções — exatamente o
+Resultado idêntico nos três fusos (403 testes passando em cada rodada, depois do fix round 2),
+nenhuma linha `Snapshots … written/updated` em nenhuma das três execuções — exatamente o
 esperado pelo brief. `Pacific/Kiritimati` (UTC+14, o fuso mais adiantado do mundo) e `UTC` são
 os extremos mais prováveis de expor um `new Date()` sem fuso explícito; `lib/core` não lê
 relógio algum (grep da seção 3), e o congelamento de tempo do frontend
 (`screens.snapshot.test.tsx`, via `vi.useFakeTimers()`/`vi.setSystemTime()`, herdado da Fase
-1A) já resolve o determinismo ali. Nenhum dos testes novos do fix round 1 usa relógio real —
-`readApprovals()`/`readWorkspaceStatus()` e as buscas por `data-testid` não dependem de data.
+1A) já resolve o determinismo ali. Nenhum dos testes novos dos dois fix rounds usa relógio
+real — `readApprovals()`/`readWorkspaceStatus()`/`window.location.pathname` e as buscas por
+`data-testid` não dependem de data.
 
 ## 5. Conferência visual manual nos dois temas (Task 16, Step 4)
 
@@ -223,8 +227,8 @@ servidor de dev foi encerrado logo em seguida.
 **O que foi conferido como substituto** (evidência de código + suíte automatizada, não
 inspeção visual real):
 - `pnpm run build` e a subida de `pnpm run dev` não falham — a aplicação está sintaticamente
-  e estruturalmente sã nas telas que Tasks 14–15 e o fix round 1 tocaram.
-- Os 213 testes de `artifacts/kalibra` (incluindo 22 em `screens.snapshot.test.tsx`, que
+  e estruturalmente sã nas telas que Tasks 14–15 e os dois fix rounds tocaram.
+- Os 216 testes de `artifacts/kalibra` (incluindo 22 em `screens.snapshot.test.tsx`, que
   cobrem 16 rotas, e os testes dedicados de `EditalRevisar.test.tsx`/`Edital.test.tsx`/
   `Aprovacoes.test.tsx`) exercitam o HTML renderizado via `@testing-library/react`, com
   `@clerk/react` inteiramente mockado (`clerk-mock.ts`) — nunca o widget real.
@@ -246,27 +250,32 @@ inspeção visual real):
   nem por um navegador renderizando de fato.
 - A tela Edital com o programa salvo, como um usuário veria na prática (scroll, hover,
   tooltip do `title` nas células "sem dados", responsividade real de viewport).
-- O comportamento real de fechar a aba/reiniciar o navegador que o achado 1 do fix round 1
-  descreve — o teste que o cobre (seção 10) simula a perda de `sessionStorage` chamando
-  `window.sessionStorage.clear()` entre dois `render()`, que é a aproximação mais fiel
-  disponível em jsdom, mas não é literalmente fechar uma aba do navegador.
+- O comportamento real de fechar a aba/reiniciar o navegador que os achados 1 (fix round 1) e
+  A/B (fix round 2) descrevem — os testes que os cobrem (seções 10 e 11) simulam a perda de
+  `sessionStorage` chamando `window.sessionStorage.clear()` entre dois `render()`, que é a
+  aproximação mais fiel disponível em jsdom, mas não é literalmente fechar uma aba do
+  navegador.
 
-A evidência de que Tasks 14–16 e o fix round 1 estão corretos descansa inteiramente sobre a
-suíte de testes (que mocka Clerk e roda em jsdom, não num navegador) e sobre a leitura manual
+A evidência de que Tasks 14–16 e os dois fix rounds estão corretos descansa inteiramente sobre
+a suíte de testes (que mocka Clerk e roda em jsdom, não num navegador) e sobre a leitura manual
 dos diffs de snapshot antes de cada `-u` (seção 6) — não sobre inspeção visual real. Isto está
 registrado como lacuna aberta, não como "verificado".
 
-## 6. Snapshots que mudaram nesta fase (Tasks 14–16 e fix round 1), e por quê
+## 6. Snapshots que mudaram nesta fase (Tasks 14–16 e os dois fix rounds), e por quê
 
 Duas rodadas de atualização de snapshot em Tasks 14–16, uma por task de produto; ambos os
-diffs foram lidos por completo antes de rodar `-u`, como o brief exige. **O fix round 1 não
-moveu nenhum snapshot** (seção 4 confirma 0 reescritos, nas três rodadas de fuso, depois da
-correção) — as três correções (achados 1, 2 e 3) mudam ONDE a proposta é lida e PARA ONDE um
+diffs foram lidos por completo antes de rodar `-u`, como o brief exige. **Nenhum dos dois fix
+rounds moveu snapshot algum** (seção 4 confirma 0 reescritos, nas três rodadas de fuso, depois
+de cada correção) — fix round 1 (achados 1, 2 e 3) muda ONDE a proposta é lida e PARA ONDE um
 link aponta, não o HTML renderizado nos casos que os snapshots exercitam: a rota
 `/edital/revisar/1` sem importação pendente (achados 1/2 só importam quando existe uma
 revisão em andamento) e o item de exemplo de `/aprovacoes` (`workspaceId: 'setec-campinas'`,
 igual ao workspace da rota visitada — achado 3 só muda o href quando os dois divergem, caso
 que nenhum fixture de snapshot cobre; coberto por um teste dedicado em vez disso, seção 10).
+Fix round 2 (achados A e B) só muda o que acontece numa revisão RETOMADA de um workspace
+ainda não criado ou sem incertezas registradas — nenhuma rota do arquivo de snapshot está
+nesse estado (o fixture de `/edital/revisar/1` usado ali é sempre `setec-campinas`, que já
+existe em `defaultPrograms`); coberto pelos três testes dedicados da seção 11.
 
 ### Task 14 — `renderiza /aprovacoes com itens pendentes de forma estável`
 
@@ -335,14 +344,14 @@ programa ainda".
 
 Nenhuma outra rota do arquivo de snapshot (`/portal`, `/workspace/setec-campinas`,
 `/workspace/setec-campinas/edital/revisar/1`, `/aprovacoes` sem itens, etc.) moveu em nenhuma
-das duas rodadas de Tasks 14–16 nem na rodada do fix round 1 — confirmado lendo a lista
+das duas rodadas de Tasks 14–16 nem nas rodadas dos dois fix rounds — confirmado lendo a lista
 completa de testes de `screens.snapshot.test.tsx` em cada execução (16 rotas de `it.each`,
 todas com `✓` nas execuções sem mudança de snapshot, exceto a rota afetada em cada uma das
 duas rodadas que tiveram mudança real). Depois de cada `-u`, a suíte completa foi rodada de
 novo e confirmou 0 escritas adicionais (e as rodadas sob fuso diferente, seção 4, confirmam
-isso de novo, inclusive depois do fix round 1).
+isso de novo, inclusive depois de cada fix round).
 
-## 7. O que Tasks 14–16 e o fix round 1 mudaram, resumido
+## 7. O que Tasks 14–16 e os dois fix rounds mudaram, resumido
 
 - **Task 14** (`f1c8f9e`): ao montar `EditalRevisar` com uma proposta para revisar, um item
   `edital_structure` entra na fila (`payloadBefore` = programa salvo, ou `null` na primeira
@@ -367,6 +376,13 @@ isso de novo, inclusive depois do fix round 1).
   `{ version, review, mergedCount }`, onde `review` é o `DedupResult` inteiro (`syllabus`,
   `merged`, `newConcepts`, `proposedLinks`) — necessário para reconstruir a proposta
   completa a partir só do item da fila, sem depender de `sessionStorage`.
+- **Fix round 2** (`114d55c`): dois achados sobre o resultado do fix round 1 —
+  detalhados na seção 11. Em resumo: retomar da fila uma importação de workspace NOVO ainda
+  não criado, sem `sessionStorage`, deixava de travar (fix round 1) mas passava a gravar
+  Syllabus, conceitos e uma aprovação para um workspace que `handleConfirm` nunca chegava a
+  criar (achado A, crítico na prática); e o bloco "Não encontrado no edital" (PD-06)
+  desaparecia numa retomada porque as incertezas continuavam presas a `sessionStorage`
+  (achado B). `payloadAfter` ganhou dois campos: `uncertainties` e `workspaceDraft`.
 
 ## 8. Desvios encontrados
 
@@ -559,24 +575,129 @@ testes novos, um teste existente ajustado para não depender mais de
 ordem de escrita, seção 9). Nenhum arquivo em `lib/core`, `src/index.css`, `src/data.ts` ou
 `src/components/ui/` foi tocado. Nenhum snapshot moveu (seções 4 e 6).
 
-## 11. Estado final confirmado
+## 11. Fix round 2 — revisão e correção
 
-- `lib/core`: 187 testes, 11 arquivos, intocado por Tasks 14–16 e pelo fix round 1 — nenhuma
-  destas mudanças precisou mexer em regra de domínio já testada.
-- `artifacts/kalibra`: 213 testes, 16 arquivos, 400 testes no total da fase, mesmo resultado
+Uma segunda revisão de código confirmou os seis achados do fix round 1 como corrigidos, com
+evidência forte de sonda: a fila é genuinamente a fonte da proposta com `sessionStorage`
+esvaziado, a árvore gravada bate campo a campo com `payloadAfter` depois de renomear e
+separar, e o link cruzando workspace chega e decide o item certo. Encontrou, porém, dois
+problemas novos no próprio caminho de retomada que o fix round 1 introduziu.
+
+### Achado A (Importante) — retomar a importação de um workspace NOVO escrevia dado órfão
+
+`NovoWorkspace` só **estagia** o rascunho em `sessionStorage`; `addWorkspace` só era chamado
+dentro de `handleConfirm`, no ramo que exigia `pending.isNew && pending.workspace`. Depois de
+perder a aba, esse ramo nunca era alcançado (`pending` vazio) e o `else` rodava
+`updateWorkspace` sobre um slug ausente da lista — um `.map` que não casa nada, sem avisar
+nada. Antes do fix round 1, o mesmo clique não escrevia nada (o item ficava só preso, achado
+1). Depois dele, passou a escrever Syllabus, conceitos e uma aprovação `aprovado` afirmando
+que um programa entrou num workspace que nunca chegou a existir — exatamente no cenário de aba
+fechada que o achado 1 existia para corrigir. Um achado real revelado pelo próprio fix
+anterior, não uma regressão dele na correção que já tinha sido feita.
+
+**Fix**: o rascunho do workspace (`WorkspaceDraft`) viaja no mesmo `payloadAfter` da proposta,
+gravado quando a importação é nova (`pending.isNew`) e reconstruído por `migrateWorkspace` — a
+mesma validação, já testada, usada para qualquer registro de workspace salvo, em vez de
+confiar cegamente no formato do payload. `workspace`, `workspaceDraft` (o rascunho, de
+`pending` ou da fila) e `workspaceExists` (existe de verdade na lista?) passaram a ser
+resolvidos uma vez só, usados tanto por `handleConfirm` (decide `addWorkspace` vs
+`updateWorkspace`, e o status de partida — substituindo um `if (pending?.isNew)` espalhado por
+uma única fonte) quanto por `handleDiscard` (evita mandar para `/edital` de um workspace
+fantasma quando a criação nunca aconteceu).
+
+Três testes novos em `EditalRevisar.test.tsx` cobrem o cenário fim a fim com um slug
+(`novo-concurso`) que não existe em `defaultPrograms` — de propósito, para que
+`workspaces.find(...)` nunca ache um registro por coincidência:
+
+- `fix round 2 (achado A, crítico): retomar uma importação NOVA sem sessionStorage cria o
+  workspace ao confirmar, não deixa dado órfão` — fecha a aba, confirma, e afirma que o
+  workspace existe na lista depois, com Syllabus e aprovação consistentes.
+- `fix round 2 (achado A): descartar uma importação NOVA retomada sem sessionStorage não cria
+  o workspace nem escreve nada` — mesma retomada, mas descartando: nenhuma escrita em
+  `localStorage`, e a navegação vai para o portal (`window.location.pathname`), não para
+  `/edital` de um workspace fantasma.
+
+Verificados como não-vácuos: revertendo temporariamente `workspaceDraftFromPayload` para
+sempre devolver `null`, o primeiro teste falha (o workspace não é criado) — confirmando que a
+asserção pega o bug de verdade, não só a forma do teste.
+
+### Achado B (Menor, mas é PD-06) — o bloco "Não encontrado no edital" sumia numa retomada
+
+`uncertainFields` ainda lia as incertezas de `pending.extractionOutput.uncertainties`, que o
+payload da fila não carregava — numa retomada, a lista virava `[]` e o bloco inteiro
+desaparecia, escondendo do humano decidindo exatamente o que PD-06 existe para mostrar: o que
+a extração não conseguiu achar. O filtro de cargo também sumia no mesmo cenário, mas como
+efeito colateral do achado A (sem `workspace` resolvido, `workspace.cargos` também sumia) —
+resolvido de graça pelo fix do achado A, sem precisar carregar a lista de cargos à parte.
+
+**Fix**: as incertezas viajam no mesmo `payloadAfter` (`uncertainties: string[]`), lidas de
+volta por `uncertaintiesFromPayload`. Coberto pelo terceiro teste novo:
+
+- `fix round 2 (achado B): retomar sem sessionStorage ainda mostra "Não encontrado no edital" e
+  o filtro de cargo` — usa a mesma importação nova, com uma incerteza e dois cargos; depois de
+  perder a aba, afirma que o bloco e o texto da incerteza aparecem, e que os dois chips do
+  filtro de cargo (`cargo-filter-c1`, `cargo-filter-c2`) também aparecem.
+
+### `payloadAfter` mudou de forma outra vez
+
+`{ version, review, mergedCount }` (fix round 1) → `{ version, review, mergedCount,
+uncertainties, workspaceDraft }`. O próprio fix round 1 (seção 10, "um ponto estacionado")
+já previa isso: "a forma do payload já mudou uma vez … qualquer decisão de formato agora
+arriscaria mudar de novo em breve" — o ponto estacionado sobre armazenamento (payload grande,
+itens decididos nunca podados) continua sem correção, agora com dois campos a mais por item.
+
+### Dois pontos registrados nesta rodada, não corrigidos
+
+- **A fila entre workspaces não é coerente como está renderizada.** A escolha de corrigir o
+  href em vez de escopar a fila (achado 3, fix round 1) continua correta — mas nada no cartão
+  nomeia o workspace dono do item: nem o título, nem um chip, nem a rationale. Dois itens de
+  concursos diferentes renderizam identicamente, a contagem "aguardando decisão" na Shell soma
+  todos os workspaces enquanto o usuário está dentro de um só, e agora que o link funciona, um
+  clique genuinamente teleporta para outro workspace sem aviso prévio. **Follow-up nomeado,
+  registrado para uma fase futura de UI da fila**: um chip com o nome do workspace dono em
+  cada cartão e, idealmente, um filtro "este workspace / todos" ao lado do filtro de tipo já
+  existente — não implementado agora porque é uma adição de design, não uma correção pontual.
+- **Um item gravado no formato de payload anterior ao fix round 1** (`{ version, syllabus,
+  mergedCount }`, sem `review`/`uncertainties`/`workspaceDraft`) não é retomável:
+  `reviewFromPayload` devolve `null` para ele, a tela não mostra proposta nenhuma, e os dois
+  botões viram no-op. Isto é dado de protótipo em `localStorage` (nenhum usuário real usou
+  este app ainda) — uma migração não se justifica; este parágrafo é a resposta correta.
+
+### Gate re-executado depois da correção
+
+`pnpm run typecheck` (passou, sem quebrar em nenhum momento), `pnpm run test` (403 testes —
+187 `lib/core` + 216 `artifacts/kalibra` — passando três vezes sob fusos diferentes, seção 4,
+0 snapshots reescritos em todas), `pnpm run build` (passou, mesmos dois avisos pré-existentes
+da seção 2).
+
+**Arquivos tocados neste fix round:** `artifacts/kalibra/src/pages/EditalRevisar.tsx`
+(`workspaceDraft`/`uncertainties` no payload e na leitura de volta, `workspace`/
+`workspaceDraft`/`workspaceExists` resolvidos uma vez, `handleConfirm`/`handleDiscard`
+usando-os), `artifacts/kalibra/src/pages/EditalRevisar.test.tsx` (três testes novos). Nenhum
+arquivo em `lib/core`, `src/index.css`, `src/data.ts` ou `src/components/ui/` foi tocado.
+Nenhum snapshot moveu (seções 4 e 6).
+
+## 12. Estado final confirmado
+
+- `lib/core`: 187 testes, 11 arquivos, intocado por Tasks 14–16 e pelos dois fix rounds —
+  nenhuma destas mudanças precisou mexer em regra de domínio já testada.
+- `artifacts/kalibra`: 216 testes, 16 arquivos, 403 testes no total da fase, mesmo resultado
   em três fusos horários (UTC, America/Sao_Paulo, Pacific/Kiritimati), 0 snapshots
-  reescritos em nenhuma das três rodadas — antes e depois do fix round 1.
+  reescritos em nenhuma das três rodadas — antes e depois de cada fix round.
 - Nada entra no programa de estudo sem uma decisão registrada na fila de aprovação — inclusive
   a estrutura extraída do edital, que fechou o ciclo nesta fase (Task 14): a fila não é mais
   só onde `concept_merge` aparece depois do fato, é onde a própria confirmação da estrutura
-  vive como uma decisão. Depois do fix round 1, essa decisão sobrevive fechar a aba, reiniciar
-  o navegador, ou abrir o link da fila numa aba nova (achado 1), e o que fica registrado é
-  sempre a árvore que de fato entrou no programa, mesmo depois de editar a proposta (achado 2).
+  vive como uma decisão. Essa decisão sobrevive fechar a aba, reiniciar o navegador, ou abrir
+  o link da fila numa aba nova (achado 1), o que fica registrado é sempre a árvore que de fato
+  entrou no programa mesmo depois de editar a proposta (achado 2), e retomar a importação de um
+  workspace ainda não criado cria esse workspace em vez de deixar dado órfão (achado A) — sem
+  perder o bloco de incertezas do PD-06 pelo caminho (achado B).
 - A tela Edital reflete o programa realmente salvo, nunca dados mocados — com honestidade
   explícita sobre o que a Fase 1B não sabe ainda (prioridade e acerto por tópico, que só
   chegam com o diagnóstico da Fase 1C).
 - O link "Revisar estrutura" da fila sempre abre o workspace dono da proposta, mesmo quando
-  visitado a partir de outro workspace (achado 3).
+  visitado a partir de outro workspace (achado 3) — com a ressalva registrada na seção 11 de
+  que o cartão em si ainda não deixa isso visível antes do clique (follow-up nomeado).
 - Os dois débitos da Fase 1A seguem quitados e confirmados por grep: a máquina de estados
   descreve o fluxo real e é aplicada (`canTransition`/`assertTransition`, checados antes de
   qualquer persistência em todo handler de clique desta fase — nenhum retrocesso ao
@@ -584,6 +705,7 @@ ordem de escrita, seção 9). Nenhum arquivo em `lib/core`, `src/index.css`, `sr
 - Nenhuma tela toca `localStorage`, `sessionStorage` ou `fetch` diretamente fora de
   `components/ui/` (confirmado por grep, seção 3).
 - Nenhum dos arquivos protegidos (`src/index.css`, `src/data.ts`,
-  `src/components/ui/`, lógica de `lib/core`) foi tocado por Tasks 14–16 nem pelo fix round 1.
+  `src/components/ui/`, lógica de `lib/core`) foi tocado por Tasks 14–16 nem por nenhum dos
+  dois fix rounds.
 
 **Próximo plano:** Fase 1C — diagnóstico obrigatório, plano quinzenal e sessões de estudo.
