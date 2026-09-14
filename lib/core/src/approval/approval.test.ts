@@ -10,6 +10,7 @@ function makeItem(overrides: Partial<ApprovalItem> = {}): ApprovalItem {
     title: 'título',
     rationale: 'motivo',
     sourceRef: null,
+    targetConceptId: null,
     confidence: null,
     payloadBefore: null,
     payloadAfter: null,

@@ -20,6 +20,7 @@ const ITEM: ApprovalItem = {
   title: 'Estrutura do edital identificada',
   rationale: 'Extração automática do texto colado',
   sourceRef: null,
+  targetConceptId: null,
   confidence: 0.8,
   payloadBefore: null,
   payloadAfter: { entries: [] },
@@ -65,6 +66,7 @@ describe('migração de item da fila de aprovação', () => {
       title: 42,
       rationale: true,
       sourceRef: 7,
+      targetConceptId: 9,
       confidence: 'alta',
       createdAt: 123,
       decidedAt: 9,
@@ -74,6 +76,7 @@ describe('migração de item da fila de aprovação', () => {
     expect(migrado?.title).toBe('');
     expect(migrado?.rationale).toBe('');
     expect(migrado?.sourceRef).toBeNull();
+    expect(migrado?.targetConceptId).toBeNull();
     expect(migrado?.confidence).toBeNull();
     expect(migrado?.createdAt).toBe('');
     expect(migrado?.decidedAt).toBeNull();
@@ -133,6 +136,7 @@ describe('buildApprovalItem (enqueue)', () => {
     title: 'Possível fusão de conceitos',
     rationale: 'Similaridade acima do limiar de proposta',
     sourceRef: null,
+    targetConceptId: null,
     confidence: 0.75,
     payloadBefore: null,
     payloadAfter: null,
@@ -203,10 +207,10 @@ describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_mer
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  it('promove o conceito referenciado por sourceRef a confirmed quando o item aprovado é concept_merge', () => {
+  it('promove o conceito referenciado por targetConceptId a confirmed quando o item aprovado é concept_merge', () => {
     saveConcepts([CONCEPT]);
     const decidido: ApprovalItem = {
-      ...ITEM, type: 'concept_merge', status: 'aprovado', sourceRef: 'concept-x',
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-x',
     };
 
     applyApprovalSideEffects(decidido);
@@ -217,7 +221,7 @@ describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_mer
   it('não confirma nada quando o tipo é edital_structure', () => {
     saveConcepts([CONCEPT]);
     const decidido: ApprovalItem = {
-      ...ITEM, type: 'edital_structure', status: 'aprovado', sourceRef: 'concept-x',
+      ...ITEM, type: 'edital_structure', status: 'aprovado', targetConceptId: 'concept-x',
     };
 
     applyApprovalSideEffects(decidido);
@@ -228,7 +232,7 @@ describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_mer
   it('não confirma nada quando o item foi rejeitado, não aprovado', () => {
     saveConcepts([CONCEPT]);
     const decidido: ApprovalItem = {
-      ...ITEM, type: 'concept_merge', status: 'rejeitado', sourceRef: 'concept-x',
+      ...ITEM, type: 'concept_merge', status: 'rejeitado', targetConceptId: 'concept-x',
     };
 
     applyApprovalSideEffects(decidido);
@@ -236,9 +240,24 @@ describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_mer
     expect(getConcepts().find((c) => c.id === 'concept-x')?.status).toBe('provisional');
   });
 
-  it('não lança quando sourceRef é nulo', () => {
-    const decidido: ApprovalItem = { ...ITEM, type: 'concept_merge', status: 'aprovado', sourceRef: null };
+  it('não lança quando targetConceptId é nulo', () => {
+    const decidido: ApprovalItem = { ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: null };
     expect(() => applyApprovalSideEffects(decidido)).not.toThrow();
+  });
+
+  it('achado B: um targetConceptId que não corresponde a nenhum conceito deixa a loja intacta, deliberadamente', () => {
+    saveConcepts([CONCEPT]);
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-que-nao-existe',
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    // Nada lança, nada é logado como erro — é um no-op legítimo (o alvo pode
+    // ter sido removido entre a proposta e a decisão), diferente do caso de
+    // achado B em que um `sourceRef` de proveniência seria usado por engano
+    // como alvo e o no-op aconteceria por acidente.
+    expect(getConcepts()).toEqual([CONCEPT]);
   });
 });
 

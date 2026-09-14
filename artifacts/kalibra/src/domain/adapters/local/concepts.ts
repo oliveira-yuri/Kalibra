@@ -71,15 +71,29 @@ export function saveConcepts(concepts: Concept[], userId?: string) {
 
 /**
  * Promove um conceito a `confirmed`. Hoje o único chamador é uma decisão de
- * aprovação `concept_merge` (ver `approvals.ts`) — sem isso, a ponte R3/R4
- * de `shouldLinkDirectly` (`lib/core`) nunca teria efeito na aplicação
- * rodando: todo conceito nasce `provisional` (`useSyllabus.addItem`) e
- * `shouldLinkDirectly` só liga direto a um conceito já `confirmed`.
+ * aprovação `concept_merge` (ver `applyApprovalSideEffects` em
+ * `approvals.ts`) — sem isso, a ponte R3/R4 de `shouldLinkDirectly`
+ * (`lib/core`) nunca teria efeito na aplicação rodando: todo conceito nasce
+ * `provisional` (`useSyllabus.addItem`) e `shouldLinkDirectly` só liga
+ * direto a um conceito já `confirmed`.
+ *
+ * Escrita fora de um hook montado de propósito: `applyApprovalSideEffects`
+ * é uma função pura chamada de dentro de `useApprovals.approve`, sem acesso
+ * a uma instância de `useConcepts` para atualizar. Por isso esta função
+ * dispatcha `storage` ela mesma (achado da revisão — "confirmConcept writes
+ * storage without dispatching storage, so the next write reverts it"): sem
+ * isso, o `ref` de qualquer `useConcepts`/`useSyllabus` montado ficava
+ * obsoleto e a próxima escrita (`addConcept`, `addItem`) reconstruía a
+ * lista a partir do estado antigo, revertendo a confirmação em silêncio —
+ * exatamente a classe de escrita perdida que o achado 3 da rodada anterior
+ * existia para matar, reentrando pelo único mutador do módulo que não é
+ * hook.
  */
 export function confirmConcept(conceptId: string, userId?: string): Concept[] {
   const next = getConcepts(userId).map((concept) =>
     (concept.id === conceptId ? { ...concept, status: 'confirmed' as const } : concept));
   saveConcepts(next, userId);
+  window.dispatchEvent(new Event('storage'));
   return next;
 }
 

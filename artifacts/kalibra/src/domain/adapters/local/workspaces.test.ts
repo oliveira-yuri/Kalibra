@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 import { hasEdital } from '@workspace/core';
-import { migrateWorkspace, getWorkspaces, defaultCargo } from './workspaces';
+import { migrateWorkspace, getWorkspaces, useWorkspaces, type WorkspaceDraft, defaultCargo } from './workspaces';
 
 const ANTIGO = {
   slug: 'setec-campinas',
@@ -278,5 +279,58 @@ describe('getWorkspaces — um registro corrompido não pode derrubar os outros'
     expect(() => getWorkspaces()).not.toThrow();
     const workspaces = getWorkspaces();
     expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas']);
+  });
+});
+
+describe('useWorkspaces — duas escritas síncronas no mesmo tick sobrevivem ambas (achado C, fix round 2)', () => {
+  // Sem nada salvo, getWorkspaces() cai nos dois programas de demonstração
+  // (setec-campinas, bb-escriturario) — comportamento intencional de
+  // useWorkspaces, não relacionado a este achado. Semear um array vazio
+  // evita esse ruído e deixa o teste focado só na escrita em lote.
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([]));
+  });
+  afterEach(() => localStorage.clear());
+
+  const workspace = (slug: string): WorkspaceDraft => ({
+    slug,
+    title: slug,
+    institution: '',
+    type: 'Concurso Público',
+    examDate: '2027-01-01',
+    cargos: [defaultCargo('2027-01-01')],
+    selectedCargoId: 'c1',
+    availability: { days: [], maxSessionMinutes: 50 },
+    status: 'sem_edital',
+    sourceMode: 'text',
+    importStatus: 'pending',
+    progress: 0,
+    nextAction: '',
+    active: true,
+  });
+
+  it('duas chamadas de addWorkspace dentro do mesmo act() persistem os dois workspaces', () => {
+    const { result } = renderHook(() => useWorkspaces());
+
+    act(() => {
+      result.current.addWorkspace(workspace('a'));
+      result.current.addWorkspace(workspace('b'));
+    });
+
+    expect(result.current.workspaces.map((w) => w.slug)).toEqual(['a', 'b']);
+    expect(getWorkspaces().map((w) => w.slug)).toEqual(['a', 'b']);
+  });
+
+  it('addWorkspace seguido de updateWorkspace no mesmo tick não perde a atualização', () => {
+    const { result } = renderHook(() => useWorkspaces());
+
+    act(() => {
+      result.current.addWorkspace(workspace('a'));
+      result.current.updateWorkspace('a', { progress: 42 });
+    });
+
+    expect(result.current.workspaces.find((w) => w.slug === 'a')?.progress).toBe(42);
+    expect(getWorkspaces().find((w) => w.slug === 'a')?.progress).toBe(42);
   });
 });

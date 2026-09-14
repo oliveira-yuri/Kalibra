@@ -56,6 +56,7 @@ export function migrateApprovalItem(raw: unknown): ApprovalItem | null {
     title: str(raw.title, ''),
     rationale: str(raw.rationale, ''),
     sourceRef: nullableStr(raw.sourceRef),
+    targetConceptId: nullableStr(raw.targetConceptId),
     confidence: nullableNum(raw.confidence),
     payloadBefore: raw.payloadBefore ?? null,
     payloadAfter: raw.payloadAfter ?? null,
@@ -144,17 +145,28 @@ export function applyDecision(
 
 /**
  * Efeito colateral de uma decisão aprovada: um `concept_merge` aprovado
- * promove o conceito referenciado (guardado em `sourceRef` — por convenção,
- * para este tipo, `sourceRef` é o id do `Concept` proposto) a `confirmed`
- * na biblioteca global (`concepts.ts`). Sem isso, nada na aplicação jamais
- * produz um conceito `confirmed`, e a ponte R3/R4 de `shouldLinkDirectly`
- * (`lib/core`) — quatro rodadas de revisão para acertar — fica inatingível
- * em produção. Idempotente: reaplicar sobre um item já aprovado apenas
- * reconfirma o mesmo conceito.
+ * promove `targetConceptId` a `confirmed` na biblioteca global
+ * (`concepts.ts`). Sem isso, nada na aplicação jamais produz um conceito
+ * `confirmed`, e a ponte R3/R4 de `shouldLinkDirectly` (`lib/core`) —
+ * quatro rodadas de revisão para acertar — fica inatingível em produção.
+ * Idempotente: reaplicar sobre um item já aprovado apenas reconfirma o
+ * mesmo conceito.
+ *
+ * Usa `targetConceptId`, não `sourceRef` (achado da revisão): `sourceRef`
+ * é proveniência — de onde a proposta veio — e em `question`/`flashcard` o
+ * spec o usa exatamente assim, ao lado de `origin`. Usá-lo aqui para dizer
+ * o que a decisão muta inverteria um campo documentado, e o erro seria
+ * silencioso na direção errada: quem ligar `dedupeEntries.proposedLinks` a
+ * `enqueue` erraria ao preencher `sourceRef` com proveniência (a linha do
+ * edital, "extração automática") — o nome pede exatamente isso — e
+ * `confirmConcept` receberia um id que não bate com nada, o `.map` não
+ * acharia ninguém, a lista voltaria inalterada, e nada quebraria de forma
+ * visível: sem exceção, sem log, conceito continua provisório, reuso entre
+ * workspaces quebrado de novo, suíte verde.
  */
 export function applyApprovalSideEffects(decided: ApprovalItem, userId?: string): void {
-  if (decided.type === 'concept_merge' && decided.status === 'aprovado' && decided.sourceRef) {
-    confirmConcept(decided.sourceRef, userId);
+  if (decided.type === 'concept_merge' && decided.status === 'aprovado' && decided.targetConceptId) {
+    confirmConcept(decided.targetConceptId, userId);
   }
 }
 

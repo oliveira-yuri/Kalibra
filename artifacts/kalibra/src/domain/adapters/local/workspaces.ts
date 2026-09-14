@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   emptyAvailability,
   hasEdital,
@@ -252,26 +252,42 @@ export function saveWorkspaces(workspaces: WorkspaceDraft[], userId?: string) {
 
 export function useWorkspaces(userId?: string) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDraft[]>(() => getWorkspaces(userId));
+  // Achado C da revisão da fila de aprovação (fix round 2): `addWorkspace`/
+  // `updateWorkspace` construíam a próxima lista a partir de `workspaces`
+  // capturado no closure do render — exatamente o padrão que os achados 1/3
+  // daquela revisão mostraram perder escrita quando duas mutações acontecem
+  // no mesmo evento, antes de qualquer re-render. `workspacesRef` é
+  // atualizado sincronamente dentro de `persist`, então a segunda chamada já
+  // enxerga o resultado da primeira.
+  const workspacesRef = useRef(workspaces);
 
   useEffect(() => {
-    setWorkspaces(getWorkspaces(userId));
-    const handleStorage = () => setWorkspaces(getWorkspaces(userId));
+    const loaded = getWorkspaces(userId);
+    workspacesRef.current = loaded;
+    setWorkspaces(loaded);
+
+    const handleStorage = () => {
+      const reloaded = getWorkspaces(userId);
+      workspacesRef.current = reloaded;
+      setWorkspaces(reloaded);
+    };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
-  const addWorkspace = (workspace: WorkspaceDraft) => {
-    const next = [...workspaces, workspace];
+  const persist = (next: WorkspaceDraft[]) => {
+    workspacesRef.current = next;
     saveWorkspaces(next, userId);
     setWorkspaces(next);
     window.dispatchEvent(new Event('storage'));
   };
 
+  const addWorkspace = (workspace: WorkspaceDraft) => {
+    persist([...workspacesRef.current, workspace]);
+  };
+
   const updateWorkspace = (slug: string, updates: Partial<WorkspaceDraft>) => {
-    const next = workspaces.map(w => w.slug === slug ? { ...w, ...updates } : w);
-    saveWorkspaces(next, userId);
-    setWorkspaces(next);
-    window.dispatchEvent(new Event('storage'));
+    persist(workspacesRef.current.map(w => w.slug === slug ? { ...w, ...updates } : w));
   };
 
   return { workspaces, addWorkspace, updateWorkspace };

@@ -18,7 +18,10 @@ export type ApprovalItem = {
   status: ApprovalStatus;
   title: string;
   rationale: string;
+  /** Proveniência: de onde a proposta veio (a linha do edital, o registro de origem). Nunca o que a decisão muta — ver `targetConceptId`. */
   sourceRef: string | null;
+  /** O que uma decisão aprovada muta. Para `concept_merge`, o id do `Concept` a promover a `confirmed`; `null` para tipos que não mutam um conceito. */
+  targetConceptId: string | null;
   confidence: number | null;
   payloadBefore: unknown;
   payloadAfter: unknown;
