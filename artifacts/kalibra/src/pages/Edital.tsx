@@ -7,7 +7,7 @@ import {
 import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { CargoFilter } from '@/components/CargoFilter';
-import { stageWorkspaceImport, useWorkspaces, reserveNextSyllabusVersion } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, useWorkspaces, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
 import { useSyllabus } from '@/domain/useSyllabus';
 import {
@@ -54,9 +54,12 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   // (`/edital/revisar/2`) — toda reimportação, não importa quantas já tinham
   // acontecido antes (inclusive abandonadas no meio do caminho), roteava para a MESMA
   // URL, e o inicializador de `EditalRevisar` podia retomar a proposta de uma
-  // reimportação abandonada em vez da que o usuário acabou de rodar. Reservado de
-  // forma durável (`reserveNextSyllabusVersion`) no início de CADA reimportação.
-  const reviewVersionRef = useRef(2);
+  // reimportação abandonada em vez da que o usuário acabou de rodar. O número sai de
+  // `nextSyllabusVersionFor`, lido da realidade durável (fila + programa salvo).
+  // Achado R2 da re-revisão: o padrão era o literal `2` — um `handleReady` alcançado
+  // sem passar por `saveEditalUpdate` navegava para um número que ninguém apurou.
+  // `null` não tem esse buraco: quem lê é obrigado a apurar o número na hora.
+  const reviewVersionRef = useRef<number | null>(null);
   const [subjectFilter, setSubjectFilter] = useState('Todas');
   const [priorityFilter, setPriorityFilter] = useState('todas');
   const [statusFilter, setStatusFilter] = useState('todos');
@@ -134,10 +137,9 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     workspaceStatusRef.current = 'aguardando_upload';
     updateWorkspace(workspaceSlug, { status: 'aguardando_upload', nextAction: nextActionFor('aguardando_upload') });
 
-    // Reservado AGORA — no início desta reimportação, não em `handleReady` — pela
-    // mesma razão de `NovoWorkspace.tsx`: a identidade precisa existir mesmo que o
-    // usuário abandone antes da extração terminar.
-    reviewVersionRef.current = reserveNextSyllabusVersion(workspaceSlug, user?.id);
+    // Apurado AGORA — no início desta reimportação — para que a URL de revisão já
+    // exista mesmo que a extração seja abandonada no meio.
+    reviewVersionRef.current = nextSyllabusVersionFor(workspaceSlug, user?.id);
     setIsProcessing(true);
     extraction.start({
       sourceMode,
@@ -191,7 +193,10 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsProcessing(false);
     setSourceFileName('');
     setSourceText('');
-    setLocation(`/edital/revisar/${reviewVersionRef.current}`);
+    // `??` e não `!`: se este `handleReady` foi alcançado sem passar por
+    // `saveEditalUpdate` (achado R2 da re-revisão), o número é apurado agora em vez de
+    // cair num literal que ninguém apurou.
+    setLocation(`/edital/revisar/${reviewVersionRef.current ?? nextSyllabusVersionFor(workspaceSlug, user?.id)}`);
   };
 
   const handleExtractionAction = (kind: ExtractionErrorKind) => {

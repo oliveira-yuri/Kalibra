@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { getApprovals } from './approvals';
+import { getSyllabus } from './syllabus';
+import { nextSyllabusVersion } from '../../edital-structure-payload';
 import {
   emptyAvailability,
   hasEdital,
@@ -183,48 +186,18 @@ export interface PendingWorkspaceImport {
 const STORAGE_KEY = 'kalibra_workspaces';
 const storageKeyFor = (userId?: string) => `${STORAGE_KEY}:${userId || 'anonymous'}`;
 const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital:${userId || 'anonymous'}:${slug}`;
-const VERSION_STORAGE_PREFIX = 'kalibra_syllabus_version';
-const versionKeyFor = (slug: string, userId?: string) => `${VERSION_STORAGE_PREFIX}:${userId || 'anonymous'}:${slug}`;
-
 /**
- * Reserva o próximo número de versão de revisão do edital para este workspace — a
- * identidade real de UMA IMPORTAÇÃO (achado C1 da revisão final). Antes, a rota
- * `/edital/revisar/:version` era montada com um LITERAL fixo — `1` em
- * `NovoWorkspace.tsx`, `2` em `Edital.tsx` — sem contador algum: reimportar sempre
- * roteava para a mesma URL, e uma primeira importação abandonada e refeita com o
- * MESMO título gerava o MESMO slug (`uniqueSlug` só evita colisão com workspaces que
- * de fato existem — um abandonado nunca chega a existir). Nos dois casos, o
- * inicializador de `EditalRevisar` achava o item ANTIGO ainda pendente na fila
- * (mesmo `workspaceId` + mesma `version` da URL) e retomava a proposta ERRADA — a de
- * uma importação abandonada, com o `workspaceDraft` antigo junto — e "Confirmar
- * estrutura" gravava o programa errado.
- *
- * A correção: reservar um número NUNCA usado antes, de forma DURÁVEL (localStorage,
- * não sessionStorage — sobrevive a fechar a aba) e no momento em que a extração É
- * INICIADA, não quando é confirmada. Isso garante que duas importações do mesmo slug
- * — mesmo que a primeira nunca seja confirmada nem descartada — nunca competem pelo
- * mesmo número: reimportar sempre reserva um número novo, nunca reciclado, então a
- * fila nunca pode confundir a proposta certa com uma abandonada. Funciona mesmo para
- * um workspace que ainda nem existe (`NovoWorkspace`): a chave é pelo SLUG, não por
- * um registro em `kalibra_workspaces`.
+ * A próxima versão de edital deste workspace, lida da REALIDADE durável — a fila de
+ * aprovação (quais versões já foram encenadas como proposta) e o programa salvo (que
+ * só existe se alguma versão foi confirmada). Ver `nextSyllabusVersion` em
+ * `domain/edital-structure-payload.ts` para o porquê de não haver mais contador
+ * próprio: um contador incrementado no início da extração e nunca liberado inflava a
+ * cada tentativa abandonada, e a tela passava a anunciar comparação com versões que
+ * nunca existiram (achado R2 da re-revisão). Esta função é o ponto onde as telas
+ * (`NovoWorkspace`, `Edital`) descobrem o número, sem tocar armazenamento elas mesmas.
  */
-export function reserveNextSyllabusVersion(slug: string, userId?: string): number {
-  const key = versionKeyFor(slug, userId);
-  let current = 0;
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? Number.parseInt(raw, 10) : 0;
-    if (Number.isFinite(parsed) && parsed > 0) current = parsed;
-  } catch (error) {
-    console.error('Não foi possível ler o contador de versão do edital — reservando a partir de 1.', error);
-  }
-  const next = current + 1;
-  try {
-    localStorage.setItem(key, String(next));
-  } catch (error) {
-    console.error('Não foi possível persistir o contador de versão do edital.', error);
-  }
-  return next;
+export function nextSyllabusVersionFor(slug: string, userId?: string): number {
+  return nextSyllabusVersion(getApprovals(userId), slug, getSyllabus(slug, userId).items.length > 0);
 }
 
 export function stageWorkspaceImport(slug: string, pending: PendingWorkspaceImport, userId?: string) {
@@ -330,7 +303,50 @@ export function getWorkspaces(userId?: string): WorkspaceDraft[] {
   }
 }
 
+/**
+ * Diz se o valor bruto salvo hoje é ilegível — presente, mas nem JSON válido nem um
+ * array. Exatamente o caso que `getWorkspaces` trata como lista vazia.
+ */
+function isUnreadable(raw: string): boolean {
+  try {
+    return !Array.isArray(JSON.parse(raw));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Achado R6 da re-revisão — a metade que continuava aberta. `getWorkspaces` já parou
+ * de ressuscitar a demonstração sobre uma chave corrompida (devolve `[]`, e a leitura
+ * deixa o valor bruto byte a byte intacto), mas a PRIMEIRA escrita seguinte gravava
+ * por cima assim mesmo: medido com um registro recuperável — um objeto JSON válido
+ * `{"0": {slug, title, …}}`, o formato que um `JSON.parse`/`JSON.stringify` errado em
+ * algum lugar produz — o `addWorkspace` seguinte reescrevia a chave e o registro
+ * original do usuário simplesmente sumia.
+ *
+ * Antes de destruir, preserva: o valor ilegível é copiado, sem nenhuma
+ * transformação, para uma chave de backup ao lado. Nunca sobrescreve um backup já
+ * existente — a primeira corrupção é a que tem o dado mais próximo do original, e uma
+ * segunda passagem não pode enterrar a primeira.
+ */
+function preserveUnreadableWorkspaces(userId?: string) {
+  const key = storageKeyFor(userId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null || !isUnreadable(raw)) return;
+    const backupKey = `${key}:corrompido`;
+    if (localStorage.getItem(backupKey) !== null) return;
+    localStorage.setItem(backupKey, raw);
+  } catch (error) {
+    // Preservar falhou (armazenamento cheio/bloqueado). Deixar de gravar aqui
+    // travaria o app inteiro para sempre; o registro fica sem backup e isso é
+    // registrado como limite conhecido, não escondido.
+    console.error('Não foi possível preservar o registro de workspaces ilegível antes de sobrescrevê-lo.', error);
+  }
+}
+
 export function saveWorkspaces(workspaces: WorkspaceDraft[], userId?: string) {
+  preserveUnreadableWorkspaces(userId);
   localStorage.setItem(storageKeyFor(userId), JSON.stringify(workspaces));
 }
 
@@ -359,9 +375,14 @@ export function useWorkspaces(userId?: string) {
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
+  // Achado R3 da re-revisão: a escrita durável vem PRIMEIRO. Quando `saveWorkspaces`
+  // lança (cota esgotada — o regime esperado), atualizar o ref antes deixaria a
+  // memória afirmando um estado que o armazenamento nunca teve, e o retry do usuário
+  // partiria dessa mentira (duplicando o que já estava no ref). Lançando antes de
+  // qualquer mutação, memória e armazenamento nunca divergem.
   const persist = (next: WorkspaceDraft[]) => {
-    workspacesRef.current = next;
     saveWorkspaces(next, userId);
+    workspacesRef.current = next;
     setWorkspaces(next);
     window.dispatchEvent(new Event('storage'));
   };

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import {
-  stageWorkspaceImport, useWorkspaces, defaultCargo, reserveNextSyllabusVersion, WorkspaceDraft, type Cargo,
+  stageWorkspaceImport, useWorkspaces, defaultCargo, nextSyllabusVersionFor, WorkspaceDraft, type Cargo,
 } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
 import {
@@ -44,11 +44,15 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const extraction = useExtraction(createdSlug);
   const pendingWorkspaceRef = useRef<WorkspaceDraft | null>(null);
   const workspaceStatusRef = useRef<WorkspaceStatus>('aguardando_upload');
-  // Achado C1 da revisão final: a versão de revisão não pode mais ser um literal
-  // (`1`) — reservada de forma durável no momento em que a extração começa, para que
+  // Achado C1 da revisão final: a versão de revisão não pode ser um literal (`1`) —
   // uma importação abandonada e refeita com o mesmo título (mesmo slug, já que o
-  // workspace anterior nunca chegou a existir) nunca reutilize a mesma URL de revisão.
-  const reviewVersionRef = useRef(1);
+  // workspace anterior nunca chegou a existir) reutilizaria a mesma URL de revisão e
+  // retomaria a proposta abandonada. Achado R2 da re-revisão: o número também não pode
+  // vir de um contador que infla a cada tentativa abandonada — vem de
+  // `nextSyllabusVersionFor`, lido da realidade durável (fila + programa salvo). E o
+  // padrão vira `null`, não `1`: um `handleReady` alcançado sem passar por
+  // `handleSubmit` apura o número na hora em vez de navegar para um literal.
+  const reviewVersionRef = useRef<number | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -131,11 +135,11 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
 
     pendingWorkspaceRef.current = newWorkspace;
     workspaceStatusRef.current = 'aguardando_upload';
-    // Reservado AGORA — no início da extração, não em `handleReady` — porque a
-    // identidade da importação precisa existir mesmo que o usuário abandone antes de
-    // a extração terminar (achado C1: sem isto, uma nova tentativa reservaria o MESMO
-    // número, colidindo com o item ainda pendente na fila da tentativa abandonada).
-    reviewVersionRef.current = reserveNextSyllabusVersion(slug, user?.id);
+    // Apurado AGORA — no início da extração — porque a URL de revisão precisa existir
+    // mesmo que o usuário abandone antes de a extração terminar. Uma tentativa
+    // abandonada ANTES de a proposta chegar à fila não queima o número (achado R2);
+    // uma abandonada DEPOIS continua nomeando o dela, e a próxima apura outro.
+    reviewVersionRef.current = nextSyllabusVersionFor(slug, user?.id);
     stageWorkspaceImport(slug, { isNew: true, workspace: newWorkspace }, user?.id);
     setCreatedSlug(slug);
     setIsProcessing(true);
@@ -173,7 +177,10 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   }, [extraction.progress.stage, extraction.output, isProcessing, createdSlug, user?.id]);
 
   const handleReady = () => {
-    setLocation(`/workspace/${createdSlug}/edital/revisar/${reviewVersionRef.current}`);
+    // `??` e não `!`: alcançar `handleReady` sem ter passado por `handleSubmit`
+    // (achado R2 da re-revisão) apura o número agora, nunca navega para um literal.
+    const version = reviewVersionRef.current ?? nextSyllabusVersionFor(createdSlug, user?.id);
+    setLocation(`/workspace/${createdSlug}/edital/revisar/${version}`);
   };
 
   const handleExtractionAction = (kind: ExtractionErrorKind) => {
