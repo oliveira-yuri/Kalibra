@@ -46,8 +46,12 @@ export function Aprovacoes() {
   // Recalculado a cada render a partir de `items`, não guardado à parte: um item que
   // deixou de poder ser decidido (aprovado/rejeitado por aqui ou por outra aba) sai da
   // seleção sozinho, sem precisar de um efeito para "limpar" o Set depois do fato.
+  // `edital_structure` nunca entra aqui (Task 14): `ApprovalCard` já não oferece a
+  // caixa de seleção para esse tipo — decidir por essa via aprovaria o item na fila
+  // sem nunca gravar o programa, que só acontece em `EditalRevisar.handleConfirm` —
+  // mas o filtro fica explícito aqui também, defesa em profundidade.
   const selectableSelectedIds = items
-    .filter((item) => selectedIds.has(item.id) && canDecide(item.status))
+    .filter((item) => selectedIds.has(item.id) && canDecide(item.status) && item.type !== 'edital_structure')
     .map((item) => item.id);
 
   // Chamadas síncronas em sequência, no mesmo handler — não um `.map` construído a

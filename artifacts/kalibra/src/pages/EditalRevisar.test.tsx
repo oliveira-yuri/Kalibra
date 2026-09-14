@@ -137,20 +137,23 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     const { default: App } = await import('../App');
     render(<App />);
 
-    expect(readApprovals()).toHaveLength(0);
+    // Task 14: montar já enfileirou o item `edital_structure` da proposta — só os
+    // `concept_merge` (proveniência dos `proposedLinks`) esperam o confirmar.
+    expect(readApprovals()).toHaveLength(1);
     clickConfirm();
 
     const approvals = readApprovals();
-    expect(approvals).toHaveLength(2);
-    expect(approvals.every((item) => item.type === 'concept_merge')).toBe(true);
+    const conceptMerges = approvals.filter((item) => item.type === 'concept_merge');
+    expect(approvals).toHaveLength(3);
+    expect(conceptMerges).toHaveLength(2);
 
-    const targetIds = approvals.map((item) => item.targetConceptId).sort();
+    const targetIds = conceptMerges.map((item) => item.targetConceptId).sort();
     expect(targetIds).toEqual(['global-crase', 'global-mat-financeira']);
 
     // sourceRef é proveniência (o item do edital que gerou a proposta) — nunca o
     // conceito-alvo. Um approvals.sourceRef igual a um dos targetConceptId seria o
     // bug que a Task 11 existe para não reintroduzir (achado da revisão da fila).
-    approvals.forEach((item) => {
+    conceptMerges.forEach((item) => {
       expect(item.sourceRef).not.toBe(item.targetConceptId);
       expect(typeof item.sourceRef).toBe('string');
     });
@@ -164,8 +167,11 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
 
     // Duas propostas nesta fixture: se os hooks não fossem ref-sincronizados, a
     // segunda chamada de `enqueue` no mesmo handler reconstruiria a partir do estado
-    // obsoleto e sobrescreveria a primeira — ficaria só 1, não 2.
-    expect(readApprovals()).toHaveLength(2);
+    // obsoleto e sobrescreveria a primeira — ficaria só 1, não 2. O terceiro item
+    // (fora desta contagem) é o `edital_structure` enfileirado na montagem (Task 14).
+    const approvals = readApprovals();
+    expect(approvals.filter((item) => item.type === 'concept_merge')).toHaveLength(2);
+    expect(approvals).toHaveLength(3);
   });
 
   it('confirmar duas vezes seguidas (clique duplo) não duplica nada — idempotência do confirm', async () => {
@@ -177,7 +183,8 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     fireEvent.click(button);
     fireEvent.click(button);
 
-    expect(readApprovals()).toHaveLength(2);
+    // 1 edital_structure (montagem, Task 14) + 2 concept_merge (confirmar, uma vez só).
+    expect(readApprovals()).toHaveLength(3);
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items).toHaveLength(2);
   });
@@ -207,7 +214,11 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
     clickConfirm();
 
-    expect(readApprovals()).toHaveLength(2);
+    // A remontagem reaproveita o MESMO item `edital_structure` da primeira montagem
+    // (idempotência via `pending.approvalItemId`, Task 14) — não duplica.
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(3);
+    expect(approvals.filter((item) => item.type === 'edital_structure')).toHaveLength(1);
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items).toHaveLength(2);
   });
@@ -268,10 +279,17 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
     // Nenhuma biblioteca de conceitos foi sequer criada — `previewExtraction` não
     // grava, então `conceptsApi.addConcept` nunca roda antes do confirm.
     expect(window.localStorage.getItem(CONCEPTS_KEY)).toBeNull();
-    expect(readApprovals()).toHaveLength(0);
+    // Task 14: montar UMA proposta para revisar enfileira o item `edital_structure`
+    // que a representa — isso não é "gravar no programa" (PD-06), é registrar que
+    // existe uma decisão pendente. Continua pendente, sem confirmar nada ainda.
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].type).toBe('edital_structure');
+    expect(approvals[0].status).toBe('pendente');
+    expect(approvals[0].payloadBefore).toEqual(EXISTING_SYLLABUS);
   });
 
-  it('clicar em Descartar não persiste nada — o programa salvo continua intacto', async () => {
+  it('clicar em Descartar não persiste nada — o programa salvo continua intacto, e a fila registra a rejeição', async () => {
     seedReimport();
     const { default: App } = await import('../App');
     render(<App />);
@@ -280,6 +298,11 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
 
     expect(JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!)).toEqual(EXISTING_SYLLABUS);
     expect(window.localStorage.getItem(CONCEPTS_KEY)).toBeNull();
+    // A decisão de descartar fica registrada na fila (Task 14) — não é um silêncio
+    // que deixa o item pendente para sempre.
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].status).toBe('rejeitado');
   });
 
   it('a árvore exibe a proposta em revisão (não a antiga) mesmo sem nada persistido', async () => {
@@ -305,6 +328,12 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
 
     const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(stored.items.map((item: { sourceLabel: string }) => item.sourceLabel)).toEqual(['Disciplina nova']);
+
+    // Task 14: "Confirmar estrutura" aprova o item da fila — a decisão fica
+    // registrada, não só o efeito dela no programa.
+    const approvals = readApprovals();
+    const structureItem = approvals.find((item) => item.type === 'edital_structure');
+    expect(structureItem?.status).toBe('aprovado');
   });
 });
 
@@ -453,6 +482,101 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
   });
 });
 
+describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', () => {
+  function readPending(): Record<string, unknown> | null {
+    const raw = window.sessionStorage.getItem(PENDING_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('primeira importação (workspace novo): payloadBefore é null — não existe programa anterior', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: true,
+      workspace: {
+        slug: 'setec-campinas', title: 'Concurso SETEC Campinas', institution: 'SETEC', type: 'Concurso Público',
+        examDate: '2027-01-17', cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-01-17' }],
+        selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
+        sourceMode: 'text', importStatus: 'pending', progress: 0, nextAction: '', active: true,
+      },
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].type).toBe('edital_structure');
+    expect(approvals[0].payloadBefore).toBeNull();
+    expect((approvals[0].payloadAfter as { version: string }).version).toBe('1');
+  });
+
+  it('reimportação (workspace já existe): payloadBefore é o programa hoje persistido', async () => {
+    const existing = {
+      items: [{ id: 'old', workspaceId: 'setec-campinas', conceptId: 'c-old', parentItemId: null, sourceLabel: 'Matéria antiga', sourceExcerpt: null, page: null, confidence: 1, uncertain: false }],
+      links: [{ syllabusItemId: 'old', cargoId: 'c1', weight: null, questionCount: null }],
+    };
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(existing));
+    seedPendingImport();
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].payloadBefore).toEqual(existing);
+  });
+
+  it('a proposta com item comum a dois cargos enfileira mergedCount > 0 em payloadAfter', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [
+          entrada({ cargoId: 'c1', label: 'Matemática básica' }),
+          entrada({ cargoId: 'c2', label: 'Matemática básica' }),
+        ],
+        detectedCargos: ['c1', 'c2'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const approvals = readApprovals();
+    const payloadAfter = approvals[0].payloadAfter as { mergedCount: number };
+    expect(payloadAfter.mergedCount).toBe(1);
+  });
+
+  it('remontar sem decidir reaproveita o MESMO id de aprovação — não enfileira dois itens', async () => {
+    seedPendingImport();
+    const { default: App } = await import('../App');
+
+    const first = render(<App />);
+    const idAfterFirstMount = readApprovals()[0].id;
+    first.unmount();
+
+    render(<App />);
+    const approvals = readApprovals();
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].id).toBe(idAfterFirstMount);
+    expect(readPending()?.approvalItemId).toBe(idAfterFirstMount);
+  });
+});
+
 describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar escrita pela metade)', () => {
   // Os quatro status sem aresta para "diagnostico_pendente" no grafo de lib/core —
   // exatamente os que o achado apontou. `assertTransition` sem guarda, DEPOIS das três
@@ -507,7 +631,10 @@ describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar 
       // 2 seeded + 2 provisórios novos (nenhuma das duas entradas casa direto com um
       // conceito CONFIRMED — a mesma fixture da Task 11).
       expect(JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!)).toHaveLength(4);
-      expect(readApprovals()).toHaveLength(2);
+      // 1 edital_structure (montagem, Task 14, aprovado no confirmar) + 2 concept_merge.
+      const approvals = readApprovals();
+      expect(approvals).toHaveLength(3);
+      expect(approvals.find((item) => item.type === 'edital_structure')?.status).toBe('aprovado');
 
       // A importação pendente foi limpa — o botão "continua funcionando" significa
       // exatamente isto: a ação de confirmar chegou ao fim, não travou pela metade.
@@ -529,6 +656,6 @@ describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
 
     expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
-    expect(readApprovals()).toHaveLength(2);
+    expect(readApprovals()).toHaveLength(3);
   });
 });

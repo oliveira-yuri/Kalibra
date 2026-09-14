@@ -95,3 +95,50 @@ describe('Aprovacoes — aprovação em lote', () => {
     expect((screen.getByTestId('checkbox-select-appr-3') as HTMLInputElement).checked).toBe(false);
   });
 });
+
+function pendingStructureItem(id: string, version: string): ApprovalItem {
+  return {
+    id,
+    workspaceId: 'setec-campinas',
+    type: 'edital_structure',
+    status: 'pendente',
+    title: `Estrutura extraída do edital · versão ${version}`,
+    rationale: '2 itens mapeados a partir do edital.',
+    sourceRef: null,
+    targetConceptId: null,
+    confidence: null,
+    payloadBefore: null,
+    payloadAfter: { version, syllabus: { items: [], links: [] }, mergedCount: 0 },
+    createdAt: '2026-09-01T00:00:00.000Z',
+    decidedAt: null,
+    reason: null,
+  };
+}
+
+describe('Aprovacoes — edital_structure só decide na tela dedicada (Task 14)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(storageKey(), JSON.stringify([pendingStructureItem('appr-struct', '1')]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/aprovacoes');
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it('não oferece aprovar/rejeitar nem caixa de seleção inline — só o link para a revisão', async () => {
+    // Aprovar por aqui gravaria a decisão na fila sem nunca escrever o programa
+    // (a persistência mora só em `EditalRevisar.handleConfirm`) — por isso o cartão
+    // não pode oferecer essa decisão inline para este tipo.
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(screen.getByTestId('link-review-structure-appr-struct')).toBeTruthy();
+    expect(screen.queryByTestId('button-approve-appr-struct')).toBeNull();
+    expect(screen.queryByTestId('button-reject-appr-struct')).toBeNull();
+    expect(screen.queryByTestId('checkbox-select-appr-struct')).toBeNull();
+  });
+});

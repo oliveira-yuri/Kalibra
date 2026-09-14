@@ -28,6 +28,13 @@ function versionFrom(payload: unknown): string {
   return '1';
 }
 
+/** Quantos itens da proposta são comuns a mais de um cargo (Task 14) — `null`
+ * quando o payload não traz a contagem (item de um formato anterior). */
+function mergedCountFrom(payload: unknown): number | null {
+  if (isRecord(payload) && typeof payload.mergedCount === 'number') return payload.mergedCount;
+  return null;
+}
+
 export function ApprovalCard({
   item,
   collapsed,
@@ -46,6 +53,12 @@ export function ApprovalCard({
   onToggleSelect: () => void;
 }) {
   const decided = !canDecide(item.status);
+  // `edital_structure` só pode ser decidido em `/edital/revisar/<versao>` — aprovar
+  // por aqui gravaria a decisão na fila sem nunca escrever o programa de estudo
+  // (Task 14: a persistência mora inteira em `EditalRevisar.handleConfirm`). Em vez
+  // de expor um botão que "aprova" sem gravar nada, o cartão nem oferece a decisão
+  // inline para este tipo — só o link para a tela onde a decisão de verdade acontece.
+  const decidableInline = item.type !== 'edital_structure';
   const TypeIcon = TYPE_ICON[item.type];
 
   return (
@@ -54,7 +67,7 @@ export function ApprovalCard({
         <div className="flex min-w-0 gap-4">
           {/* Item já decidido é terminal (`canDecide`) — não pode entrar numa aprovação em
               lote, então nem oferece a caixa de seleção. */}
-          {!decided && (
+          {!decided && decidableInline && (
             <input
               type="checkbox"
               className="mt-2 h-4 w-4 shrink-0"
@@ -95,7 +108,14 @@ export function ApprovalCard({
                 <div className="mt-3">
                   {item.type === 'edital_structure' ? (
                     <div className="k-card-soft flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-[11px] leading-5 k-muted">Estrutura extraída do edital — revise a árvore completa antes de confirmar.</p>
+                      <p className="text-[11px] leading-5 k-muted">
+                        Estrutura extraída do edital — revise a árvore completa antes de confirmar.
+                        {(() => {
+                          const mergedCount = mergedCountFrom(item.payloadAfter);
+                          if (!mergedCount) return null;
+                          return ` ${mergedCount} ${mergedCount === 1 ? 'item é comum' : 'itens são comuns'} a mais de um cargo e já vem${mergedCount === 1 ? '' : 'm'} unido${mergedCount === 1 ? '' : 's'} na proposta.`;
+                        })()}
+                      </p>
                       <Link
                         href={`/edital/revisar/${versionFrom(item.payloadAfter)}`}
                         className="k-button k-button-quiet self-start whitespace-nowrap"
@@ -112,7 +132,7 @@ export function ApprovalCard({
             )}
           </div>
         </div>
-        {!decided && (
+        {!decided && decidableInline && (
           <div className="flex shrink-0 gap-2 self-start">
             <button className="k-button k-button-primary whitespace-nowrap" onClick={() => onApprove(item.id)} data-testid={`button-approve-${item.id}`}>
               <Check size={14} /> Aprovar

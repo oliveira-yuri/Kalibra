@@ -138,6 +138,38 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       : null
   ));
 
+  // Task 14: a extração "termina" exatamente aqui — é o momento em que existe uma
+  // proposta para revisar. É quando o item `edital_structure` nasce na fila, para que
+  // "Confirmar estrutura" deixe de ser um botão solto e passe a ser a decisão desse
+  // item (spec §4.4, PD-06). Computado uma única vez por importação pendente, no mesmo
+  // inicializador preguiçoso de `review` acima (já resolvido nesta mesma renderização):
+  // reaproveita `pending.approvalItemId` quando uma montagem anterior já enfileirou —
+  // sem isso, sair da tela sem confirmar nem descartar e voltar duplicaria o item a
+  // cada remontagem. `payloadBefore` é o programa hoje persistido — `null` só na
+  // primeira importação (`pending.isNew`), quando não existe programa nenhum ainda.
+  const [structureApprovalId] = useState<string | null>(() => {
+    if (!review) return null;
+    if (pending?.approvalItemId) return pending.approvalItemId;
+
+    const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+    const id = approvalsApi.enqueue({
+      workspaceId: workspaceSlug,
+      type: 'edital_structure',
+      title: `Estrutura extraída do edital · versão ${version}`,
+      rationale: mergedCount > 0
+        ? `${review.syllabus.items.length} itens mapeados a partir do edital, ${mergedCount} deles comuns a mais de um cargo e unidos pela deduplicação.`
+        : `${review.syllabus.items.length} itens mapeados a partir do edital.`,
+      sourceRef: null,
+      targetConceptId: null,
+      confidence: null,
+      payloadBefore: pending?.isNew ? null : syllabusApi.syllabus,
+      payloadAfter: { version, syllabus: review.syllabus, mergedCount },
+    }, new Date());
+
+    if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, approvalItemId: id }, user?.id);
+    return id;
+  });
+
   // Idempotência de `handleConfirm`: um clique duplo antes da navegação não pode
   // persistir a mesma proposta duas vezes (duplicaria concept_merge na fila). A
   // marca em `pending.extractionApplied` (Task 11) fica só como sinal secundário —
@@ -192,6 +224,12 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
       review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
       syllabusApi.save(review.syllabus);
+      // Task 14: a confirmação passa pela fila — aprova o item `edital_structure`
+      // enfileirado na montagem, em vez de só gravar o programa por fora dela.
+      // `approve` nunca lança (é uma checagem `canDecide` + persistência simples),
+      // então isto não reintroduz o risco de escrita pela metade do Finding do fix
+      // round 2 acima.
+      if (structureApprovalId) approvalsApi.approve(structureApprovalId);
 
       const now = new Date();
       // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
@@ -240,7 +278,10 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleDiscard = () => {
     // Nada foi persistido por `review` — descartar é só esquecer a proposta em memória
-    // e limpar a importação pendente. O Syllabus salvo nunca foi tocado.
+    // e limpar a importação pendente. O Syllabus salvo nunca foi tocado. A decisão em
+    // si, porém, fica registrada na fila (Task 14): rejeitar o item explicita que um
+    // humano olhou a proposta e recusou, em vez de deixá-la pendente para sempre.
+    if (structureApprovalId) approvalsApi.reject(structureApprovalId);
     clearPendingWorkspaceImport(workspaceSlug, user?.id);
     if (pending?.isNew) setLocation(`~${import.meta.env.BASE_URL}portal`);
     else setLocation('/edital');
