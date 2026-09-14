@@ -489,3 +489,62 @@ describe('useWorkspaces — duas escritas síncronas no mesmo tick sobrevivem am
     expect(getWorkspaces().find((w) => w.slug === 'a')?.progress).toBe(42);
   });
 });
+
+describe('migração de sourceText para sourceBlocks (Fase 1B.5)', () => {
+  it('um registro antigo com sourceText vira um bloco comum', () => {
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([{
+      slug: 'antigo', title: 'Antigo', cargos: [{ id: 'c1', name: 'Analista', examDate: '2026-06-01' }],
+      sourceMode: 'text', sourceText: 'LÍNGUA PORTUGUESA', importStatus: 'pending',
+    }]));
+
+    const [workspace] = getWorkspaces();
+    expect(workspace.sourceBlocks).toEqual([{ cargoId: null, text: 'LÍNGUA PORTUGUESA' }]);
+  });
+
+  it('um registro sem sourceText nenhum não inventa bloco', () => {
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([{
+      slug: 'antigo', title: 'Antigo', cargos: [{ id: 'c1', name: 'Analista', examDate: '2026-06-01' }],
+      sourceMode: 'file', importStatus: 'pending',
+    }]));
+
+    expect(getWorkspaces()[0].sourceBlocks).toEqual([]);
+  });
+
+  it('um registro que JÁ tem sourceBlocks é preservado como está', () => {
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([{
+      slug: 'novo', title: 'Novo', cargos: [{ id: 'c1', name: 'Analista', examDate: '2026-06-01' }],
+      sourceMode: 'text', sourceText: 'IGNORAR ESTE',
+      sourceBlocks: [{ cargoId: null, text: 'COMUM' }, { cargoId: 'c1', text: 'ESPECÍFICO' }],
+      importStatus: 'pending',
+    }]));
+
+    expect(getWorkspaces()[0].sourceBlocks).toEqual([
+      { cargoId: null, text: 'COMUM' },
+      { cargoId: 'c1', text: 'ESPECÍFICO' },
+    ]);
+  });
+
+  it('sourceBlocks com formato inválido não derruba o registro inteiro', () => {
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([{
+      slug: 'quebrado', title: 'Quebrado', cargos: [{ id: 'c1', name: 'Analista', examDate: '2026-06-01' }],
+      sourceMode: 'text', sourceBlocks: [null, { cargoId: 5, text: 'x' }, 'lixo'],
+      importStatus: 'pending',
+    }]));
+
+    const workspaces = getWorkspaces();
+    expect(workspaces).toHaveLength(1);
+    expect(workspaces[0].slug).toBe('quebrado');
+    expect(workspaces[0].sourceBlocks).toEqual([]);
+  });
+
+  it('migrar é idempotente: o resultado de duas leituras é igual', () => {
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([{
+      slug: 'antigo', title: 'Antigo', cargos: [{ id: 'c1', name: 'Analista', examDate: '2026-06-01' }],
+      sourceMode: 'text', sourceText: 'LÍNGUA PORTUGUESA', importStatus: 'pending',
+    }]));
+
+    const primeira = getWorkspaces();
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify(primeira));
+    expect(getWorkspaces()).toEqual(primeira);
+  });
+});

@@ -121,6 +121,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceText: sourceMode === 'text' ? sourceText : undefined,
+      sourceBlocks: [],
       importStatus: 'pending',
       progress: 0,
       nextAction: nextActionFor(status),
