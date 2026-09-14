@@ -24,14 +24,27 @@ export function EditalSourceBlocks({
   cargos,
   blocks,
   onChange,
+  textareaClassName = 'min-h-[150px] resize-y text-[12px]',
 }: {
   cargos: Cargo[];
   blocks: CargoTextBlock[];
   onChange(blocks: CargoTextBlock[]): void;
+  /**
+   * A aparência do campo é de quem o monta: a tela de criação usa um campo alto e
+   * monoespaçado (colar um edital inteiro é a ação principal dela), o modal de
+   * reimportação usa um campo menor. O componente não escolhe por elas.
+   */
+  textareaClassName?: string;
 }): ReactElement {
   const [aba, setAba] = useState<string | null>(null);
   const multiplos = cargos.length > 1;
-  const ativo = multiplos ? aba : null;
+  // A aba ativa é validada contra os cargos que EXISTEM AGORA, a cada render. Remover
+  // um cargo — ou apagar o nome dele, que é o mesmo para quem monta este componente —
+  // devolvia uma aba órfã: nenhuma aba acesa e um textarea que continuava mostrando e
+  // ACEITANDO texto de um cargo que já não existia, texto que o submit depois podava
+  // em silêncio. O bloco comum é o destino natural: é o único que nenhuma edição de
+  // cargo pode fazer sumir.
+  const ativo = multiplos && cargos.some((cargo) => cargo.id === aba) ? aba : null;
 
   const handleChange = (text: string) => {
     const outros = blocks.filter((block) => block.cargoId !== ativo);
@@ -82,7 +95,7 @@ export function EditalSourceBlocks({
         </>
       )}
       <textarea
-        className="k-input min-h-[150px] resize-y text-[12px]"
+        className={`k-input ${textareaClassName}`}
         placeholder={ativo === null ? 'Cole aqui o conteúdo programático...' : 'Cole aqui o conteúdo específico deste cargo...'}
         value={textOf(blocks, ativo)}
         onChange={(event) => handleChange(event.target.value)}

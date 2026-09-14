@@ -396,7 +396,12 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
                   <span>Conteúdo Programático</span>
                   <span className="normal-case tracking-normal">Apenas a seção de matérias</span>
                 </label>
-                <EditalSourceBlocks cargos={finalCargos} blocks={sourceBlocks} onChange={setSourceBlocks} />
+                <EditalSourceBlocks
+                  cargos={finalCargos}
+                  blocks={sourceBlocks}
+                  onChange={setSourceBlocks}
+                  textareaClassName="min-h-[200px] resize-y font-mono text-[11px] leading-relaxed"
+                />
               </div>
             )}
           </section>

@@ -276,3 +276,102 @@ describe('NovoWorkspace — rodada de correção 1', () => {
     ]);
   });
 });
+
+describe('NovoWorkspace — revisão final de branch (achados I-1 e M-5)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/portal/novo-workspace');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  /** Preenche título/instituição/data e três cargos nomeados, com ids previsíveis c1/c2/c3. */
+  function tresCargos(titulo: string, container: HTMLElement) {
+    fireEvent.change(screen.getByPlaceholderText('Ex: Auditor Fiscal'), { target: { value: titulo } });
+    fireEvent.change(screen.getByPlaceholderText('Ex: FGV'), { target: { value: 'Banca I1' } });
+    fireEvent.change(container.querySelectorAll('input[type="date"]')[0], { target: { value: '2027-03-01' } });
+    fireEvent.change(screen.getByTestId('input-cargo-nome-0'), { target: { value: 'Cargo Um' } });
+
+    // Mesmo truque de relógio congelado dos testes da Task 6: o id de um cargo novo é
+    // `c${Date.now()}` (CargoFields.add), então 2 e 3 dão `c2` e `c3`.
+    vi.useFakeTimers();
+    vi.setSystemTime(2);
+    fireEvent.click(screen.getByTestId('button-adicionar-cargo'));
+    vi.setSystemTime(3);
+    fireEvent.click(screen.getByTestId('button-adicionar-cargo'));
+    vi.useRealTimers();
+    fireEvent.change(screen.getByTestId('input-cargo-nome-1'), { target: { value: 'Cargo Dois' } });
+    fireEvent.change(screen.getByTestId('input-cargo-nome-2'), { target: { value: 'Cargo Tres' } });
+  }
+
+  it('achado I-1: digitar DEPOIS de remover o cargo da aba aberta não perde o texto no submit', async () => {
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+    tresCargos('Editor Fantasma I1', container);
+
+    fireEvent.click(screen.getByText('Colar Texto'));
+    fireEvent.change(screen.getByTestId('bloco-textarea'), { target: { value: 'LINGUA PORTUGUESA' } });
+    fireEvent.click(screen.getByTestId('bloco-aba-c2'));
+    fireEvent.change(screen.getByTestId('bloco-textarea'), { target: { value: 'INFORMATICA' } });
+
+    // O cargo da aba ABERTA é removido. A partir daqui nenhum caractere pode entrar
+    // num destino que o submit vai podar.
+    fireEvent.click(screen.getByTestId('button-remover-cargo-1'));
+    expect(screen.queryByTestId('bloco-aba-c2')).toBeNull();
+    expect(screen.getByTestId('bloco-textarea').getAttribute('data-cargo')).toBe('comum');
+
+    fireEvent.change(screen.getByTestId('bloco-textarea'), {
+      target: { value: 'LINGUA PORTUGUESA -- Topico novo digitado depois' },
+    });
+    fireEvent.click(screen.getByText('Criar Workspace'));
+
+    const pending = readPending('editor-fantasma-i1');
+    expect(pending.workspace.cargos.map((cargo) => cargo.id)).toEqual(['c1', 'c3']);
+    // O que foi digitado depois da remoção está no rascunho — antes do fix ele ia
+    // para o bloco do cargo morto e a poda do submit o descartava em silêncio.
+    expect(pending.workspace.sourceBlocks).toEqual([
+      { cargoId: null, text: 'LINGUA PORTUGUESA -- Topico novo digitado depois' },
+    ]);
+  });
+
+  it('achado I-1 (variante): apagar o NOME do cargo da aba aberta também devolve o campo ao bloco comum', async () => {
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+    tresCargos('Editor Fantasma Sem Nome', container);
+
+    fireEvent.click(screen.getByText('Colar Texto'));
+    fireEvent.click(screen.getByTestId('bloco-aba-c2'));
+    fireEvent.change(screen.getByTestId('bloco-textarea'), { target: { value: 'INFORMATICA' } });
+
+    fireEvent.change(screen.getByTestId('input-cargo-nome-1'), { target: { value: '' } });
+
+    expect(screen.queryByTestId('bloco-aba-c2')).toBeNull();
+    expect(screen.getByTestId('bloco-textarea').getAttribute('data-cargo')).toBe('comum');
+
+    fireEvent.change(screen.getByTestId('bloco-textarea'), { target: { value: 'CONTEUDO COMUM' } });
+    fireEvent.click(screen.getByText('Criar Workspace'));
+
+    const pending = readPending('editor-fantasma-sem-nome');
+    expect(pending.workspace.sourceBlocks).toEqual([{ cargoId: null, text: 'CONTEUDO COMUM' }]);
+  });
+
+  it('achado M-5: o campo de colar edital continua monoespaçado e alto, como antes do componente compartilhado', async () => {
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.change(screen.getByPlaceholderText('Ex: Auditor Fiscal'), { target: { value: 'Aparencia M5' } });
+    fireEvent.click(screen.getByText('Colar Texto'));
+
+    const classe = screen.getByTestId('bloco-textarea').className;
+    expect(classe).toContain('font-mono');
+    expect(classe).toContain('min-h-[200px]');
+    expect(classe).toContain('text-[11px]');
+    expect(classe).toContain('leading-relaxed');
+    expect(classe).toContain('k-input');
+  });
+});
