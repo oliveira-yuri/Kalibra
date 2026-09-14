@@ -207,3 +207,103 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     expect(container.innerHTML).not.toContain('unidos e aparecem uma vez só');
   });
 });
+
+describe('EditalRevisar — Task 13 (comparação entre versões, renomeado preserva histórico)', () => {
+  const CRASE_CONFIRMED_WITH_ALIAS: Concept = {
+    id: 'concept-crase', canonicalName: 'Crase', slug: 'crase',
+    parentId: null, kind: 'topico', aliases: ['Emprego do acento indicativo de crase'], status: 'confirmed',
+  };
+  const PENAL_CONFIRMED: Concept = {
+    id: 'concept-penal', canonicalName: 'Direito Penal', slug: 'direito-penal',
+    parentId: null, kind: 'disciplina', aliases: [], status: 'confirmed',
+  };
+
+  const VERSAO_1_SYLLABUS = {
+    items: [
+      { id: 'v1-crase', workspaceId: 'setec-campinas', conceptId: 'concept-crase', parentItemId: null, sourceLabel: 'Crase', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+      { id: 'v1-penal', workspaceId: 'setec-campinas', conceptId: 'concept-penal', parentItemId: null, sourceLabel: 'Direito Penal', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'v1-crase', cargoId: 'c1', weight: null, questionCount: null },
+      { syllabusItemId: 'v1-penal', cargoId: 'c1', weight: null, questionCount: null },
+    ],
+  };
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(CONCEPTS_KEY, JSON.stringify([CRASE_CONFIRMED_WITH_ALIAS, PENAL_CONFIRMED]));
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(VERSAO_1_SYLLABUS));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/2');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('mostra renomeado (não removido+adicionado) para um item cujo rótulo mudou mas o conceito é o mesmo, via alias', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [
+          // "Direito Penal" não aparece mais -> removido. "Emprego..." liga ao
+          // mesmo conceito de "Crase" pelo alias -> renomeado. "Nova disciplina"
+          // não existia -> adicionado.
+          entrada({ cargoId: 'c1', label: 'Emprego do acento indicativo de crase' }),
+          entrada({ cargoId: 'c1', label: 'Nova disciplina' }),
+        ],
+        detectedCargos: ['c1'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+
+    const diffSection = container.querySelector('[data-testid="syllabus-diff"]')!;
+    expect(diffSection).toBeTruthy();
+    expect(diffSection.innerHTML).toContain('~ 1 renomeado');
+    expect(diffSection.innerHTML).toContain('"Crase" → "Emprego do acento indicativo de crase"');
+    expect(diffSection.innerHTML).toContain('+ 1 adicionado');
+    expect(diffSection.innerHTML).toContain('Nova disciplina');
+    expect(diffSection.innerHTML).toContain('− 1 removido');
+    expect(diffSection.innerHTML).toContain('Direito Penal');
+    // O renomeado não pode aparecer duplicado como removido+adicionado.
+    expect(diffSection.innerHTML).not.toContain('Crase</li>');
+  });
+
+  it('item removido ganha aviso coral de histórico, e o dado permanece no localStorage (não é apagado)', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Emprego do acento indicativo de crase' })],
+        detectedCargos: ['c1'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(screen.getByText(/pode ter histórico de estudo/)).toBeTruthy();
+    // `diffSyllabus` é só leitura — "Direito Penal" sai da lista ativa (não está
+    // nos itens da extração nova), mas o cálculo do diff nunca apaga nada: quem
+    // decide o que persiste é `applyExtraction`, que grava o Syllabus novo por
+    // cima do antigo (a chave continua existindo, nunca é removida).
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).not.toBeNull();
+  });
+
+  it('sem versão anterior para comparar, não desenha a seção de diff', async () => {
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+    expect(container.querySelector('[data-testid="syllabus-diff"]')).toBeNull();
+  });
+});

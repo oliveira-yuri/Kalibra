@@ -6,5 +6,6 @@ export * from './fsrs/schedule';
 export * from './syllabus/concept';
 export * from './syllabus/syllabus';
 export * from './syllabus/dedup';
+export * from './syllabus/diff';
 export * from './syllabus/extraction';
 export * from './approval/approval';
