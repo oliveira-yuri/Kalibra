@@ -121,3 +121,41 @@ export function validateExtractionOutput(output: unknown): ExtractionOutput | nu
     uncertainties,
   };
 }
+
+/**
+ * Um bloco de texto do edital e a quem ele pertence. `cargoId: null` significa
+ * "comum a todos os cargos" — o bloco de conhecimentos básicos que os editais
+ * publicam uma vez só para todos os cargos do certame.
+ */
+export type CargoTextBlock = {
+  cargoId: string | null;
+  text: string;
+};
+
+/**
+ * Expande blocos em pares (cargo, texto) — a regra que faltava para o `cargoId` de
+ * `RawSyllabusEntry` algum dia carregar dois valores diferentes.
+ *
+ * Um bloco de um cargo que não está mais em `cargoIds` é DESCARTADO. Promovê-lo a
+ * comum daria a todos os cargos um conteúdo que ninguém pediu, e tratá-lo como
+ * pertencente a um cargo inexistente criaria ligação órfã — as duas saídas são piores
+ * que perder um texto que o usuário já não consegue ver na interface.
+ */
+export function expandBlocks(
+  blocks: readonly CargoTextBlock[],
+  cargoIds: readonly string[],
+): Array<{ cargoId: string; text: string }> {
+  const known = new Set(cargoIds);
+  const pairs: Array<{ cargoId: string; text: string }> = [];
+
+  for (const block of blocks) {
+    if (block.text.trim() === '') continue;
+    if (block.cargoId === null) {
+      for (const cargoId of cargoIds) pairs.push({ cargoId, text: block.text });
+    } else if (known.has(block.cargoId)) {
+      pairs.push({ cargoId: block.cargoId, text: block.text });
+    }
+  }
+
+  return pairs;
+}
