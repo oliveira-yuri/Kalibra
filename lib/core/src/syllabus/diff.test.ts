@@ -198,3 +198,27 @@ describe('diffSyllabus — fix round 1, Finding 3 (dois itens no mesmo conceito 
     expect(diff.added).toEqual([]);
   });
 });
+
+describe('diffSyllabus — o que ele NÃO lê (achado R4 da re-revisão)', () => {
+  it('peso e quantidade de questões não mudam o resultado — só rótulo e conceito entram', () => {
+    // `EditalRevisar` memoiza o diff sem depender de `syllabus.links` exatamente por
+    // isto. Se algum dia o diff passar a olhar as ligações, este teste cai e a
+    // dependência lá precisa voltar — em vez de a tela silenciosamente mostrar uma
+    // comparação desatualizada.
+    const items = [item({ id: 'a', conceptId: 'concept-a', sourceLabel: 'Matéria' })];
+    const previous: Syllabus = { items: [], links: [] };
+    const semPesos: Syllabus = {
+      items,
+      links: [{ syllabusItemId: 'a', cargoId: 'c1', weight: null, questionCount: null }],
+    };
+    const comPesos: Syllabus = {
+      items,
+      links: [
+        { syllabusItemId: 'a', cargoId: 'c1', weight: 42, questionCount: 9 },
+        { syllabusItemId: 'a', cargoId: 'c2', weight: 7, questionCount: 3 },
+      ],
+    };
+
+    expect(diffSyllabus(previous, comPesos, [])).toEqual(diffSyllabus(previous, semPesos, []));
+  });
+});

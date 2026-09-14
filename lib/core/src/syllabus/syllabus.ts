@@ -43,6 +43,27 @@ export function isCommon(syllabus: Syllabus, itemId: string): boolean {
   return cargosFor(syllabus, itemId).length > 1;
 }
 
+/**
+ * Existe ALGUM item comum a mais de um cargo? A pergunta que a tela de revisão faz para
+ * decidir se explica a deduplicação ao usuário (Task 12) — `syllabus.items.some((item)
+ * => isCommon(syllabus, item.id))` responde o mesmo, mas varre as ligações inteiras uma
+ * vez por item: O(itens × ligações). Aqui é uma passada só, O(itens + ligações).
+ *
+ * Ligações órfãs (apontando para um item que não existe mais) não contam — é a mesma
+ * restrição que `.some()` sobre `items` impunha de graça, e `migrateSyllabus` aceita
+ * uma ligação órfã de propósito (ver a nota em `isValidLink`).
+ */
+export function hasCommonItems(syllabus: Syllabus): boolean {
+  const existingItemIds = new Set(syllabus.items.map((item) => item.id));
+  const seen = new Set<string>();
+  for (const link of syllabus.links) {
+    if (!existingItemIds.has(link.syllabusItemId)) continue;
+    if (seen.has(link.syllabusItemId)) return true;
+    seen.add(link.syllabusItemId);
+  }
+  return false;
+}
+
 export function itemsForCargo(syllabus: Syllabus, cargoId: string): SyllabusItem[] {
   const ids = new Set(
     syllabus.links.filter((link) => link.cargoId === cargoId).map((link) => link.syllabusItemId),

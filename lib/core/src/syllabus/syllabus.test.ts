@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cargosFor, isCommon, itemsForCargo, totalQuestionsFor,
+  cargosFor, isCommon, hasCommonItems, itemsForCargo, totalQuestionsFor,
   consolidatedQuestionCount, emptySyllabus, type Syllabus,
 } from './syllabus';
 
@@ -98,5 +98,45 @@ describe('programa vazio', () => {
     expect(vazio.items).toEqual([]);
     expect(vazio.links).toEqual([]);
     expect(totalQuestionsFor(vazio, 'c1')).toBe(0);
+  });
+});
+
+describe('hasCommonItems — a mesma pergunta de `items.some(isCommon)`, numa passada só', () => {
+  it('é verdadeiro quando algum item está ligado a mais de um cargo', () => {
+    expect(hasCommonItems(SYLLABUS)).toBe(true);
+  });
+
+  it('é falso quando cada item pertence a um único cargo', () => {
+    expect(hasCommonItems({
+      items: [item('i1', 'mat'), item('i2', 'por')],
+      links: [
+        { syllabusItemId: 'i1', cargoId: 'c1', weight: null, questionCount: null },
+        { syllabusItemId: 'i2', cargoId: 'c2', weight: null, questionCount: null },
+      ],
+    })).toBe(false);
+  });
+
+  it('é falso num programa vazio', () => {
+    expect(hasCommonItems(emptySyllabus())).toBe(false);
+  });
+
+  it('uma ligação órfã (item que não existe mais) não inventa um item comum', () => {
+    expect(hasCommonItems({
+      items: [item('i1', 'mat')],
+      links: [
+        { syllabusItemId: 'sumiu', cargoId: 'c1', weight: null, questionCount: null },
+        { syllabusItemId: 'sumiu', cargoId: 'c2', weight: null, questionCount: null },
+      ],
+    })).toBe(false);
+  });
+
+  it('concorda com `items.some(isCommon)` — a definição que ela substitui', () => {
+    const some = (syllabus: Syllabus) => syllabus.items.some((entry) => isCommon(syllabus, entry.id));
+    expect(hasCommonItems(SYLLABUS)).toBe(some(SYLLABUS));
+    const soloCargo: Syllabus = {
+      items: [item('i1', 'mat')],
+      links: [{ syllabusItemId: 'i1', cargoId: 'c1', weight: null, questionCount: null }],
+    };
+    expect(hasCommonItems(soloCargo)).toBe(some(soloCargo));
   });
 });
