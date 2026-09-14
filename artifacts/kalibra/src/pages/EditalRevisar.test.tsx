@@ -81,6 +81,61 @@ function readApprovals(): Array<Record<string, unknown>> {
   return raw ? JSON.parse(raw) : [];
 }
 
+function seedWorkspaceDoisCargos(status: WorkspaceStatus = 'aguardando_revisao_edital') {
+  window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify([{
+    slug: 'setec-campinas',
+    title: 'Concurso SETEC Campinas',
+    institution: 'SETEC',
+    type: 'Concurso Público',
+    examDate: '2027-01-17',
+    cargos: [
+      { id: 'c1', name: 'Analista', examDate: '2027-01-17', period: 'A' },
+      { id: 'c2', name: 'Técnico', examDate: '2027-01-17', period: 'A' },
+    ],
+    selectedCargoId: 'c1',
+    availability: { days: [], maxSessionMinutes: 50 },
+    status,
+    sourceMode: 'text',
+    sourceBlocks: [],
+    importStatus: 'completed',
+    progress: 0,
+    nextAction: 'texto qualquer',
+    active: true,
+  }]));
+}
+
+/**
+ * A saída que blocos por cargo produzem: "LÍNGUA PORTUGUESA" veio do bloco comum
+ * (uma entrada por cargo, que `dedupeEntries` une num item com duas ligações) e
+ * "INFORMÁTICA" veio do bloco específico do c2 (uma entrada só).
+ */
+function seedImportDoisCargos() {
+  stageWorkspaceImport('setec-campinas', {
+    isNew: false,
+    updates: {},
+    extractionOutput: {
+      entries: [
+        entrada({ cargoId: 'c1', label: 'LÍNGUA PORTUGUESA' }),
+        entrada({ cargoId: 'c2', label: 'LÍNGUA PORTUGUESA' }),
+        entrada({ cargoId: 'c2', label: 'INFORMÁTICA' }),
+      ],
+      detectedCargos: ['c1', 'c2'],
+      examFormat: null,
+      examDurationMinutes: null,
+      uncertainties: [],
+    },
+  }, TEST_USER.id);
+}
+
+/** A linha da árvore que contém aquele rótulo — os ids de item são gerados. */
+function rowOf(label: string): HTMLElement {
+  return screen.getByText(label).closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+}
+
+function itemIdOf(label: string): string {
+  return rowOf(label).getAttribute('data-testid')!.replace('row-syllabus-item-', '');
+}
+
 describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em produção)', () => {
   beforeEach(() => {
     cleanup();
@@ -1219,6 +1274,109 @@ describe('EditalRevisar — achado R5 da re-revisão (confirmar sem proposta rec
     // E nada foi gravado a reboque do avanço fantasma.
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
     expect(readApprovals().find((item) => item.id === 'appr-aprovado')?.status).toBe('aprovado');
+  });
+});
+
+describe('critérios de aceite da Fase 1B.5', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(CONCEPTS_KEY, JSON.stringify([]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+    seedWorkspaceDoisCargos();
+    seedImportDoisCargos();
+  });
+
+  afterEach(() => { cleanup(); });
+
+  const renderApp = async () => {
+    const { default: App } = await import('../App');
+    return render(<App />);
+  };
+
+  it('conteúdo específico de um cargo não aparece no outro cargo', async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect(screen.queryByText('INFORMÁTICA')).toBeNull();
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect(screen.getByText('INFORMÁTICA')).toBeTruthy();
+  });
+
+  it('conteúdo comum aparece UMA vez, marcado como comum a todos', async () => {
+    await renderApp();
+
+    expect(screen.getAllByText('LÍNGUA PORTUGUESA')).toHaveLength(1);
+    expect(screen.getByTestId(`chip-common-${itemIdOf('LÍNGUA PORTUGUESA')}`).textContent).toContain('comum a todos');
+  });
+
+  it('conteúdo específico é marcado com o nome do cargo, não fica sem marca', async () => {
+    await renderApp();
+    expect(screen.getByTestId(`chip-escopo-${itemIdOf('INFORMÁTICA')}`).textContent).toContain('só Técnico');
+  });
+
+  it('editar o peso de um cargo não altera o peso do outro', async () => {
+    await renderApp();
+    const itemId = itemIdOf('LÍNGUA PORTUGUESA');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    fireEvent.change(screen.getByTestId(`input-peso-${itemId}`), { target: { value: '30' } });
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('30');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('30');
+  });
+
+  it('aplicar um item a outro cargo não altera o peso já informado no primeiro', async () => {
+    await renderApp();
+    const itemId = itemIdOf('INFORMÁTICA');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    fireEvent.change(screen.getByTestId(`input-peso-${itemId}`), { target: { value: '40' } });
+
+    fireEvent.click(screen.getByTestId('cargo-filter-todos'));
+    fireEvent.click(within(rowOf('INFORMÁTICA')).getByLabelText('Ações para INFORMÁTICA'));
+    fireEvent.click(screen.getByTestId(`button-link-${itemId}-c1`));
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('40');
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect((screen.getByTestId(`input-peso-${itemId}`) as HTMLInputElement).value).toBe('');
+  });
+
+  it('separar um item de um cargo não remove o conteúdo do outro cargo', async () => {
+    await renderApp();
+    const itemId = itemIdOf('LÍNGUA PORTUGUESA');
+
+    fireEvent.click(within(rowOf('LÍNGUA PORTUGUESA')).getByLabelText('Ações para LÍNGUA PORTUGUESA'));
+    fireEvent.click(screen.getByTestId(`button-split-${itemId}-c2`));
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c1'));
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cargo-filter-c2'));
+    expect(screen.getByText('LÍNGUA PORTUGUESA')).toBeTruthy();
+  });
+
+  it('confirmar grava a topologia revisada: um item comum com duas ligações, um item só do c2', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const idComum = syllabus.items.find((item: { sourceLabel: string }) => item.sourceLabel === 'LÍNGUA PORTUGUESA').id;
+    const idEspecifico = syllabus.items.find((item: { sourceLabel: string }) => item.sourceLabel === 'INFORMÁTICA').id;
+
+    expect(syllabus.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === idComum)
+      .map((link: { cargoId: string }) => link.cargoId).sort()).toEqual(['c1', 'c2']);
+    expect(syllabus.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === idEspecifico)
+      .map((link: { cargoId: string }) => link.cargoId)).toEqual(['c2']);
   });
 });
 
