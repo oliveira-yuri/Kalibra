@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { migrateWorkspace, getWorkspaces, defaultCargo } from './workspaces';
+import { renderHook, act } from '@testing-library/react';
+import { hasEdital } from '@workspace/core';
+import {
+  migrateWorkspace, getWorkspaces, saveWorkspaces, useWorkspaces, type WorkspaceDraft, defaultCargo,
+  nextSyllabusVersionFor,
+} from './workspaces';
 
 const ANTIGO = {
   slug: 'setec-campinas',
@@ -48,9 +53,29 @@ describe('migração de workspace', () => {
     expect(migrado?.availability.maxSessionMinutes).toBe(50);
   });
 
-  it('marca hasEdital a partir da origem antiga', () => {
-    expect(migrateWorkspace(ANTIGO)?.hasEdital).toBe(true);
-    expect(migrateWorkspace({ ...ANTIGO, sourceMode: undefined, importStatus: 'pending' })?.hasEdital).toBe(false);
+  it('deriva hasEdital do status migrado, sem heurística própria', () => {
+    expect(hasEdital(migrateWorkspace(ANTIGO)!.status)).toBe(true);
+
+    // Antes desta refatoração este mesmo registro (sem sourceMode, importStatus
+    // 'pending') produzia ao mesmo tempo status='aguardando_revisao_edital' (que
+    // implica edital) e hasEdital=false — a divergência entre os dois campos que esta
+    // tarefa elimina ao tornar `status` a única fonte de verdade.
+    const semSourceMode = migrateWorkspace({ ...ANTIGO, sourceMode: undefined, importStatus: 'pending' })!;
+    expect(semSourceMode.status).toBe('aguardando_revisao_edital');
+    expect(hasEdital(semSourceMode.status)).toBe(true);
+  });
+
+  it('descarta hasEdital de registros antigos', () => {
+    const migrado = migrateWorkspace({ ...ANTIGO, hasEdital: true });
+    expect(migrado).not.toHaveProperty('hasEdital');
+  });
+
+  it('registro antigo com hasEdital false e sem edital vira sem_edital', () => {
+    const migrado = migrateWorkspace({
+      ...ANTIGO, hasEdital: false, importStatus: 'pending',
+      sourceText: undefined, sourceFileName: undefined,
+    });
+    expect(migrado?.status).toBe('sem_edital');
   });
 
   it('dá um cargo padrão a quem não tinha nenhum', () => {
@@ -152,7 +177,7 @@ describe('migração de workspace', () => {
         sourceText: undefined,
         sourceFileName: undefined,
       });
-      expect(migrado?.hasEdital).toBe(true);
+      expect(hasEdital(migrado!.status)).toBe(true);
     });
 
     it('marca hasEdital true para error mesmo sem sourceText/sourceFileName', () => {
@@ -162,12 +187,12 @@ describe('migração de workspace', () => {
         sourceText: undefined,
         sourceFileName: undefined,
       });
-      expect(migrado?.hasEdital).toBe(true);
+      expect(hasEdital(migrado!.status)).toBe(true);
     });
 
     it('mantém hasEdital: false explícito mesmo com sourceText presente (idempotência)', () => {
       const migrado = migrateWorkspace({ ...ANTIGO, hasEdital: false, sourceText: 'algum texto' });
-      expect(migrado?.hasEdital).toBe(false);
+      expect(hasEdital(migrado!.status)).toBe(false);
     });
   });
 
@@ -257,5 +282,210 @@ describe('getWorkspaces — um registro corrompido não pode derrubar os outros'
     expect(() => getWorkspaces()).not.toThrow();
     const workspaces = getWorkspaces();
     expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas']);
+  });
+});
+
+describe('getWorkspaces — achado I6 da revisão final: corrupção não pode ressuscitar a demonstração', () => {
+  const KEY = 'kalibra_workspaces:anonymous';
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('chave GENUINAMENTE ausente semeia a demonstração (primeiro uso de verdade)', () => {
+    expect(localStorage.getItem(KEY)).toBeNull();
+    const workspaces = getWorkspaces();
+    expect(workspaces.map((w) => w.slug)).toEqual(['setec-campinas', 'bb-escriturario']);
+  });
+
+  it('JSON corrompido devolve lista VAZIA, nunca a demonstração — a corrupção não pode se passar por primeiro uso', () => {
+    localStorage.setItem(KEY, 'isto não é json{{{');
+    const workspaces = getWorkspaces();
+    expect(workspaces).toEqual([]);
+  });
+
+  it('valor salvo que não é um array (ex.: um objeto solto) também devolve lista vazia, não a demonstração', () => {
+    localStorage.setItem(KEY, JSON.stringify({ isto: 'não é uma lista' }));
+    const workspaces = getWorkspaces();
+    expect(workspaces).toEqual([]);
+  });
+
+  it('a corrupção detectada não sobrescreve nada sozinha — uma leitura pura não grava', () => {
+    localStorage.setItem(KEY, 'lixo{{{');
+    getWorkspaces();
+    // getWorkspaces() é só leitura — o valor corrompido original continua lá, disponível
+    // para qualquer tentativa de recuperação manual, em vez de já ter sido substituído.
+    expect(localStorage.getItem(KEY)).toBe('lixo{{{');
+  });
+
+  it('um array corrompido cujo conteúdo ainda é reconhecível continua sendo recuperado item a item (comportamento pré-existente, não regressão)', () => {
+    localStorage.setItem(KEY, JSON.stringify([ANTIGO]));
+    expect(getWorkspaces().map((w) => w.slug)).toEqual(['setec-campinas']);
+  });
+});
+
+describe('nextSyllabusVersionFor — achados C1 (fix wave anterior) e R1/R2 (re-revisão)', () => {
+  const APPROVALS_KEY = 'kalibra_approvals:anonymous';
+  const syllabusKey = (slug: string) => `kalibra_syllabus:anonymous:${slug}`;
+
+  const structureItem = (id: string, slug: string, version: number, status: string) => ({
+    id, workspaceId: slug, type: 'edital_structure', status,
+    title: '', rationale: '', sourceRef: null, targetConceptId: null, confidence: null,
+    payloadBefore: null, payloadAfter: { version: String(version) },
+    createdAt: '2026-09-14T00:00:00.000Z', decidedAt: null, reason: null,
+  });
+
+  const seedApprovals = (items: unknown[]) => localStorage.setItem(APPROVALS_KEY, JSON.stringify(items));
+  const seedProgramme = (slug: string) => localStorage.setItem(syllabusKey(slug), JSON.stringify({
+    items: [{ id: 'i1', workspaceId: slug, conceptId: 'c', parentItemId: null, sourceLabel: 'Matéria', sourceExcerpt: null, page: null, confidence: 1, uncertain: false }],
+    links: [],
+  }));
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('workspace que nunca teve nada: a primeira importação é a versão 1', () => {
+    expect(nextSyllabusVersionFor('novo-concurso')).toBe(1);
+  });
+
+  it('achado R1: um workspace que JÁ TEM programa salvo nunca volta a apurar 1', () => {
+    // O contador do fix wave anterior devolvia 1 aqui (nenhuma chave gravada ainda), e
+    // a tela de reimportação escondia a comparação do PD-08 inteira por causa disso.
+    seedProgramme('setec-campinas');
+    expect(nextSyllabusVersionFor('setec-campinas')).toBe(2);
+  });
+
+  it('achado C1: uma tentativa abandonada JÁ NA FILA continua nomeando o número dela — a próxima apura outro', () => {
+    seedProgramme('setec-campinas');
+    seedApprovals([structureItem('a1', 'setec-campinas', 2, 'pendente')]);
+    expect(nextSyllabusVersionFor('setec-campinas')).toBe(3);
+  });
+
+  it('achado C1: vale também para um workspace que ainda nem existe (a chave é o slug)', () => {
+    seedApprovals([structureItem('a1', 'novo-concurso', 1, 'pendente')]);
+    expect(nextSyllabusVersionFor('novo-concurso')).toBe(2);
+  });
+
+  it('achado R2: uma tentativa abandonada ANTES de virar proposta na fila não queima número nenhum', () => {
+    // O usuário começa uma importação e desiste antes de a tela de revisão enfileirar
+    // a proposta: nada, em lugar nenhum, nomeia aquele número. O contador durável do
+    // fix wave anterior incrementava assim mesmo, e a tentativa seguinte caía na versão
+    // 2 — que a tela anunciava como "COMPARADO COM A VERSÃO 1", para um workspace que
+    // nunca teve versão 1.
+    expect(nextSyllabusVersionFor('novo-concurso')).toBe(1);
+    expect(nextSyllabusVersionFor('novo-concurso')).toBe(1);
+    expect(nextSyllabusVersionFor('novo-concurso')).toBe(1);
+  });
+
+  it('itens decididos também continuam nomeando a versão deles', () => {
+    seedApprovals([
+      structureItem('a1', 'setec-campinas', 1, 'aprovado'),
+      structureItem('a2', 'setec-campinas', 2, 'rejeitado'),
+    ]);
+    expect(nextSyllabusVersionFor('setec-campinas')).toBe(3);
+  });
+
+  it('itens de OUTRO workspace não contam', () => {
+    seedApprovals([structureItem('a1', 'outro-concurso', 7, 'pendente')]);
+    expect(nextSyllabusVersionFor('setec-campinas')).toBe(1);
+  });
+
+  it('é namespaced por usuário, como as outras chaves', () => {
+    localStorage.setItem('kalibra_approvals:user-1', JSON.stringify([structureItem('a1', 'setec-campinas', 4, 'pendente')]));
+    expect(nextSyllabusVersionFor('setec-campinas', 'user-1')).toBe(5);
+    expect(nextSyllabusVersionFor('setec-campinas', 'user-2')).toBe(1);
+  });
+});
+
+describe('saveWorkspaces — achado R6 da re-revisão (a primeira escrita não pode destruir o original ilegível)', () => {
+  const KEY = 'kalibra_workspaces:anonymous';
+  const BACKUP = 'kalibra_workspaces:anonymous:corrompido';
+  // Um registro RECUPERÁVEL: JSON válido, com o dado real do usuário dentro, só na
+  // forma errada (objeto indexado em vez de array) — exatamente o que `getWorkspaces`
+  // trata como corrupção e devolve `[]`.
+  const ORIGINAL = JSON.stringify({ '0': { slug: 'meu-concurso', title: 'Concurso real do usuário', cargos: [] } });
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('o valor ilegível é preservado byte a byte numa chave de backup antes de ser sobrescrito', () => {
+    localStorage.setItem(KEY, ORIGINAL);
+    expect(getWorkspaces()).toEqual([]);
+
+    saveWorkspaces([]);
+
+    expect(localStorage.getItem(BACKUP)).toBe(ORIGINAL);
+  });
+
+  it('JSON inválido também é preservado', () => {
+    localStorage.setItem(KEY, 'lixo{{{ que ainda pode ter dado do usuário');
+    saveWorkspaces([]);
+    expect(localStorage.getItem(BACKUP)).toBe('lixo{{{ que ainda pode ter dado do usuário');
+  });
+
+  it('uma segunda corrupção nunca enterra o backup da primeira', () => {
+    localStorage.setItem(KEY, ORIGINAL);
+    saveWorkspaces([]);
+    localStorage.setItem(KEY, 'corrupção posterior');
+    saveWorkspaces([]);
+    expect(localStorage.getItem(BACKUP)).toBe(ORIGINAL);
+  });
+
+  it('um valor legível nunca gera backup (nenhum lixo em armazenamento no caminho normal)', () => {
+    localStorage.setItem(KEY, JSON.stringify([]));
+    saveWorkspaces([]);
+    expect(localStorage.getItem(BACKUP)).toBeNull();
+  });
+});
+
+describe('useWorkspaces — duas escritas síncronas no mesmo tick sobrevivem ambas (achado C, fix round 2)', () => {
+  // Sem nada salvo, getWorkspaces() cai nos dois programas de demonstração
+  // (setec-campinas, bb-escriturario) — comportamento intencional de
+  // useWorkspaces, não relacionado a este achado. Semear um array vazio
+  // evita esse ruído e deixa o teste focado só na escrita em lote.
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('kalibra_workspaces:anonymous', JSON.stringify([]));
+  });
+  afterEach(() => localStorage.clear());
+
+  const workspace = (slug: string): WorkspaceDraft => ({
+    slug,
+    title: slug,
+    institution: '',
+    type: 'Concurso Público',
+    examDate: '2027-01-01',
+    cargos: [defaultCargo('2027-01-01')],
+    selectedCargoId: 'c1',
+    availability: { days: [], maxSessionMinutes: 50 },
+    status: 'sem_edital',
+    sourceMode: 'text',
+    importStatus: 'pending',
+    progress: 0,
+    nextAction: '',
+    active: true,
+  });
+
+  it('duas chamadas de addWorkspace dentro do mesmo act() persistem os dois workspaces', () => {
+    const { result } = renderHook(() => useWorkspaces());
+
+    act(() => {
+      result.current.addWorkspace(workspace('a'));
+      result.current.addWorkspace(workspace('b'));
+    });
+
+    expect(result.current.workspaces.map((w) => w.slug)).toEqual(['a', 'b']);
+    expect(getWorkspaces().map((w) => w.slug)).toEqual(['a', 'b']);
+  });
+
+  it('addWorkspace seguido de updateWorkspace no mesmo tick não perde a atualização', () => {
+    const { result } = renderHook(() => useWorkspaces());
+
+    act(() => {
+      result.current.addWorkspace(workspace('a'));
+      result.current.updateWorkspace('a', { progress: 42 });
+    });
+
+    expect(result.current.workspaces.find((w) => w.slug === 'a')?.progress).toBe(42);
+    expect(getWorkspaces().find((w) => w.slug === 'a')?.progress).toBe(42);
   });
 });

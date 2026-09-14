@@ -1,0 +1,595 @@
+import { describe, it, expect } from 'vitest';
+import { dedupeEntries, splitItem, type RawSyllabusEntry } from './dedup';
+import { cargosFor, isCommon, consolidatedQuestionCount } from './syllabus';
+import type { Concept } from './concept';
+
+let counter = 0;
+const makeId = (seed: string) => `${seed}-${(counter += 1)}`;
+const resetIds = () => { counter = 0; };
+
+const entrada = (over: Partial<RawSyllabusEntry> & { cargoId: string; label: string }): RawSyllabusEntry => ({
+  parentLabel: null, weight: null, questionCount: null,
+  sourceExcerpt: null, page: null, confidence: 1, ...over,
+});
+
+describe('deduplicação entre cargos', () => {
+  it('une conteúdo idêntico em um item com dois cargos', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática básica', questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Matemática básica', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(syllabus.links).toHaveLength(2);
+    expect(isCommon(syllabus, syllabus.items[0].id)).toBe(true);
+  });
+
+  it('une apesar de diferença de acento, caixa e numeração', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: '1.1 Matemática Básica' }),
+      entrada({ cargoId: 'c2', label: 'MATEMATICA BASICA' }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(cargosFor(syllabus, syllabus.items[0].id)).toEqual(['c1', 'c2']);
+  });
+
+  it('mantém conteúdo específico separado', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Legislação' }),
+      entrada({ cargoId: 'c2', label: 'Tecnologia' }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(2);
+    expect(syllabus.items.every((item) => !isCommon(syllabus, item.id))).toBe(true);
+  });
+
+  it('preserva peso e quantidade por cargo', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática', weight: 25, questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Matemática', weight: 30, questionCount: 12 }),
+    ], [], makeId);
+
+    const c1 = syllabus.links.find((l) => l.cargoId === 'c1');
+    const c2 = syllabus.links.find((l) => l.cargoId === 'c2');
+    expect(c1?.weight).toBe(25);
+    expect(c1?.questionCount).toBe(10);
+    expect(c2?.weight).toBe(30);
+    expect(c2?.questionCount).toBe(12);
+  });
+
+  it('preserva o rótulo literal do primeiro cargo e registra os unidos', () => {
+    // Verificado na revisão (fix round 3, Finding C): este teste passa hoje
+    // porque a Fase 2 de dedupeEntries escolhe explicitamente o rótulo de
+    // MENOR ÍNDICE ORIGINAL como sourceLabel (Finding B) — e não mais só por
+    // coincidência de o critério de ordenação da Fase 1 empatar (os dois
+    // rótulos normalizam igual) e o sort estável preservar a ordem de
+    // entrada nesse empate. O nome do teste já descrevia o comportamento
+    // certo; agora é também o motivo certo.
+    resetIds();
+    const { syllabus, merged } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: '1.1 Matemática Básica' }),
+      entrada({ cargoId: 'c2', label: 'MATEMATICA BASICA' }),
+    ], [], makeId);
+
+    expect(syllabus.items[0].sourceLabel).toBe('1.1 Matemática Básica');
+    expect(merged).toHaveLength(1);
+    expect(merged[0].labels).toEqual(['1.1 Matemática Básica', 'MATEMATICA BASICA']);
+  });
+
+  it('não une duas entradas do mesmo cargo', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+    ], [], makeId);
+
+    expect(syllabus.links.filter((l) => l.cargoId === 'c1')).toHaveLength(1);
+  });
+
+  it('marca como incerto quando a confiança é baixa', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Algo ambíguo', confidence: 0.4 }),
+    ], [], makeId);
+
+    expect(syllabus.items[0].uncertain).toBe(true);
+  });
+
+  it('constrói a hierarquia a partir de parentLabel', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c1', label: 'Porcentagem', parentLabel: 'Matemática' }),
+    ], [], makeId);
+
+    const pai = syllabus.items.find((i) => i.sourceLabel === 'Matemática');
+    const filho = syllabus.items.find((i) => i.sourceLabel === 'Porcentagem');
+    expect(filho?.parentItemId).toBe(pai?.id);
+    expect(pai?.parentItemId).toBeNull();
+  });
+
+  it('devolve programa vazio para entrada vazia', () => {
+    resetIds();
+    const { syllabus, merged } = dedupeEntries('w1', [], [], makeId);
+    expect(syllabus.items).toEqual([]);
+    expect(merged).toEqual([]);
+  });
+
+  it('ignora entradas cujo rótulo normaliza para nada', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: '1.2.' }),
+      entrada({ cargoId: 'c1', label: 'Crase' }),
+    ], [], makeId);
+    expect(syllabus.items).toHaveLength(1);
+    expect(syllabus.items[0].sourceLabel).toBe('Crase');
+  });
+});
+
+describe('ligação com conceitos existentes', () => {
+  const confirmado: Concept = {
+    id: 'global-crase', canonicalName: 'Crase', slug: 'crase',
+    parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+  };
+
+  it('liga direto a conceito confirmado que casa', () => {
+    resetIds();
+    const { syllabus, newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [confirmado], makeId,
+    );
+    expect(syllabus.items[0].conceptId).toBe('global-crase');
+    expect(newConcepts).toEqual([]);
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('liga direto apesar de acento, caixa e numeração', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: '2.1 CRASE' })], [confirmado], makeId,
+    );
+    expect(syllabus.items[0].conceptId).toBe('global-crase');
+  });
+
+  it('NÃO liga a conceito provisório, e propõe a ligação', () => {
+    resetIds();
+    const provisorio = { ...confirmado, status: 'provisional' as const };
+    const { syllabus, newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [provisorio], makeId,
+    );
+    expect(syllabus.items[0].conceptId).not.toBe('global-crase');
+    expect(newConcepts).toHaveLength(1);
+    expect(newConcepts[0].status).toBe('provisional');
+    expect(proposedLinks).toEqual([
+      { itemId: syllabus.items[0].id, conceptId: 'global-crase', score: 1, reason: 'provisional_concept' },
+    ]);
+  });
+
+  it('cria conceito provisório quando não casa com nada', () => {
+    resetIds();
+    const { syllabus, newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Tecnologia da informação' })], [confirmado], makeId,
+    );
+    expect(newConcepts).toHaveLength(1);
+    expect(newConcepts[0].status).toBe('provisional');
+    expect(newConcepts[0].canonicalName).toBe('Tecnologia da informação');
+    expect(syllabus.items[0].conceptId).toBe(newConcepts[0].id);
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('itens unidos entre cargos compartilham um conceito só', () => {
+    resetIds();
+    const { syllabus, newConcepts } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c2', label: 'Matematica' }),
+    ], [], makeId);
+    expect(syllabus.items).toHaveLength(1);
+    expect(newConcepts).toHaveLength(1);
+  });
+
+  it('propõe a ligação com razão low_score quando o casamento é real mas fica abaixo do limiar', () => {
+    // Achado da revisão: "Matemática financeira" (confirmado) contra
+    // "Matemática financeira básica" tem score 0.75 — real, mas abaixo de
+    // CONCEPT_MATCH_THRESHOLD (0.82). Antes do fix, matchConcept filtrava
+    // esse candidato por dentro e dedupeEntries nunca via o match: criava um
+    // provisório e não propunha nada, acumulando duplicatas sem revisão
+    // possível (o que a restrição R2 do spec existe para evitar).
+    resetIds();
+    const financeira: Concept = {
+      id: 'global-mat-financeira', canonicalName: 'Matemática financeira', slug: 'matematica-financeira',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { syllabus, newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Matemática financeira básica' })], [financeira], makeId,
+    );
+    expect(newConcepts).toHaveLength(1);
+    expect(proposedLinks).toEqual([
+      { itemId: syllabus.items[0].id, conceptId: 'global-mat-financeira', score: 0.75, reason: 'low_score' },
+    ]);
+  });
+});
+
+// Fix round 2, achado E (importante): PROPOSAL_MIN_SCORE = 0.5 só cabia entre
+// os dois valores de teste existentes (0.125 não devia propor, 0.75 devia) —
+// o mesmo defeito que o teste de limiar fixo (achado 5 do round 1) existia
+// para evitar, reintroduzido para esta constante. Consequência real: "Direito
+// Civil" (entrada) contra um "Direito Penal" confirmado tem score 0.6923 e
+// entrava na fila só por compartilhar o prefixo "Direito " — em português,
+// prefixos como esse carregam muitos pares sem relação nenhuma. Subido para
+// 0.7 e fixado nos dois lados com scores sintéticos conhecidos, do mesmo jeito
+// que CONCEPT_MATCH_THRESHOLD.
+describe('piso de proposta (PROPOSAL_MIN_SCORE) — não fitted, fixado nos dois lados', () => {
+  it('NÃO propõe mais "Direito Civil" contra "Direito Penal" confirmado (0.6923, era proposto com piso 0.5)', () => {
+    resetIds();
+    const direitoPenal: Concept = {
+      id: 'global-direito-penal', canonicalName: 'Direito Penal', slug: 'direito-penal',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { newConcepts, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Direito Civil' })], [direitoPenal], makeId,
+    );
+    expect(newConcepts).toHaveLength(1);
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('não propõe um pouco abaixo do piso (score sintético fixo 0.6923076923076923)', () => {
+    resetIds();
+    const abaixo: Concept = {
+      id: 'global-abaixo', canonicalName: 'abcdefghijklm', slug: 'x',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'abzdeygxijwlm' })], [abaixo], makeId,
+    );
+    expect(proposedLinks).toEqual([]);
+  });
+
+  it('propõe um pouco acima do piso (score sintético fixo 0.7142857142857143)', () => {
+    resetIds();
+    const acima: Concept = {
+      id: 'global-acima', canonicalName: 'abcdefghijklmn', slug: 'x',
+      parentId: null, kind: 'topico', aliases: [], status: 'confirmed',
+    };
+    const { syllabus, proposedLinks } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'abzdeyghxjkwmn' })], [acima], makeId,
+    );
+    expect(proposedLinks).toEqual([
+      { itemId: syllabus.items[0].id, conceptId: 'global-acima', score: 0.7142857142857143, reason: 'low_score' },
+    ]);
+  });
+});
+
+describe('deduplicação por similaridade, não só igualdade exata de rótulo', () => {
+  it('une conteúdo de dois cargos com grafias ligeiramente diferentes', () => {
+    // Achado da revisão: dois cargos raramente escrevem o mesmo tópico com o
+    // texto idêntico. "Interpretação de textos" (c1) e "Interpretação de
+    // texto" (c2, sem o plural) normalizam para strings DIFERENTES, então a
+    // chave exata do Map não os unia — cada um virava item próprio, cada um
+    // reportando isCommon: false e a contagem consolidada dobrada.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos', questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Interpretação de texto', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(isCommon(syllabus, syllabus.items[0].id)).toBe(true);
+    expect(consolidatedQuestionCount(syllabus, syllabus.items[0].id)).toBe(10);
+  });
+
+  it('NÃO une leis diferentes mesmo com alta similaridade textual — guarda de numeração', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Lei 8.080/1990' }),
+      entrada({ cargoId: 'c2', label: 'Lei 8.078/1990' }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(2);
+    expect(syllabus.items.every((item) => !isCommon(syllabus, item.id))).toBe(true);
+  });
+
+  it('soma questionCount e usa o maior weight quando um quase-duplicado cai no mesmo cargo (Finding C)', () => {
+    // Achado da revisão: o agrupamento por similaridade também vale dentro do
+    // MESMO cargo agora — duas linhas de edital quase-duplicadas ("Interpretação
+    // de textos" / "...de texto") no cargo c1 caem no mesmo bucket. Antes, a
+    // guarda de "um cargo não repete link" simplesmente descartava a segunda
+    // entrada inteira, perdendo seu questionCount (10+15 virava só 10). Agora
+    // soma questionCount (são dois blocos de questões) e usa o maior weight
+    // (peso é porcentagem do total, não some).
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos', weight: 20, questionCount: 10 }),
+      entrada({ cargoId: 'c1', label: 'Interpretação de texto', weight: 25, questionCount: 15 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(25);
+    expect(link?.weight).toBe(25);
+  });
+
+  it('NÃO soma quando o rótulo bruto é idêntico no mesmo cargo — é a mesma linha emitida duas vezes (Finding A)', () => {
+    // Achado da revisão (fix round 3): somar sempre não distingue "duas
+    // linhas legítimas do edital para o mesmo tópico" de "o extrator emitiu
+    // a mesma linha duas vezes". A contagem alimenta totalQuestionsFor e
+    // consolidatedQuestionCount, que decidem quantas questões de diagnóstico
+    // gerar — dobrar por causa de uma linha duplicada infla o diagnóstico. O
+    // único sinal disponível é o rótulo bruto: rótulo IDÊNTICO no mesmo cargo
+    // é tratado como emissão duplicada e mantém o valor já registrado.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(10);
+  });
+
+  it('preenche questionCount quando a primeira emissão veio sem dado (Finding B, round 4)', () => {
+    // Achado da revisão: "manter os valores já registrados" na linha
+    // repetida estava errado quando o valor já registrado é null — a
+    // duplicata (rótulo idêntico, mesmo cargo) é estritamente mais
+    // informativa que nada, e não há razão pra preferir "sem dado" a um dado
+    // real.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: null }),
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(10);
+  });
+});
+
+// Fix round 2, achado B (crítico): o agrupamento guloso contra o primeiro
+// bucket que bate o limiar não é transitivo. Com A='Redacao oficial',
+// B='Redacao oficiais', C='Redacao oficiaisss' — sim(A,B)=0.875, sim(B,C)=
+// 0.889, sim(A,C)=0.778 — a ordem de chegada decidia se saíam 1 ou 2 itens.
+// dedupeEntries agora ordena as entradas pelo rótulo normalizado antes do
+// passe guloso, então o AGRUPAMENTO (quantos itens saem, quem funde com
+// quem) é função só do CONJUNTO de entradas.
+//
+// CORREÇÃO (fix round 3, "Finding C"): o comentário original aqui e o
+// relatório do round 2 diziam que a ordem alfabética era B, depois A, depois
+// C. Errado — a execução mostra B, depois C, depois A ("redacao oficiais" é
+// prefixo de "redacao oficiaisss", que fica antes de "redacao oficial" porque
+// na 15ª posição "i" < "l"). A afirmação testada (1 item só, não importa a
+// ordem de chegada) sempre esteve certa; só a explicação do porquê estava
+// errada.
+describe('deduplicação independe da ordem de chegada das entradas (Finding B)', () => {
+  const LABEL_POR_NOME: Record<'A' | 'B' | 'C', string> = {
+    A: 'Redacao oficial',
+    B: 'Redacao oficiais',
+    C: 'Redacao oficiaisss',
+  };
+
+  const triplo = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
+    const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
+      A: entrada({ cargoId: 'c-a', label: LABEL_POR_NOME.A }),
+      B: entrada({ cargoId: 'c-b', label: LABEL_POR_NOME.B }),
+      C: entrada({ cargoId: 'c-c', label: LABEL_POR_NOME.C }),
+    };
+    return ordem.map((nome) => porNome[nome]);
+  };
+
+  it.each([
+    ['A,B,C', ['A', 'B', 'C']],
+    ['B,A,C', ['B', 'A', 'C']],
+    ['C,B,A', ['C', 'B', 'A']],
+  ] as const)('ordem %s: sempre 1 item só, com sourceLabel do que aparece primeiro nessa ordem', (_nome, ordem) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', triplo(ordem), [], makeId);
+
+    // O AGRUPAMENTO independe da ordem — sempre funde os três num item só,
+    // nunca 2 (que é o que aconteceria sem a Fase 1 ordenada: [A,B,C] só
+    // funde A+B porque sim(A,C)=0.778 fica abaixo do limiar sozinho).
+    expect(syllabus.items).toHaveLength(1);
+    // Achado da revisão (fix round 4, "Finding C"): a asserção antiga fixava
+    // o bug (sourceLabel sempre o alfabeticamente primeiro); a forma certa,
+    // depois do fix do achado B, é o rótulo de quem aparece primeiro NESTA
+    // ordem de entrada — não um vencedor fixo.
+    expect(syllabus.items[0].sourceLabel).toBe(LABEL_POR_NOME[ordem[0]]);
+  });
+});
+
+// Fix round 3, achado B (importante): a ordenação que resolve o achado B do
+// round 2 (agrupamento independente de ordem) tem um efeito colateral se for
+// usada também para decidir QUAL rótulo sobrevive como `sourceLabel` — o
+// rótulo mostrado ao usuário passaria a ser o alfabeticamente primeiro, não o
+// que aparece primeiro no edital. Ex.: "Interpretação de textos" (1º cargo do
+// edital) perdia para "Interpretação de texto" (2º cargo, mas alfabeticamente
+// antes) só por causa da ordenação usada para agrupar. Isso também nomeava o
+// `Concept` provisório (canonicalName/slug) e ordenava `syllabus.items`
+// alfabeticamente em vez de pela ordem do edital.
+//
+// A independência de ordem do agrupamento (achado B do round 2) e a ordem de
+// aparição no edital (este achado) não competem: o índice original de cada
+// entrada viaja junto do agrupamento, e decide separadamente (a) qual rótulo
+// sobrevive e (b) a ordem de `items` — sem reabrir a decisão de quem funde
+// com quem.
+describe('sourceLabel e ordem de items refletem a ordem do edital, não a ordem alfabética (Finding B, round 3)', () => {
+  it.each([
+    ['textos primeiro', 'Interpretação de textos', 'c1', 'Interpretação de texto', 'c2'],
+    ['texto primeiro', 'Interpretação de texto', 'c1', 'Interpretação de textos', 'c2'],
+  ] as const)('%s: sourceLabel é o rótulo que aparece primeiro na entrada', (_nome, primeiroLabel, primeiroCargo, segundoLabel, segundoCargo) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: primeiroCargo, label: primeiroLabel }),
+      entrada({ cargoId: segundoCargo, label: segundoLabel }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    expect(syllabus.items[0].sourceLabel).toBe(primeiroLabel);
+  });
+
+  it.each([
+    ['ordem 1', ['Matemática', 'Português', 'Legislação']],
+    ['ordem 2 (embaralhada)', ['Legislação', 'Português', 'Matemática']],
+  ] as const)('%s: items sai na ordem de primeira aparição no edital', (_nome, ordemDeLabels) => {
+    resetIds();
+    const entries = ordemDeLabels.map((label, i) => entrada({ cargoId: `c${i}`, label }));
+    const { syllabus } = dedupeEntries('w1', entries, [], makeId);
+
+    expect(syllabus.items.map((item) => item.sourceLabel)).toEqual(ordemDeLabels);
+  });
+
+  it('items sai por primeira aparição mesmo quando um item unido reaparece depois de outro item', () => {
+    // "Matemática" aparece nos índices 0 (c1) e 2 (c2); "Português" aparece
+    // no índice 1. A primeira aparição de "Matemática" (índice 0) é anterior
+    // à de "Português" (índice 1), então "Matemática" continua vindo
+    // primeiro em `items`, mesmo a segunda linha de "Matemática" vindo depois
+    // de "Português" na entrada.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c3', label: 'Português' }),
+      entrada({ cargoId: 'c2', label: 'Matemática' }),
+    ], [], makeId);
+
+    expect(syllabus.items.map((item) => item.sourceLabel)).toEqual(['Matemática', 'Português']);
+  });
+
+  it('o conceito provisório também é nomeado pelo rótulo que aparece primeiro no edital', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Interpretação de textos' }),
+      entrada({ cargoId: 'c2', label: 'Interpretação de texto' }),
+    ], [], makeId);
+
+    expect(newConcepts).toHaveLength(1);
+    expect(newConcepts[0].canonicalName).toBe('Interpretação de textos');
+  });
+});
+
+// Fix round 4, achado A (regressão): a Fase 3 (hierarquia) comparava
+// `parentLabel` só contra o rótulo CANÔNICO do grupo (o de menor índice
+// original) — reabrindo a dependência de ordem que o achado B do round 2 já
+// tinha eliminado do agrupamento. Um `parentLabel` que bate um membro
+// não-canônico do grupo unido (mas não o canônico) falhava dependendo de
+// quem virou canônico, que por sua vez depende só da ordem de chegada.
+describe('resolução de pai independe de qual membro do grupo virou canônico (Finding A, round 4)', () => {
+  const cenario = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
+    const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
+      A: entrada({ cargoId: 'c1', label: 'Redacao oficial' }),
+      B: entrada({ cargoId: 'c2', label: 'Redacao oficiais' }),
+      C: entrada({ cargoId: 'c3', label: 'Redacao oficiaisss' }),
+    };
+    const filho = entrada({
+      cargoId: 'c4', label: 'Concordancia verbal', parentLabel: 'Redacao oficiaisss',
+    });
+    return [...ordem.map((nome) => porNome[nome]), filho];
+  };
+
+  it.each([
+    ['A,B,C', ['A', 'B', 'C']],
+    ['C,B,A', ['C', 'B', 'A']],
+  ] as const)('ordem %s: o filho acha o pai unido, mesmo quando "Redacao oficiaisss" não é o canônico', (_nome, ordem) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', cenario(ordem), [], makeId);
+
+    // Grupo unido (A+B+C, sim(A,C)=0.778 < limiar sozinho, mas conectados via
+    // B) + o filho = 2 itens.
+    expect(syllabus.items).toHaveLength(2);
+
+    const pai = syllabus.items.find((item) => item.sourceLabel !== 'Concordancia verbal');
+    const filho = syllabus.items.find((item) => item.sourceLabel === 'Concordancia verbal');
+    expect(filho?.parentItemId).toBe(pai?.id);
+  });
+});
+
+describe('merged reporta pela contagem de cargos, não pela contagem de rótulos', () => {
+  it('reporta como unido mesmo quando os dois cargos usam o rótulo idêntico', () => {
+    // Achado da revisão: o exemplo do próprio brief (duas entradas idênticas
+    // em dois cargos) reportava merged: [] porque o filtro antigo exigia mais
+    // de um rótulo DISTINTO — exatamente o caso mais comum de união, e
+    // exatamente onde a tela mais precisa explicar a junção ao usuário.
+    resetIds();
+    const { merged } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c2', label: 'Matemática' }),
+    ], [], makeId);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].labels).toEqual(['Matemática']);
+  });
+
+  it('não reporta como unido um item de cargo só', () => {
+    resetIds();
+    const { merged } = dedupeEntries('w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [], makeId);
+    expect(merged).toEqual([]);
+  });
+});
+
+describe('detalhes menores da revisão: slug e kind do conceito provisório', () => {
+  it('gera o slug do conceito provisório com slugify (sem "/" nem outros caracteres inválidos)', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries(
+      'w1', [entrada({ cargoId: 'c1', label: 'Lei nº 8.112/1990' })], [], makeId,
+    );
+    expect(newConcepts[0].slug).toBe('lei-n-8-112-1990');
+    expect(newConcepts[0].slug).not.toMatch(/[/º.]/);
+  });
+
+  it('marca disciplina quando a entrada não tem pai e tópico quando tem', () => {
+    resetIds();
+    const { newConcepts } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática' }),
+      entrada({ cargoId: 'c1', label: 'Porcentagem', parentLabel: 'Matemática' }),
+    ], [], makeId);
+
+    const disciplina = newConcepts.find((c) => c.canonicalName === 'Matemática');
+    const topico = newConcepts.find((c) => c.canonicalName === 'Porcentagem');
+    expect(disciplina?.kind).toBe('disciplina');
+    expect(topico?.kind).toBe('topico');
+  });
+});
+
+describe('separar um item unido errado', () => {
+  it('extrai um cargo para um item próprio', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Informática', questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Informatica', questionCount: 20 }),
+    ], [], makeId);
+    expect(syllabus.items).toHaveLength(1);
+
+    const separado = splitItem(syllabus, syllabus.items[0].id, 'c2', makeId);
+
+    expect(separado.items).toHaveLength(2);
+    expect(cargosFor(separado, separado.items[0].id)).toEqual(['c1']);
+    expect(cargosFor(separado, separado.items[1].id)).toEqual(['c2']);
+  });
+
+  it('preserva peso e quantidade do cargo separado', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Informática', weight: 20, questionCount: 10 }),
+      entrada({ cargoId: 'c2', label: 'Informatica', weight: 40, questionCount: 20 }),
+    ], [], makeId);
+
+    const separado = splitItem(syllabus, syllabus.items[0].id, 'c2', makeId);
+    const novo = separado.links.find((l) => l.cargoId === 'c2');
+    expect(novo?.weight).toBe(40);
+    expect(novo?.questionCount).toBe(20);
+  });
+
+  it('não faz nada se o cargo não está no item', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [], makeId);
+    expect(splitItem(syllabus, syllabus.items[0].id, 'c9', makeId)).toEqual(syllabus);
+  });
+
+  it('não faz nada se o item tem um cargo só', () => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [entrada({ cargoId: 'c1', label: 'Crase' })], [], makeId);
+    expect(splitItem(syllabus, syllabus.items[0].id, 'c1', makeId)).toEqual(syllabus);
+  });
+});

@@ -1,9 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { getApprovals } from './approvals';
+import { getSyllabus } from './syllabus';
+import { nextSyllabusVersion } from '../../edital-structure-payload';
 import {
   emptyAvailability,
+  hasEdital,
   WORKSPACE_STATUSES,
   type WeeklyAvailability,
   type WorkspaceStatus,
+  type ExtractionOutput,
 } from '@workspace/core';
 
 export type SourceMode = 'file' | 'text' | 'none';
@@ -38,7 +43,6 @@ export interface WorkspaceDraft {
   selectedCargoId: string;
   availability: WeeklyAvailability;
   status: WorkspaceStatus;
-  hasEdital: boolean;
   sourceMode: SourceMode;
   sourceFileName?: string;
   sourceText?: string;
@@ -130,6 +134,14 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     ? validCargos
     : [defaultCargo(str(raw.examDate, ''))];
 
+  const derivedStatus = isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital');
+  // Registros antigos guardavam `hasEdital` como campo à parte de `status`, e os dois
+  // podiam divergir. O campo não existe mais no formato atual, mas um `hasEdital: false`
+  // explícito herdado de um registro antigo não é descartado em silêncio: se o status
+  // derivado implicaria um edital, ele é corrigido para `sem_edital` — a informação do
+  // campo antigo é absorvida pelo status canônico, não perdida.
+  const status = raw.hasEdital === false && hasEdital(derivedStatus) ? 'sem_edital' : derivedStatus;
+
   return {
     slug: raw.slug,
     title: raw.title,
@@ -139,10 +151,7 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     cargos,
     selectedCargoId: str(raw.selectedCargoId, cargos[0].id),
     availability: isValidAvailability(raw.availability) ? raw.availability : emptyAvailability(),
-    status: isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital'),
-    hasEdital: typeof raw.hasEdital === 'boolean'
-      ? raw.hasEdital
-      : Boolean(raw.sourceMode) && importStatus !== 'pending' ? true : Boolean(raw.sourceText || raw.sourceFileName),
+    status,
     sourceMode: isValidSourceMode(raw.sourceMode) ? raw.sourceMode : 'text',
     sourceFileName: str(raw.sourceFileName, undefined),
     sourceText: str(raw.sourceText, undefined),
@@ -157,11 +166,39 @@ export interface PendingWorkspaceImport {
   isNew: boolean;
   workspace?: WorkspaceDraft;
   updates?: Partial<WorkspaceDraft>;
+  /**
+   * A saída bruta da extração (Task 10), levada até a tela de revisão para que ela
+   * rode `dedupeEntries` (Task 11) — nunca aplicada aqui, só transportada. `undefined`
+   * enquanto a extração ainda não chegou a "pronto".
+   */
+  extractionOutput?: ExtractionOutput;
+  /**
+   * Marca que `dedupeEntries` já rodou sobre `extractionOutput` (Task 11) —
+   * sem isto, reabrir a mesma tela de revisão (mesmo import, sem confirmar
+   * nem descartar) rodaria a deduplicação de novo a cada montagem e
+   * duplicaria itens/conceitos/aprovações. `extractionOutput` continua
+   * presente mesmo depois de aplicado: é o único lugar que guarda as
+   * incertezas do PD-06 para o bloco "Não encontrado no edital".
+   */
+  extractionApplied?: boolean;
 }
 
 const STORAGE_KEY = 'kalibra_workspaces';
 const storageKeyFor = (userId?: string) => `${STORAGE_KEY}:${userId || 'anonymous'}`;
 const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital:${userId || 'anonymous'}:${slug}`;
+/**
+ * A próxima versão de edital deste workspace, lida da REALIDADE durável — a fila de
+ * aprovação (quais versões já foram encenadas como proposta) e o programa salvo (que
+ * só existe se alguma versão foi confirmada). Ver `nextSyllabusVersion` em
+ * `domain/edital-structure-payload.ts` para o porquê de não haver mais contador
+ * próprio: um contador incrementado no início da extração e nunca liberado inflava a
+ * cada tentativa abandonada, e a tela passava a anunciar comparação com versões que
+ * nunca existiram (achado R2 da re-revisão). Esta função é o ponto onde as telas
+ * (`NovoWorkspace`, `Edital`) descobrem o número, sem tocar armazenamento elas mesmas.
+ */
+export function nextSyllabusVersionFor(slug: string, userId?: string): number {
+  return nextSyllabusVersion(getApprovals(userId), slug, getSyllabus(slug, userId).items.length > 0);
+}
 
 export function stageWorkspaceImport(slug: string, pending: PendingWorkspaceImport, userId?: string) {
   sessionStorage.setItem(pendingKeyFor(slug, userId), JSON.stringify(pending));
@@ -190,7 +227,6 @@ const defaultPrograms: WorkspaceDraft[] = [
     selectedCargoId: 'c1',
     availability: emptyAvailability(),
     status: 'estudando' as const,
-    hasEdital: true,
     progress: 47.2,
     nextAction: 'Resolver 8 questões de porcentagem',
     active: true,
@@ -207,7 +243,6 @@ const defaultPrograms: WorkspaceDraft[] = [
     selectedCargoId: 'c1',
     availability: emptyAvailability(),
     status: 'estudando' as const,
-    hasEdital: true,
     progress: 12.5,
     nextAction: 'Leitura inicial: Sistema Financeiro',
     active: false,
@@ -216,59 +251,148 @@ const defaultPrograms: WorkspaceDraft[] = [
   }
 ];
 
+/**
+ * Achado I6 da revisão final: antes, "chave ausente", "valor não é um array" e "JSON
+ * corrompido" caíam todos no MESMO fallback (`defaultPrograms`) — um usuário com uma
+ * chave danificada via os dois concursos fictícios de demonstração aparecerem do nada,
+ * e a primeira escrita (`addWorkspace`/`updateWorkspace`) persistia essa lista
+ * fabricada POR CIMA do registro original recuperável, enquanto `kalibra_syllabus`,
+ * `kalibra_concepts` e `kalibra_approvals` sobreviviam órfãos (indexados por slugs que
+ * não existem mais em `kalibra_workspaces`). Só "chave genuinamente ausente" é
+ * primeiro-uso de verdade; um valor presente mas ilegível é corrupção, e o único jeito
+ * seguro de tratar corrupção é devolver uma lista vazia — nunca inventar dado que a
+ * próxima escrita torna permanente.
+ */
 export function getWorkspaces(userId?: string): WorkspaceDraft[] {
+  const key = storageKeyFor(userId);
+  let saved: string | null;
   try {
-    const saved = localStorage.getItem(storageKeyFor(userId));
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((item) => {
-            // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
-            // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
-            // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
-            try {
-              return migrateWorkspace(item);
-            } catch (error) {
-              console.error('Registro de workspace corrompido, descartado.', error);
-              return null;
-            }
-          })
-          .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
-      }
-    }
+    saved = localStorage.getItem(key);
   } catch (error) {
-    console.error('Não foi possível carregar os workspaces locais.', error);
+    // O próprio acesso ao armazenamento falhou (ex.: bloqueado pelo navegador) — não há
+    // como distinguir "vazio" de "corrompido" aqui; semear a demonstração é o único
+    // comportamento que não deixa a tela quebrada.
+    console.error('Não foi possível acessar os workspaces locais.', error);
+    return defaultPrograms;
   }
-  return defaultPrograms;
+
+  if (saved === null) return defaultPrograms;
+
+  try {
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) {
+      console.error('Registro de workspaces corrompido (formato inesperado) — tratado como vazio, não substituído por dados de demonstração.');
+      return [];
+    }
+    return parsed
+      .map((item) => {
+        // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
+        // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
+        // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
+        try {
+          return migrateWorkspace(item);
+        } catch (error) {
+          console.error('Registro de workspace corrompido, descartado.', error);
+          return null;
+        }
+      })
+      .filter((workspace): workspace is WorkspaceDraft => workspace !== null);
+  } catch (error) {
+    console.error('Registro de workspaces corrompido (JSON inválido) — tratado como vazio, não substituído por dados de demonstração.', error);
+    return [];
+  }
+}
+
+/**
+ * Diz se o valor bruto salvo hoje é ilegível — presente, mas nem JSON válido nem um
+ * array. Exatamente o caso que `getWorkspaces` trata como lista vazia.
+ */
+function isUnreadable(raw: string): boolean {
+  try {
+    return !Array.isArray(JSON.parse(raw));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Achado R6 da re-revisão — a metade que continuava aberta. `getWorkspaces` já parou
+ * de ressuscitar a demonstração sobre uma chave corrompida (devolve `[]`, e a leitura
+ * deixa o valor bruto byte a byte intacto), mas a PRIMEIRA escrita seguinte gravava
+ * por cima assim mesmo: medido com um registro recuperável — um objeto JSON válido
+ * `{"0": {slug, title, …}}`, o formato que um `JSON.parse`/`JSON.stringify` errado em
+ * algum lugar produz — o `addWorkspace` seguinte reescrevia a chave e o registro
+ * original do usuário simplesmente sumia.
+ *
+ * Antes de destruir, preserva: o valor ilegível é copiado, sem nenhuma
+ * transformação, para uma chave de backup ao lado. Nunca sobrescreve um backup já
+ * existente — a primeira corrupção é a que tem o dado mais próximo do original, e uma
+ * segunda passagem não pode enterrar a primeira.
+ */
+function preserveUnreadableWorkspaces(userId?: string) {
+  const key = storageKeyFor(userId);
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null || !isUnreadable(raw)) return;
+    const backupKey = `${key}:corrompido`;
+    if (localStorage.getItem(backupKey) !== null) return;
+    localStorage.setItem(backupKey, raw);
+  } catch (error) {
+    // Preservar falhou (armazenamento cheio/bloqueado). Deixar de gravar aqui
+    // travaria o app inteiro para sempre; o registro fica sem backup e isso é
+    // registrado como limite conhecido, não escondido.
+    console.error('Não foi possível preservar o registro de workspaces ilegível antes de sobrescrevê-lo.', error);
+  }
 }
 
 export function saveWorkspaces(workspaces: WorkspaceDraft[], userId?: string) {
+  preserveUnreadableWorkspaces(userId);
   localStorage.setItem(storageKeyFor(userId), JSON.stringify(workspaces));
 }
 
 export function useWorkspaces(userId?: string) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDraft[]>(() => getWorkspaces(userId));
+  // Achado C da revisão da fila de aprovação (fix round 2): `addWorkspace`/
+  // `updateWorkspace` construíam a próxima lista a partir de `workspaces`
+  // capturado no closure do render — exatamente o padrão que os achados 1/3
+  // daquela revisão mostraram perder escrita quando duas mutações acontecem
+  // no mesmo evento, antes de qualquer re-render. `workspacesRef` é
+  // atualizado sincronamente dentro de `persist`, então a segunda chamada já
+  // enxerga o resultado da primeira.
+  const workspacesRef = useRef(workspaces);
 
   useEffect(() => {
-    setWorkspaces(getWorkspaces(userId));
-    const handleStorage = () => setWorkspaces(getWorkspaces(userId));
+    const loaded = getWorkspaces(userId);
+    workspacesRef.current = loaded;
+    setWorkspaces(loaded);
+
+    const handleStorage = () => {
+      const reloaded = getWorkspaces(userId);
+      workspacesRef.current = reloaded;
+      setWorkspaces(reloaded);
+    };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
-  const addWorkspace = (workspace: WorkspaceDraft) => {
-    const next = [...workspaces, workspace];
+  // Achado R3 da re-revisão: a escrita durável vem PRIMEIRO. Quando `saveWorkspaces`
+  // lança (cota esgotada — o regime esperado), atualizar o ref antes deixaria a
+  // memória afirmando um estado que o armazenamento nunca teve, e o retry do usuário
+  // partiria dessa mentira (duplicando o que já estava no ref). Lançando antes de
+  // qualquer mutação, memória e armazenamento nunca divergem.
+  const persist = (next: WorkspaceDraft[]) => {
     saveWorkspaces(next, userId);
+    workspacesRef.current = next;
     setWorkspaces(next);
     window.dispatchEvent(new Event('storage'));
   };
 
+  const addWorkspace = (workspace: WorkspaceDraft) => {
+    persist([...workspacesRef.current, workspace]);
+  };
+
   const updateWorkspace = (slug: string, updates: Partial<WorkspaceDraft>) => {
-    const next = workspaces.map(w => w.slug === slug ? { ...w, ...updates } : w);
-    saveWorkspaces(next, userId);
-    setWorkspaces(next);
-    window.dispatchEvent(new Event('storage'));
+    persist(workspacesRef.current.map(w => w.slug === slug ? { ...w, ...updates } : w));
   };
 
   return { workspaces, addWorkspace, updateWorkspace };

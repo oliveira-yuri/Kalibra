@@ -70,3 +70,32 @@ export function canTransition(from: WorkspaceStatus, to: WorkspaceStatus): boole
 export function nextActionFor(status: WorkspaceStatus): string {
   return NEXT_ACTIONS[status];
 }
+
+/**
+ * Estado em que um workspace nasce. Com edital há um arquivo a processar, então
+ * ele entra na fila de upload e caminha por `extraindo_edital` até a revisão —
+ * pular direto para a revisão esconderia o processamento e foi o que permitiu a
+ * tela de progresso existir como decoração.
+ */
+export function initialStatus(hasEdital: boolean): WorkspaceStatus {
+  return hasEdital ? 'aguardando_upload' : 'sem_edital';
+}
+
+const WITHOUT_EDITAL: readonly WorkspaceStatus[] = ['sem_edital', 'aguardando_upload'];
+
+/**
+ * Derivada de `status`, nunca armazenada: manter os dois em disco (um campo `status` e
+ * um booleano `hasEdital` separados) permitia que discordassem entre si — e discordavam,
+ * antes desta função existir. Agora "há edital" é só uma pergunta sobre o próprio status.
+ */
+export function hasEdital(status: WorkspaceStatus): boolean {
+  return !WITHOUT_EDITAL.includes(status);
+}
+
+export function assertTransition(from: WorkspaceStatus, to: WorkspaceStatus): void {
+  if (!canTransition(from, to)) {
+    throw new Error(
+      `Transição inválida de "${WORKSPACE_STATUS_LABELS[from]}" para "${WORKSPACE_STATUS_LABELS[to]}".`,
+    );
+  }
+}

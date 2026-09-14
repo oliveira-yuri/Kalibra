@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Gauge, Layers3, Lightbulb, ListChecks, NotebookPen, RotateCcw, ShieldAlert } from 'lucide-react';
+import { BookOpen, CheckCircle2, FileText, Gauge, Layers3, Lightbulb, ListChecks, NotebookPen, RotateCcw, ShieldAlert } from 'lucide-react';
 
 export const navItems = [
   { href: '/', label: 'Visão geral', icon: Gauge },
@@ -10,4 +10,5 @@ export const navItems = [
   { href: '/diagnostico', label: 'Diagnóstico', icon: Layers3 },
   { href: '/erros', label: 'Erros', icon: ShieldAlert },
   { href: '/recomendacoes', label: 'Recomendações', icon: Lightbulb },
+  { href: '/aprovacoes', label: 'Aprovações', icon: CheckCircle2 },
 ];
