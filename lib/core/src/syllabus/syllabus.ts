@@ -89,3 +89,28 @@ export function consolidatedQuestionCount(syllabus: Syllabus, itemId: string): n
     .map((link) => link.questionCount ?? 0);
   return counts.length === 0 ? 0 : Math.max(...counts);
 }
+
+/**
+ * Liga um item já existente a mais um cargo — o inverso de `splitItem`, e a metade
+ * que faltava para o usuário conseguir revisar vínculos nas duas direções.
+ *
+ * Peso e quantidade nascem `null` de propósito: são valores por cargo (§4.1), e
+ * herdá-los do outro cargo inventaria um dado que o edital não afirma. A ausência é
+ * visível na interface (campo vazio) e pede o olho do usuário; um número herdado
+ * passaria despercebido.
+ *
+ * Nunca cria item novo: conteúdo comum a vários cargos é UMA entidade com várias
+ * ligações, e é isso que mantém nota, histórico e FSRS inteiros.
+ */
+export function linkItemToCargo(syllabus: Syllabus, itemId: string, cargoId: string): Syllabus {
+  const item = syllabus.items.find((candidate) => candidate.id === itemId);
+  if (!item) return syllabus;
+
+  const already = syllabus.links.some(
+    (link) => link.syllabusItemId === itemId && link.cargoId === cargoId,
+  );
+  if (already) return syllabus;
+
+  const link: SyllabusItemCargo = { syllabusItemId: itemId, cargoId, weight: null, questionCount: null };
+  return { items: syllabus.items, links: [...syllabus.links, link] };
+}

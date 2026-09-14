@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   cargosFor, isCommon, hasCommonItems, itemsForCargo, totalQuestionsFor,
-  consolidatedQuestionCount, emptySyllabus, type Syllabus,
+  consolidatedQuestionCount, emptySyllabus, linkItemToCargo, type Syllabus,
 } from './syllabus';
+import { splitItem } from './dedup';
 
 const item = (id: string, conceptId: string) => ({
   id, workspaceId: 'w1', conceptId, parentItemId: null,
@@ -138,5 +139,63 @@ describe('hasCommonItems — a mesma pergunta de `items.some(isCommon)`, numa pa
       links: [{ syllabusItemId: 'i1', cargoId: 'c1', weight: null, questionCount: null }],
     };
     expect(hasCommonItems(soloCargo)).toBe(some(soloCargo));
+  });
+});
+
+describe('linkItemToCargo', () => {
+  const base: Syllabus = {
+    items: [
+      { id: 'i1', workspaceId: 'w', parentItemId: null, conceptId: 'k1', sourceLabel: 'Português', uncertain: false },
+      { id: 'i2', workspaceId: 'w', parentItemId: null, conceptId: 'k2', sourceLabel: 'Informática', uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'i1', cargoId: 'c1', weight: 30, questionCount: 10 },
+      { syllabusItemId: 'i2', cargoId: 'c2', weight: 20, questionCount: 5 },
+    ],
+  };
+
+  it('liga um item a um cargo novo, com peso e quantidade zerados', () => {
+    const next = linkItemToCargo(base, 'i1', 'c2');
+    expect(next.links).toContainEqual({ syllabusItemId: 'i1', cargoId: 'c2', weight: null, questionCount: null });
+  });
+
+  it('NÃO altera a ligação que o item já tinha com o outro cargo', () => {
+    const next = linkItemToCargo(base, 'i1', 'c2');
+    expect(next.links).toContainEqual({ syllabusItemId: 'i1', cargoId: 'c1', weight: 30, questionCount: 10 });
+  });
+
+  it('NÃO altera as ligações de outros itens', () => {
+    const next = linkItemToCargo(base, 'i1', 'c2');
+    expect(next.links.filter((link) => link.syllabusItemId === 'i2'))
+      .toEqual(base.links.filter((link) => link.syllabusItemId === 'i2'));
+  });
+
+  it('não cria item novo — o conteúdo comum continua sendo UMA entidade', () => {
+    const next = linkItemToCargo(base, 'i1', 'c2');
+    expect(next.items).toEqual(base.items);
+  });
+
+  it('ligar de novo ao mesmo cargo é no-op (não duplica a ligação)', () => {
+    expect(linkItemToCargo(base, 'i1', 'c1')).toEqual(base);
+  });
+
+  it('item inexistente devolve o syllabus intacto', () => {
+    expect(linkItemToCargo(base, 'nao-existe', 'c2')).toEqual(base);
+  });
+
+  it('não muta a entrada', () => {
+    const snapshot = JSON.parse(JSON.stringify(base));
+    linkItemToCargo(base, 'i1', 'c2');
+    expect(base).toEqual(snapshot);
+  });
+
+  it('é o inverso de splitItem para o cargo original', () => {
+    const linked = linkItemToCargo(base, 'i1', 'c2');
+    const split = splitItem(linked, 'i1', 'c2', (seed) => 'novo-' + seed);
+    const c1Links = (syllabus: Syllabus) => syllabus.links
+      .filter((link) => link.cargoId === 'c1')
+      .map((link) => link.syllabusItemId + ':' + link.cargoId)
+      .sort();
+    expect(c1Links(split)).toEqual(c1Links(base));
   });
 });
