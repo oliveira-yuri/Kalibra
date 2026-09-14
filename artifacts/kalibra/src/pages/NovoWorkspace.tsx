@@ -145,7 +145,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     setIsProcessing(true);
     extraction.start({
       sourceMode: sourceMode === 'text' ? 'text' : 'file',
-      text: sourceMode === 'text' ? sourceText : '',
+      blocks: sourceMode === 'text' ? [{ cargoId: null, text: sourceText }] : [],
       cargoIds: finalCargos.map((cargo) => cargo.id),
     });
   };

@@ -143,7 +143,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     setIsProcessing(true);
     extraction.start({
       sourceMode,
-      text: sourceMode === 'text' ? sourceText : '',
+      blocks: sourceMode === 'text' ? [{ cargoId: null, text: sourceText }] : [],
       cargoIds: workspace?.cargos.map((cargo) => cargo.id) ?? [],
     });
   };
