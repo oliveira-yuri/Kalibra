@@ -11,6 +11,7 @@ import {
   useApprovals,
 } from './approvals';
 import { getConcepts, saveConcepts } from './concepts';
+import { getSyllabus, saveSyllabus } from './syllabus';
 
 const ITEM: ApprovalItem = {
   id: 'appr-1',
@@ -258,6 +259,90 @@ describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_mer
     // achado B em que um `sourceRef` de proveniência seria usado por engano
     // como alvo e o no-op aconteceria por acidente.
     expect(getConcepts()).toEqual([CONCEPT]);
+  });
+});
+
+describe('applyApprovalSideEffects — achado I1 da revisão final: aprovar concept_merge FAZ o merge', () => {
+  const TARGET: Concept = {
+    id: 'concept-target', canonicalName: 'Crase', slug: 'crase',
+    parentId: null, kind: 'topico', aliases: [], status: 'provisional',
+  };
+
+  const item = (over: Partial<{ id: string; conceptId: string; sourceLabel: string }> = {}) => ({
+    id: 'item-1', workspaceId: 'setec-campinas', conceptId: 'concept-provisorio-novo', parentItemId: null,
+    sourceLabel: 'Emprego do acento indicativo de crase', sourceExcerpt: null, page: null, confidence: 1,
+    uncertain: false, ...over,
+  });
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('reaponta o conceptId do item que gerou a proposta para o conceito-alvo', () => {
+    saveConcepts([TARGET]);
+    saveSyllabus({ items: [item()], links: [] }, 'setec-campinas');
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-target', workspaceId: 'setec-campinas',
+      payloadAfter: { conceptId: 'concept-target', itemId: 'item-1', score: 0.9 },
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    const syllabus = getSyllabus('setec-campinas');
+    expect(syllabus.items[0].conceptId).toBe('concept-target');
+  });
+
+  it('acrescenta o sourceLabel do item como alias do conceito-alvo', () => {
+    saveConcepts([TARGET]);
+    saveSyllabus({ items: [item()], links: [] }, 'setec-campinas');
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-target', workspaceId: 'setec-campinas',
+      payloadAfter: { conceptId: 'concept-target', itemId: 'item-1', score: 0.9 },
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    expect(getConcepts().find((c) => c.id === 'concept-target')?.aliases).toEqual([
+      'Emprego do acento indicativo de crase',
+    ]);
+  });
+
+  it('reimportações repetidas do mesmo item não empilham o alias nem criam conceito duplicado', () => {
+    saveConcepts([TARGET]);
+    saveSyllabus({ items: [item()], links: [] }, 'setec-campinas');
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-target', workspaceId: 'setec-campinas',
+      payloadAfter: { conceptId: 'concept-target', itemId: 'item-1', score: 0.9 },
+    };
+
+    applyApprovalSideEffects(decidido);
+    applyApprovalSideEffects(decidido);
+
+    expect(getConcepts().filter((c) => c.id === 'concept-target')).toHaveLength(1);
+    expect(getConcepts().find((c) => c.id === 'concept-target')?.aliases).toEqual([
+      'Emprego do acento indicativo de crase',
+    ]);
+  });
+
+  it('não lança e não escreve nada no programa quando o payload não traz itemId (formato antigo)', () => {
+    saveConcepts([TARGET]);
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-target', workspaceId: 'setec-campinas',
+    };
+
+    expect(() => applyApprovalSideEffects(decidido)).not.toThrow();
+    expect(localStorage.getItem('kalibra_syllabus:anonymous:setec-campinas')).toBeNull();
+  });
+
+  it('não lança quando o item referenciado não existe mais no programa', () => {
+    saveConcepts([TARGET]);
+    saveSyllabus({ items: [], links: [] }, 'setec-campinas');
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', targetConceptId: 'concept-target', workspaceId: 'setec-campinas',
+      payloadAfter: { conceptId: 'concept-target', itemId: 'item-inexistente', score: 0.9 },
+    };
+
+    expect(() => applyApprovalSideEffects(decidido)).not.toThrow();
+    expect(getConcepts().find((c) => c.id === 'concept-target')?.aliases).toEqual([]);
   });
 });
 

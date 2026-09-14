@@ -122,6 +122,33 @@ export function saveSyllabus(syllabus: Syllabus, workspaceSlug: string, userId?:
   localStorage.setItem(storageKeyFor(workspaceSlug, userId), JSON.stringify(syllabus));
 }
 
+/**
+ * Reaponta o `conceptId` de um item para o conceito-alvo de uma fusão aprovada —
+ * achado I1 da revisão final: aprovar um `concept_merge` promovia o conceito-alvo a
+ * `confirmed` (`applyApprovalSideEffects`, `approvals.ts`) mas nunca fazia a fusão em
+ * si — o item que gerou a proposta continuava apontando para o seu próprio conceito
+ * provisório novo, então cada reimportação acrescentava um conceito duplicado à
+ * biblioteca global, para sempre. Devolve o `sourceLabel` do item (para virar alias do
+ * conceito-alvo, ver `addConceptAlias` em `concepts.ts`) ou `null` quando o item não
+ * existe mais neste programa. Escrita fora de hook, mesmo padrão de `confirmConcept`.
+ */
+export function repointSyllabusItemConcept(
+  workspaceSlug: string, itemId: string, conceptId: string, userId?: string,
+): string | null {
+  const syllabus = getSyllabus(workspaceSlug, userId);
+  const item = syllabus.items.find((candidate) => candidate.id === itemId);
+  if (!item) return null;
+
+  const next: Syllabus = {
+    ...syllabus,
+    items: syllabus.items.map((candidate) =>
+      (candidate.id === itemId ? { ...candidate, conceptId } : candidate)),
+  };
+  saveSyllabus(next, workspaceSlug, userId);
+  window.dispatchEvent(new Event('storage'));
+  return item.sourceLabel;
+}
+
 function makeId(seed: string): string {
   return `${seed}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -157,11 +184,21 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
 
   const save = (next: Syllabus) => persist(next);
 
+  /**
+   * Renomear é o momento natural em que um rótulo anterior vira alias do conceito
+   * (achado C2/PD-08 da revisão final: "renomeado ≠ removido + adicionado" exige que
+   * ALGUMA escrita registre essa equivalência — antes desta correção, nada em produção
+   * jamais gravava um alias, então uma reimportação com o rótulo novo não tinha como
+   * casar de volta com este conceito). O conceito é global (`concepts.ts`), então esta
+   * renomeação já vale para qualquer outro workspace que o reutilize.
+   */
   const renameItem = (itemId: string, label: string) => {
+    const item = syllabusRef.current.items.find((candidate) => candidate.id === itemId);
+    if (item) conceptsApi.renameConcept(item.conceptId, label);
     persist({
       ...syllabusRef.current,
-      items: syllabusRef.current.items.map((item) =>
-        (item.id === itemId ? { ...item, sourceLabel: label } : item)),
+      items: syllabusRef.current.items.map((candidate) =>
+        (candidate.id === itemId ? { ...candidate, sourceLabel: label } : candidate)),
     });
   };
 

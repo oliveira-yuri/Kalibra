@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { type Concept, type ConceptKind, type ConceptStatus } from '@workspace/core';
+import {
+  renameConcept as renameConceptPure, withAlias,
+  type Concept, type ConceptKind, type ConceptStatus,
+} from '@workspace/core';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -97,6 +100,26 @@ export function confirmConcept(conceptId: string, userId?: string): Concept[] {
   return next;
 }
 
+/**
+ * Acrescenta um alias a um conceito da biblioteca global. Mesmo padrão de escrita fora
+ * de hook que `confirmConcept` já usa (mesma justificativa: `applyApprovalSideEffects`
+ * roda de dentro de `useApprovals.approve`, sem uma instância de `useConcepts` para
+ * atualizar) — dispatcha `storage` ela mesma para que qualquer hook montado não
+ * reverta esta escrita na próxima chamada.
+ *
+ * Achado I1 da revisão final: aprovar uma fusão de conceito (`concept_merge`) promovia
+ * o alvo a `confirmed` mas nunca registrava, em lugar nenhum, que o rótulo do item que
+ * gerou a proposta é OUTRO NOME do mesmo conceito — sem isto, uma reimportação futura
+ * com a mesma redação nunca encontra esse conceito de novo (C2/PD-08).
+ */
+export function addConceptAlias(conceptId: string, alias: string, userId?: string): Concept[] {
+  const next = getConcepts(userId).map((concept) =>
+    (concept.id === conceptId ? withAlias(concept, alias) : concept));
+  saveConcepts(next, userId);
+  window.dispatchEvent(new Event('storage'));
+  return next;
+}
+
 export function useConcepts(userId?: string) {
   const [concepts, setConcepts] = useState<Concept[]>(() => getConcepts(userId));
   // Espelha o estado mais recente fora do ciclo de render: duas mutações
@@ -135,5 +158,16 @@ export function useConcepts(userId?: string) {
       (concept.id === conceptId ? { ...concept, status: 'confirmed' as const } : concept)));
   };
 
-  return { concepts, addConcept, confirmConcept: confirm };
+  /**
+   * Renomeia o nome canônico de um conceito já persistido, preservando o rótulo
+   * anterior como alias (`renameConcept`, `lib/core`) — o mecanismo do PD-08 usado por
+   * `useSyllabus.renameItem` quando um item CONFIRMADO é renomeado (achado C2 da
+   * revisão final).
+   */
+  const renameConcept = (conceptId: string, newCanonicalName: string) => {
+    persist(conceptsRef.current.map((concept) =>
+      (concept.id === conceptId ? renameConceptPure(concept, newCanonicalName) : concept)));
+  };
+
+  return { concepts, addConcept, confirmConcept: confirm, renameConcept };
 }

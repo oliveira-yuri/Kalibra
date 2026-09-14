@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { Syllabus, SyllabusItem, SyllabusItemCargo } from '@workspace/core';
-import { migrateSyllabus, getSyllabus, saveSyllabus, useSyllabus } from './syllabus';
+import { migrateSyllabus, getSyllabus, saveSyllabus, useSyllabus, repointSyllabusItemConcept } from './syllabus';
 import { getConcepts } from './concepts';
 
 const ITEM: SyllabusItem = {
@@ -165,6 +165,81 @@ describe('useSyllabus — conceitos vêm da biblioteca global, não do workspace
     ]);
     expect(result.current.concepts).toHaveLength(2);
     expect(getSyllabus('setec-campinas', 'user-1').items).toHaveLength(2);
+  });
+});
+
+describe('useSyllabus.renameItem — achado C2 da revisão final (PD-08: renomear vira alias do conceito)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('renomear um item atualiza o nome canônico do conceito e preserva o rótulo anterior como alias', () => {
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+
+    act(() => {
+      result.current.addItem(null, 'Crase', ['c1']);
+    });
+    const conceptId = result.current.syllabus.items[0].conceptId;
+
+    act(() => {
+      result.current.renameItem(result.current.syllabus.items[0].id, 'Emprego do acento indicativo de crase');
+    });
+
+    expect(result.current.syllabus.items[0].sourceLabel).toBe('Emprego do acento indicativo de crase');
+    const concept = getConcepts('user-1').find((c) => c.id === conceptId);
+    expect(concept?.canonicalName).toBe('Emprego do acento indicativo de crase');
+    expect(concept?.aliases).toEqual(['Crase']);
+  });
+
+  it('o conceito é global — renomear num workspace vale para qualquer outro que reutilize o mesmo conceito', () => {
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+    act(() => {
+      result.current.addItem(null, 'Crase', ['c1']);
+    });
+    const conceptId = result.current.syllabus.items[0].conceptId;
+
+    act(() => {
+      result.current.renameItem(result.current.syllabus.items[0].id, 'Emprego do acento indicativo de crase');
+    });
+
+    const outroWorkspace = renderHook(() => useSyllabus('bb-escriturario', 'user-1'));
+    expect(outroWorkspace.result.current.concepts.find((c) => c.id === conceptId)?.canonicalName)
+      .toBe('Emprego do acento indicativo de crase');
+  });
+});
+
+describe('repointSyllabusItemConcept — achado I1 da revisão final', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('reaponta o conceptId do item e devolve o sourceLabel dele', () => {
+    saveSyllabus({
+      items: [{
+        id: 'item-1', workspaceId: 'setec-campinas', conceptId: 'concept-antigo', parentItemId: null,
+        sourceLabel: 'Emprego do acento indicativo de crase', sourceExcerpt: null, page: null, confidence: 1,
+        uncertain: false,
+      }],
+      links: [],
+    }, 'setec-campinas', 'user-1');
+
+    const sourceLabel = repointSyllabusItemConcept('setec-campinas', 'item-1', 'concept-alvo', 'user-1');
+
+    expect(sourceLabel).toBe('Emprego do acento indicativo de crase');
+    expect(getSyllabus('setec-campinas', 'user-1').items[0].conceptId).toBe('concept-alvo');
+  });
+
+  it('devolve null e não escreve nada quando o item não existe', () => {
+    saveSyllabus({ items: [], links: [] }, 'setec-campinas', 'user-1');
+    expect(repointSyllabusItemConcept('setec-campinas', 'item-fantasma', 'concept-alvo', 'user-1')).toBeNull();
   });
 });
 

@@ -7,7 +7,8 @@ import {
   type ApprovalType,
   type ApprovalStatus,
 } from '@workspace/core';
-import { confirmConcept } from './concepts';
+import { confirmConcept, addConceptAlias } from './concepts';
+import { repointSyllabusItemConcept } from './syllabus';
 
 const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pendente', 'revisando', 'aprovado', 'rejeitado'];
 
@@ -163,10 +164,31 @@ export function applyDecision(
  * acharia ninguém, a lista voltaria inalterada, e nada quebraria de forma
  * visível: sem exceção, sem log, conceito continua provisório, reuso entre
  * workspaces quebrado de novo, suíte verde.
+ *
+ * Achado I1 da revisão final ("`concept_merge` não faz merge nenhum"): promover o
+ * alvo a `confirmed` nunca foi a fusão inteira — o item que gerou a proposta
+ * (`payloadAfter.itemId`, gravado por `EditalRevisar.handleConfirm`) continuava
+ * apontando para o seu próprio conceito provisório novo, e nenhum alias era
+ * registrado. Consequência prática: cada reimportação acrescentava um conceito
+ * duplicado à biblioteca global, para sempre, sem caminho de reconciliação. Agora a
+ * decisão também reaponta `syllabus_item.conceptId` para o alvo e acrescenta o
+ * `sourceLabel` do item como alias do alvo (`addConceptAlias`) — o mesmo mecanismo de
+ * produção de alias que uma renomeação usa (C2/PD-08), só que disparado pela decisão
+ * de fusão em vez de uma edição manual. `itemId` é lido de `payloadAfter` sem lançar
+ * quando ausente (formato antigo, ou tipo que nunca preenche isso) — a promoção do
+ * conceito continua acontecendo mesmo sem `itemId`, só o reapontamento é pulado.
  */
 export function applyApprovalSideEffects(decided: ApprovalItem, userId?: string): void {
   if (decided.type === 'concept_merge' && decided.status === 'aprovado' && decided.targetConceptId) {
     confirmConcept(decided.targetConceptId, userId);
+
+    const itemId = isRecord(decided.payloadAfter) && typeof decided.payloadAfter.itemId === 'string'
+      ? decided.payloadAfter.itemId
+      : null;
+    if (itemId && decided.workspaceId) {
+      const sourceLabel = repointSyllabusItemConcept(decided.workspaceId, itemId, decided.targetConceptId, userId);
+      if (sourceLabel) addConceptAlias(decided.targetConceptId, sourceLabel, userId);
+    }
   }
 }
 
