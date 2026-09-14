@@ -142,14 +142,29 @@ export function useConcepts(userId?: string) {
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
+  // Achado R3 da re-revisão: escrita durável PRIMEIRO, memória depois. Se a escrita
+  // lança (cota esgotada), nada em memória pode afirmar um estado que o armazenamento
+  // nunca teve — senão o retry do usuário parte dessa mentira e duplica.
   const persist = (next: Concept[]) => {
-    conceptsRef.current = next;
     saveConcepts(next, userId);
+    conceptsRef.current = next;
     setConcepts(next);
     window.dispatchEvent(new Event('storage'));
   };
 
+  /**
+   * Idempotente por id — achado R3 da re-revisão. `EditalRevisar.handleConfirm` chama
+   * isto uma vez por conceito novo, e desde o fix wave anterior o confirmar é
+   * RETENTÁVEL (uma falha no meio da sequência desfaz o trinco para que o usuário
+   * tente de novo). Sem esta guarda, o retry reapendava os conceitos que a primeira
+   * tentativa já tinha gravado: medido com 2 conceitos novos e uma falha na 3ª
+   * escrita, a biblioteca terminava com ids DUPLICADOS — uma corrupção que o
+   * trinco-morto anterior, por pior que fosse, não conseguia produzir. Um conceito
+   * novo nasce sempre com id novo (`makeId`/`makeReviewId`), então "id já presente"
+   * nunca é um conceito diferente: é exatamente a reapresentação do mesmo.
+   */
   const addConcept = (concept: Concept) => {
+    if (conceptsRef.current.some((existing) => existing.id === concept.id)) return;
     persist([...conceptsRef.current, concept]);
   };
 

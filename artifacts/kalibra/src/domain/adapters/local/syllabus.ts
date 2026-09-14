@@ -175,9 +175,12 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     return () => window.removeEventListener('storage', handleStorage);
   }, [workspaceSlug, userId]);
 
+  // Achado R3 da re-revisão: escrita durável PRIMEIRO, memória depois. Se a escrita
+  // lança (cota esgotada), nada em memória pode afirmar um estado que o armazenamento
+  // nunca teve — senão o retry do usuário parte dessa mentira e duplica.
   const persist = (next: Syllabus) => {
-    syllabusRef.current = next;
     saveSyllabus(next, workspaceSlug, userId);
+    syllabusRef.current = next;
     setSyllabus(next);
     window.dispatchEvent(new Event('storage'));
   };

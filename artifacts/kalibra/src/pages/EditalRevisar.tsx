@@ -9,9 +9,9 @@ import {
 import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
-import { versionFromPayload } from '@/domain/edital-structure-payload';
+import { versionFromPayload, comparedSyllabusVersion } from '@/domain/edital-structure-payload';
 import {
-  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
+  nextActionFor, isCommon, hasCommonItems, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
   renameConcept,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
@@ -302,31 +302,81 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const currentSyllabus = review ? review.syllabus : syllabusApi.syllabus;
 
   const uncertainFields = reviewState?.uncertainties ?? [];
+
+  // Achado R4 da re-revisão — por que estas duas derivações não podem depender do
+  // objeto `Syllabus` inteiro. Editar um peso devolve `{...syllabus, links: [...]}`:
+  // objeto NOVO a cada tecla, mas `items` é literalmente o MESMO array, e a topologia
+  // das ligações (quem está ligado a quem) é a mesma — só um número dentro de uma
+  // ligação mudou. O `useMemo` do fix wave anterior dependia de `review` e de
+  // `currentSyllabus`, os dois objetos recriados por tecla: medido, o memo economizava
+  // exatamente UMA chamada (a da montagem) e nenhuma durante a digitação — 4 chamadas
+  // de `diffSyllabus` depois de 3 teclas, contra 5 sem memo nenhum. As dependências
+  // abaixo são só o que uma edição de peso NÃO pode tocar.
+  const currentItems = currentSyllabus.items;
+  const currentLinks = currentSyllabus.links;
+  // A topologia das ligações como chave: `hasCommonItems` conta em quantos cargos cada
+  // item está, nunca lê `weight`/`questionCount` — mudar só o peso não pode mudar a
+  // resposta. Montar esta chave é O(ligações).
+  const linkTopology = useMemo(
+    () => JSON.stringify(currentLinks.map((link) => [link.syllabusItemId, link.cargoId])),
+    [currentLinks],
+  );
   // Um item comum a mais de um cargo é exatamente o que `dedupeEntries` uniu — o spec
   // exige que o usuário entenda isso de cara, não que descubra sozinho (Task 12).
-  // Achado menor da revisão final: `isCommon` é O(links) por item, então este `.some`
-  // era O(itens × links) recomputado em TODO render — inclusive a cada tecla digitada
-  // num campo de peso, que não muda `currentSyllabus` nenhum. `useMemo` só recalcula
-  // quando o Syllabus exibido de fato muda.
-  const hasCommonItems = useMemo(
-    () => currentSyllabus.items.some((item) => isCommon(currentSyllabus, item.id)),
-    [currentSyllabus],
+  const anyCommonItem = useMemo(
+    () => hasCommonItems({ items: currentItems, links: currentLinks }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `currentLinks` entra pela chave `linkTopology`, de propósito: mudar só o peso de uma ligação não muda a resposta, e re-executar por isso é o achado R4.
+    [currentItems, linkTopology],
   );
+
   // PD-08: comparação entre versões de edital. `syllabusApi.syllabus` continua sendo o
   // "antes" de verdade enquanto não se confirma — nada foi sobrescrito ainda — e
-  // `review.syllabus` é o "depois" proposto.
-  // Achado menor da revisão final: `diffSyllabus` é O(prev × concepts × strlen²) —
-  // medido em 339ms para 260 itens — e era recomputado em todo render sem `useMemo`,
-  // inclusive a cada tecla digitada num campo de peso/questões (que dispara re-render
-  // via `handleWeightChange`/`handleQuestionCountChange`, mas não muda nem `review.syllabus`
-  // nem `syllabusApi.syllabus` nem `syllabusApi.concepts`).
+  // `review.syllabus` é o "depois" proposto. `diffSyllabus` compara RÓTULO e CONCEITO:
+  // lê só `.items` dos dois lados mais a biblioteca de conceitos (ver `diff.ts`, e o
+  // teste que fixa isso em `diff.test.ts`) — `links` não entra no cálculo, então uma
+  // edição de peso não pode mudar o resultado e não deve custar os 339 ms medidos para
+  // 260 itens.
+  const reviewItems = review?.syllabus.items;
   const diff = useMemo(
     () => (review ? diffSyllabus(syllabusApi.syllabus, review.syllabus, syllabusApi.concepts) : null),
-    [review, syllabusApi.syllabus, syllabusApi.concepts],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `review` inteiro é recriado a cada tecla de peso; `review.syllabus.items` é o único pedaço dele que o diff lê (achado R4).
+    [reviewItems, syllabusApi.syllabus, syllabusApi.concepts],
+  );
+
+  // Achado R1 da re-revisão: o bloco de comparação do PD-08 era gated em
+  // `version !== '1'`. Enquanto `Edital.tsx` passava o literal `2`, isso era inofensivo
+  // por acidente; quando a versão passou a ser apurada de verdade, todo workspace já
+  // existente sem contador gravado voltava a apurar 1 — e a tela de REIMPORTAÇÃO, cuja
+  // única razão de existir é mostrar o que mudou numa retificação, escondia a
+  // comparação inteira. O número da versão nunca foi o sinal certo: o sinal é existir
+  // um programa salvo com que comparar, e o rótulo tem que nomear uma versão que de
+  // fato existiu (achado R2) — nunca `versão da URL − 1`, aritmética que inventa
+  // versões assim que qualquer número é pulado.
+  const versionNumber = Number.parseInt(version, 10);
+  const hasSavedProgramme = syllabusApi.syllabus.items.length > 0;
+  const comparedVersion = comparedSyllabusVersion(
+    approvalsApi.items, workspaceSlug, Number.isInteger(versionNumber) ? versionNumber : null, hasSavedProgramme,
   );
 
   const handleConfirm = () => {
     if (confirmedRef.current) return;
+
+    // Achado R5 da re-revisão: "Confirmar estrutura" não pode avançar o workspace
+    // quando não há proposta nenhuma para confirmar. Medido: um item `edital_structure`
+    // JÁ APROVADO ainda oferecia "Revisar estrutura" na fila (o outro lado deste
+    // achado, corrigido em `ApprovalCard.tsx`); o link abria esta tela, a busca de
+    // retomada exige `canDecide` e portanto não achava nada, a tela mostrava zero
+    // proposta — e "Confirmar estrutura" mesmo assim levava o workspace de
+    // `aguardando_revisao_edital` para `diagnostico_pendente`. A recusa do fix round 3
+    // não pegava esse caso por estar gated em `review &&`: sem `review`, ela nunca
+    // disparava. Sem proposta, confirmar não tem objeto — recusa antes de qualquer
+    // escrita, em vez de avançar um estado que ninguém decidiu.
+    if (!review) {
+      setConfirmError(
+        'Não há proposta de estrutura para revisar nesta versão — nada foi alterado. Ela pode já ter sido decidida: abra a fila de aprovação para ver o registro.',
+      );
+      return;
+    }
 
     // Fix round 3 (achado A residual): "carregar o que precisa, ou recusar completar".
     // O fix round 2 implementou o carregar; faltava o recusar. Quando existe uma
@@ -338,7 +388,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // de novo caso o dado apareça por outro caminho), e a tela explica o motivo em vez
     // de cair, em silêncio, no `updateWorkspace` de um slug que não existe — exatamente
     // o "no-op silencioso" que o achado A original apontou.
-    if (review && !workspaceDraft && !workspaceExists) {
+    if (!workspaceDraft && !workspaceExists) {
       setConfirmError(
         'Não foi possível recuperar os dados deste workspace para confirmar a importação. Reimporte o edital para tentar de novo.',
       );
@@ -386,64 +436,80 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       if (statusBeforeConfirm !== targetStatus && canAdvanceStatus) assertTransition(statusBeforeConfirm, targetStatus);
       const status = canAdvanceStatus ? targetStatus : statusBeforeConfirm;
 
-      if (review) {
-        // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
-        // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
-        // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
-        // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
-        review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
-        syllabusApi.save(review.syllabus);
-        // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
-        // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
-        // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
-        // `approve(id, payload)` grava esse payload novo E decide o item numa única
-        // escrita (`useApprovals.approve`), então o registro na fila e a gravação do
-        // programa nunca podem divergir — são o MESMO objeto `review`, não duas cópias
-        // que uma edição poderia desalinhar.
-        if (structureApprovalId) {
-          const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
-          // `uncertainties` viaja para o registro aprovado por completude (fix round 2,
-          // achado B); `workspaceDraft` vira `null` — a partir daqui o workspace É real
-          // (gravado logo abaixo), não falta mais criar. Achado I5 da revisão final:
-          // `newConcepts` vira `[]` — já foi escrito na biblioteca global na linha acima,
-          // então guardar outra cópia inteira dentro do item decidido é só peso morto
-          // que a fila nunca poda (o mesmo `review.syllabus` continua inteiro aqui, de
-          // propósito: é o que a Task 14/fix round 1 usa para provar que o registro
-          // aprovado é a árvore que de fato foi gravada).
-          approvalsApi.approve(structureApprovalId, {
-            version,
-            review: { ...review, newConcepts: [] },
-            mergedCount,
-            uncertainties: reviewState?.uncertainties ?? [],
-            workspaceDraft: null,
-          });
-        }
-
-        const now = new Date();
-        // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
-        // de aprovação são ref-sincronizados exatamente para que as N chamadas
-        // sobrevivam todas (ver approvals.test.ts e o teste desta tela).
-        review.proposedLinks.forEach((link) => {
-          approvalsApi.enqueue({
-            workspaceId: workspaceSlug,
-            type: 'concept_merge',
-            title: `Fundir item extraído com "${link.conceptId}"`,
-            rationale: rationaleFor(link),
-            // Proveniência (de onde a proposta veio): o item do edital que a gerou.
-            sourceRef: link.itemId,
-            // O que a decisão muta: o conceito que a ligação propõe confirmar — NUNCA
-            // `sourceRef` (achado da revisão da fila de aprovação: usar proveniência
-            // aqui faria `confirmConcept` receber um id que não bate com nada, e a
-            // aprovação "aplicaria" em silêncio, sem efeito).
-            targetConceptId: link.conceptId,
-            confidence: link.score,
-            payloadBefore: { status: 'provisional' },
-            payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
-          }, now);
+      // `review` é garantidamente não-nulo aqui: a recusa do achado R5, no topo desta
+      // função, já devolveu cedo quando não há proposta para confirmar.
+      // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
+      // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
+      // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
+      // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
+      review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
+      syllabusApi.save(review.syllabus);
+      // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
+      // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
+      // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
+      // `approve(id, payload)` grava esse payload novo E decide o item numa única
+      // escrita (`useApprovals.approve`), então o registro na fila e a gravação do
+      // programa nunca podem divergir — são o MESMO objeto `review`, não duas cópias
+      // que uma edição poderia desalinhar.
+      if (structureApprovalId) {
+        const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+        // `uncertainties` viaja para o registro aprovado por completude (fix round 2,
+        // achado B); `workspaceDraft` vira `null` — a partir daqui o workspace É real
+        // (gravado logo abaixo), não falta mais criar. Achado I5 da revisão final:
+        // `newConcepts` vira `[]` — já foi escrito na biblioteca global na linha acima,
+        // então guardar outra cópia inteira dentro do item decidido é só peso morto
+        // que a fila nunca poda (o mesmo `review.syllabus` continua inteiro aqui, de
+        // propósito: é o que a Task 14/fix round 1 usa para provar que o registro
+        // aprovado é a árvore que de fato foi gravada).
+        approvalsApi.approve(structureApprovalId, {
+          version,
+          review: { ...review, newConcepts: [] },
+          mergedCount,
+          uncertainties: reviewState?.uncertainties ?? [],
+          workspaceDraft: null,
         });
-
-        if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
       }
+
+      const now = new Date();
+      // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
+      // de aprovação são ref-sincronizados exatamente para que as N chamadas
+      // sobrevivam todas (ver approvals.test.ts e o teste desta tela).
+      //
+      // Achado R3 da re-revisão: desde que o confirmar virou RETENTÁVEL (achado I5 do
+      // fix wave anterior: uma falha no meio desfaz o trinco para o usuário tentar de
+      // novo), este laço rodava inteiro de novo a cada tentativa — e `enqueue` carimba
+      // um id novo em cada chamada, então o retry duplicava na fila as fusões que a
+      // primeira tentativa já tinha gravado. A guarda é por CONTEÚDO, não por um ref
+      // de progresso: sobrevive a uma remontagem da tela, que é quando um trinco em
+      // memória não existe mais. Uma fusão é a mesma quando aponta para o mesmo
+      // conceito-alvo a partir do mesmo item de origem, no mesmo workspace.
+      const mergeKey = (conceptId: string | null, itemId: string | null) => `${conceptId}→${itemId}`;
+      const alreadyEnqueued = new Set(
+        approvalsApi.items
+          .filter((item) => item.type === 'concept_merge' && item.workspaceId === workspaceSlug)
+          .map((item) => mergeKey(item.targetConceptId, item.sourceRef)),
+      );
+      review.proposedLinks.forEach((link) => {
+        if (alreadyEnqueued.has(mergeKey(link.conceptId, link.itemId))) return;
+        approvalsApi.enqueue({
+          workspaceId: workspaceSlug,
+          type: 'concept_merge',
+          title: `Fundir item extraído com "${link.conceptId}"`,
+          rationale: rationaleFor(link),
+          // Proveniência (de onde a proposta veio): o item do edital que a gerou.
+          sourceRef: link.itemId,
+          // O que a decisão muta: o conceito que a ligação propõe confirmar — NUNCA
+          // `sourceRef` (achado da revisão da fila de aprovação: usar proveniência
+          // aqui faria `confirmConcept` receber um id que não bate com nada, e a
+          // aprovação "aplicaria" em silêncio, sem efeito).
+          targetConceptId: link.conceptId,
+          confidence: link.score,
+          payloadBefore: { status: 'provisional' },
+          payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
+        }, now);
+      });
+
+      if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
 
       // Fix round 2 (achado A, crítico): antes, só `pending.isNew && pending.workspace`
       // decidia entre criar e atualizar — e `pending` está vazio numa retomada da fila
@@ -612,9 +678,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         <p className="text-[13px] text-[#8e98a8]">Você pode renomear, excluir e adicionar tópicos manualmente.</p>
       </header>
 
-      {version !== '1' && diff && (
+      {diff && comparedVersion !== null && (
         <section className="p-5 bg-white dark:bg-[#131821] border border-[#d5dede] dark:border-[#29313d] rounded-sm space-y-4" data-testid="syllabus-diff">
-          <h3 className="k-eyebrow">COMPARADO COM A VERSÃO {Number(version) - 1}</h3>
+          <h3 className="k-eyebrow">COMPARADO COM A VERSÃO {comparedVersion}</h3>
 
           <div>
             <div className="flex items-center gap-2 mb-2 text-[#6b8d00] dark:text-[#8ed9ae]">
@@ -669,7 +735,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       )}
 
-      {hasCommonItems && (
+      {anyCommonItem && (
         <div className="k-card-soft p-4 flex items-start gap-3">
           <Info size={15} className="k-muted shrink-0 mt-0.5" />
           <p className="text-[12px] leading-5 k-muted">

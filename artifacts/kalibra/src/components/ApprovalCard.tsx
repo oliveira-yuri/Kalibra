@@ -125,13 +125,25 @@ export function ApprovalCard({
                           return ` ${mergedCount} ${mergedCount === 1 ? 'item é comum' : 'itens são comuns'} a mais de um cargo e ${verb} unido${mergedCount === 1 ? '' : 's'} na proposta.`;
                         })()}
                       </p>
-                      <Link
-                        href={reviewHrefFor(item)}
-                        className="k-button k-button-quiet self-start whitespace-nowrap"
-                        data-testid={`link-review-structure-${item.id}`}
-                      >
-                        Revisar estrutura
-                      </Link>
+                      {/* Achado R5 da re-revisão: um item JÁ DECIDIDO não pode convidar
+                          para uma tela de revisão. Medido: um `edital_structure`
+                          "aprovado" ainda renderizava este link; a tela do outro lado
+                          só retoma propostas que `canDecide` autoriza, então abria sem
+                          nada para revisar — e "Confirmar estrutura" ainda avançava o
+                          status do workspace. `decidableInline` (acima) fechava só a
+                          caixa de seleção e os botões inline; o link ficava de fora, e
+                          era ele o caminho real para o dano. Decidido é terminal: o
+                          cartão continua mostrando a decisão, sem oferecer uma ação que
+                          não existe mais. */}
+                      {!decided && (
+                        <Link
+                          href={reviewHrefFor(item)}
+                          className="k-button k-button-quiet self-start whitespace-nowrap"
+                          data-testid={`link-review-structure-${item.id}`}
+                        >
+                          Revisar estrutura
+                        </Link>
+                      )}
                     </div>
                   ) : (
                     <ApprovalDiff before={item.payloadBefore} after={item.payloadAfter} />

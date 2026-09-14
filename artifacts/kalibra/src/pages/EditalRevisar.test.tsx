@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
-import { stageWorkspaceImport, reserveNextSyllabusVersion } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
 
 vi.mock('@clerk/react', () => clerkReactMock);
 vi.mock('@clerk/react/internal', () => ({
@@ -945,18 +945,21 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
 
     // Primeira tentativa de reimportação — abandonada sem decidir (o usuário navega
     // para outro lugar; nem "Confirmar" nem "Descartar" são clicados).
-    const primeiraVersao = reserveNextSyllabusVersion('setec-campinas', TEST_USER.id);
+    const primeiraVersao = nextSyllabusVersionFor('setec-campinas', TEST_USER.id);
     stageWorkspaceImport('setec-campinas', { isNew: false, updates: {}, extractionOutput: extractionWith('Importação abandonada') }, TEST_USER.id);
     window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${primeiraVersao}`);
     const { default: App } = await import('../App');
     const abandonada = render(<App />);
-    expect(screen.getByText('Importação abandonada')).toBeTruthy();
+    // `getAllByText`: o workspace já tem programa salvo, então esta reimportação JÁ
+    // mostra a comparação do PD-08 (achado R1) — o rótulo aparece na árvore e de novo
+    // na lista de "adicionado".
+    expect(screen.getAllByText('Importação abandonada').length).toBeGreaterThan(0);
     abandonada.unmount();
 
     // Segunda tentativa — desta vez de verdade. Antes do achado C1, a URL seria
     // sempre o mesmo literal `/edital/revisar/2`, e o item ANTERIOR (ainda pendente
     // na fila) seria retomado em vez desta proposta nova.
-    const segundaVersao = reserveNextSyllabusVersion('setec-campinas', TEST_USER.id);
+    const segundaVersao = nextSyllabusVersionFor('setec-campinas', TEST_USER.id);
     expect(segundaVersao).not.toBe(primeiraVersao);
     stageWorkspaceImport('setec-campinas', { isNew: false, updates: {}, extractionOutput: extractionWith('Importação real') }, TEST_USER.id);
     window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${segundaVersao}`);
@@ -995,7 +998,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
 
     // Primeira tentativa — mesmo título, workspace nunca chega a ser criado (só
     // `handleConfirm` cria; abandonar antes disso não cria nada).
-    const primeiraVersao = reserveNextSyllabusVersion(SLUG, TEST_USER.id);
+    const primeiraVersao = nextSyllabusVersionFor(SLUG, TEST_USER.id);
     stageWorkspaceImport(SLUG, {
       isNew: true, workspace: draftDe('Concurso Repetido'), extractionOutput: extractionWith('Rascunho abandonado'),
     }, TEST_USER.id);
@@ -1007,7 +1010,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
 
     // Segunda tentativa — MESMO título (`uniqueSlug` devolveria o mesmo slug, já que
     // o workspace da primeira tentativa nunca chegou a existir de verdade).
-    const segundaVersao = reserveNextSyllabusVersion(SLUG, TEST_USER.id);
+    const segundaVersao = nextSyllabusVersionFor(SLUG, TEST_USER.id);
     expect(segundaVersao).not.toBe(primeiraVersao);
     stageWorkspaceImport(SLUG, {
       isNew: true, workspace: draftDe('Concurso Repetido'), extractionOutput: extractionWith('Rascunho de verdade'),
@@ -1097,5 +1100,151 @@ describe('EditalRevisar — achados C2/I1 da revisão final (PD-08: renomear em 
     expect(diffSection.innerHTML).toContain('"Emprego do acento indicativo de crase" → "Crase"');
     expect(diffSection.innerHTML).toContain('+ 0 adicionado');
     expect(diffSection.innerHTML).toContain('− 0 removido');
+  });
+});
+
+describe('EditalRevisar — achado R5 da re-revisão (confirmar sem proposta recusa em vez de avançar o status)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => cleanup());
+
+  it('abrir a versão de um item JÁ APROVADO não tem o que confirmar — o status do workspace não anda', async () => {
+    // A outra metade do achado: o link da fila foi fechado para itens decididos
+    // (`ApprovalCard`), mas a URL continua alcançável (histórico, favorito, link
+    // colado). A tela abre sem proposta — `canDecide` recusa retomar um item decidido
+    // — e antes desta correção "Confirmar estrutura" ainda levava o workspace de
+    // `aguardando_revisao_edital` para `diagnostico_pendente`, sem nada para confirmar.
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+    window.localStorage.setItem(APPROVALS_KEY, JSON.stringify([{
+      id: 'appr-aprovado', workspaceId: 'setec-campinas', type: 'edital_structure', status: 'aprovado',
+      title: 'Estrutura extraída do edital · versão 1', rationale: '', sourceRef: null,
+      targetConceptId: null, confidence: null, payloadBefore: null,
+      payloadAfter: { version: '1', review: null, mergedCount: 0, uncertainties: [], workspaceDraft: null },
+      createdAt: '2026-09-01T00:00:00.000Z', decidedAt: '2026-09-01T01:00:00.000Z', reason: null,
+    }]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    // A mensagem tem que ser a da recusa POR NÃO HAVER PROPOSTA — não a genérica de
+    // "armazenamento indisponível" que o try/catch mostraria se a função tivesse
+    // seguido em frente e explodido no meio do caminho.
+    expect(screen.getByTestId('confirm-error').textContent).toContain('Não há proposta de estrutura para revisar');
+    expect(readWorkspaceStatus()).toBe('aguardando_revisao_edital');
+    // E nada foi gravado a reboque do avanço fantasma.
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
+    expect(readApprovals().find((item) => item.id === 'appr-aprovado')?.status).toBe('aprovado');
+  });
+});
+
+describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é idempotente)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(CONCEPTS_KEY, JSON.stringify([CRASE_PROVISIONAL, MAT_FINANCEIRA_CONFIRMED]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  /**
+   * Faz a N-ésima escrita durável falhar (cota esgotada é o regime esperado: a fila
+   * guarda cópias inteiras do Syllabus em todo item e nunca poda itens decididos), e
+   * volta ao normal depois — é assim que o usuário vive um retry de verdade.
+   */
+  function falharNaEscrita(n: number) {
+    // `Storage.prototype`, não `window.localStorage`: no jsdom o objeto de
+    // armazenamento é um Proxy, e uma propriedade própria definida sobre ele não
+    // intercepta chamada nenhuma — o espião passaria despercebido e o teste "passaria"
+    // sem nunca ter provocado a falha que ele existe para provocar.
+    const real = Storage.prototype.setItem;
+    let escritas = 0;
+    return vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      // Só o armazenamento durável: `sessionStorage` (a importação pendente) divide o
+      // mesmo protótipo e não é o que este teste está derrubando.
+      if (this !== window.localStorage) {
+        real.call(this, key, value);
+        return;
+      }
+      escritas += 1;
+      if (escritas === n) throw new DOMException('QuotaExceededError', 'QuotaExceededError');
+      real.call(this, key, value);
+    });
+  }
+
+  it('falhar no meio e confirmar de novo não duplica conceito nenhum na biblioteca global', async () => {
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+    seedPendingImport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const stub = falharNaEscrita(3);
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+    // A falha é visível e o trinco foi desfeito (achado I5 do fix wave anterior).
+    expect(screen.getByTestId('confirm-error')).toBeTruthy();
+    stub.mockRestore();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const conceitos: Array<{ id: string }> = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
+    // 2 semeados + os 2 provisórios desta extração. Medido antes da correção: 5
+    // entradas, com ids REPETIDOS — uma corrupção da biblioteca global que o
+    // trinco-morto anterior, por pior que fosse, não conseguia produzir.
+    expect(new Set(conceitos.map((concept) => concept.id)).size).toBe(conceitos.length);
+    expect(conceitos).toHaveLength(4);
+  });
+
+  it('falhar no meio e confirmar de novo não duplica as fusões (concept_merge) na fila', async () => {
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+    seedPendingImport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    // A 6ª escrita cai já dentro do laço de `concept_merge` — o primeiro já foi
+    // enfileirado e persistido quando o segundo falha.
+    const stub = falharNaEscrita(6);
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+    expect(screen.getByTestId('confirm-error')).toBeTruthy();
+    stub.mockRestore();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const approvals = readApprovals();
+    const merges = approvals.filter((item) => item.type === 'concept_merge');
+    expect(merges).toHaveLength(2);
+    // Uma fusão por (conceito-alvo, item de origem) — nunca duas do mesmo par.
+    const pares = merges.map((item) => `${item.targetConceptId}/${item.sourceRef}`);
+    expect(new Set(pares).size).toBe(2);
+    expect(approvals.filter((item) => item.type === 'edital_structure')).toHaveLength(1);
+  });
+
+  it('o retry completa de verdade: o programa é gravado e o status avança', async () => {
+    seedWorkspaceWithStatus('aguardando_revisao_edital');
+    seedPendingImport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const stub = falharNaEscrita(3);
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+    stub.mockRestore();
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
+      ['Crase', 'Matemática financeira básica'].sort(),
+    );
+    expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
+    expect(window.sessionStorage.getItem(PENDING_KEY)).toBeNull();
   });
 });

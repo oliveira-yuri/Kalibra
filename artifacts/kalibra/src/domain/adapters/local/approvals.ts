@@ -216,9 +216,12 @@ export function useApprovals(userId?: string) {
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
+  // Achado R3 da re-revisão: escrita durável PRIMEIRO, memória depois. Se a escrita
+  // lança (cota esgotada), nada em memória pode afirmar um estado que o armazenamento
+  // nunca teve — senão o retry do usuário parte dessa mentira e duplica.
   const persist = (next: ApprovalItem[]) => {
-    itemsRef.current = next;
     saveApprovals(next, userId);
+    itemsRef.current = next;
     setItems(next);
     window.dispatchEvent(new Event('storage'));
   };

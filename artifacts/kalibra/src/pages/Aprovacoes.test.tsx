@@ -176,3 +176,52 @@ describe('Aprovacoes — o link da estrutura sempre aponta para o workspace DONO
     expect(link.getAttribute('href')).not.toContain('setec-campinas');
   });
 });
+
+describe('Aprovacoes — achado R5 da re-revisão (um item decidido não convida para a tela de revisão)', () => {
+  const decidedStructureItem = (id: string, status: 'aprovado' | 'rejeitado'): ApprovalItem => ({
+    ...pendingStructureItem(id, '1'),
+    status,
+    decidedAt: '2026-09-02T00:00:00.000Z',
+  });
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/aprovacoes');
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it('um edital_structure APROVADO não renderiza mais "Revisar estrutura"', async () => {
+    // Medido na re-revisão: o link continuava lá. A tela do outro lado só retoma
+    // propostas que `canDecide` autoriza, então abria vazia — e "Confirmar estrutura"
+    // ainda avançava o status do workspace. `decidableInline` fechava a caixa de
+    // seleção e os botões inline, mas nunca o link, que era o caminho real para o dano.
+    window.localStorage.setItem(storageKey(), JSON.stringify([decidedStructureItem('appr-decidido', 'aprovado')]));
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(screen.getByTestId('card-approval-appr-decidido')).toBeTruthy();
+    expect(screen.queryByTestId('link-review-structure-appr-decidido')).toBeNull();
+  });
+
+  it('um edital_structure REJEITADO também não renderiza o link — decidido é terminal nos dois sentidos', async () => {
+    window.localStorage.setItem(storageKey(), JSON.stringify([decidedStructureItem('appr-rejeitado', 'rejeitado')]));
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(screen.queryByTestId('link-review-structure-appr-rejeitado')).toBeNull();
+  });
+
+  it('um item ainda PENDENTE continua oferecendo o link — a correção não fecha o caminho legítimo', async () => {
+    window.localStorage.setItem(storageKey(), JSON.stringify([pendingStructureItem('appr-pendente', '1')]));
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(screen.getByTestId('link-review-structure-appr-pendente')).toBeTruthy();
+  });
+});
