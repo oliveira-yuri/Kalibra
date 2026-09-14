@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Plus, MoreHorizontal } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { clearPendingWorkspaceImport, getPendingWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
+import { nextActionFor } from '@workspace/core';
 
 export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const { user } = useUser();
@@ -21,13 +22,23 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const [missing, setMissing] = useState<Record<string, string>>({});
   
   const handleConfirm = () => {
+    // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
+    // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
+    // status ao lado dela (ver regressão I2).
+    const status = 'diagnostico_pendente' as const;
     if (pending?.isNew && pending.workspace) {
-      addWorkspace({ ...pending.workspace, importStatus: 'completed', nextAction: 'Pronto para estudar' });
+      addWorkspace({
+        ...pending.workspace,
+        importStatus: 'completed',
+        status,
+        nextAction: nextActionFor(status),
+      });
     } else {
       updateWorkspace(workspaceSlug, {
         ...(pending?.updates || {}),
         importStatus: 'completed',
-        nextAction: 'Pronto para estudar'
+        status,
+        nextAction: nextActionFor(status),
       });
     }
     clearPendingWorkspaceImport(workspaceSlug, user?.id);

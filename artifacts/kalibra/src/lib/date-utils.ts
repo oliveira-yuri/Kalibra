@@ -1,15 +1,22 @@
+import { daysUntil } from '@workspace/core';
+
+/**
+ * Convenção de três vias para uma contagem regressiva: D−n para o futuro, HOJE para
+ * hoje, D+n para o passado. Compartilhada entre a barra lateral (`getDaysRemaining`,
+ * abaixo) e o card do Portal (`Portal.tsx`) para que as duas telas nunca possam voltar
+ * a mostrar textos diferentes para a mesma conta — ver a regressão I1.
+ */
+export function formatCountdown(dias: number): string {
+  if (dias > 0) return `D−${dias}`;
+  if (dias === 0) return 'HOJE';
+  return `D+${Math.abs(dias)}`;
+}
+
 export function getDaysRemaining(dateString: string): string {
   if (!dateString) return 'D−?';
-  const targetDate = new Date(dateString);
-  targetDate.setHours(0, 0, 0, 0);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const diffTime = targetDate.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
-  if (diffDays > 0) return `D−${diffDays}`;
-  if (diffDays === 0) return `HOJE`;
-  return `D+${Math.abs(diffDays)}`;
+  const dias = daysUntil(dateString, new Date());
+  if (dias === null) return 'D−?';
+  return formatCountdown(dias);
 }
 
 export function formatShortDate(dateString: string): string {
