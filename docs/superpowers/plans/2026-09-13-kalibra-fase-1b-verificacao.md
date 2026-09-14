@@ -2,13 +2,16 @@
 
 Data: 2026-09-14
 Branch: `fase-1b-edital-aprovacoes`
-Commits da fase: `6cfd665` (modelar conceito global em `lib/core`) .. `cf5c2b0` (Task 15:
-alimentar a tela Edital com o programa salvo) + este registro (Task 16) — 27 commits antes
-deste documento, 28 com ele.
-Escopo direto deste registro: Tasks 14–16 (`f1c8f9e`, `cf5c2b0`, e este commit). As Tasks
-1–13 já têm sua própria verificação implícita nas mensagens de commit e nos fix rounds
-registrados nelas; este documento não re-deriva o que já foi decidido lá, só confirma que o
-estado final (depois de 14–16) continua consistente com tudo isso.
+Commits da fase: `6cfd665` (modelar conceito global em `lib/core`) .. `c6fd346` (fix round 1:
+link da fila sempre aponta para o workspace dono do item) + este registro — 30 commits antes
+deste documento, 31 com ele.
+Escopo direto deste registro: Tasks 14–16 (`f1c8f9e`, `cf5c2b0`, `f79a96d`) e o fix round 1
+sobre elas (`4092764`, `c6fd346`), motivado por uma revisão de código que encontrou dois
+achados Críticos/Importantes e um Importante adicional, mais três menores — detalhados na
+seção 10. As Tasks 1–13 já têm sua própria verificação implícita nas mensagens de commit e
+nos fix rounds registrados nelas; este documento não re-deriva o que já foi decidido lá, só
+confirma que o estado final (depois de Tasks 14–16 e do fix round 1) continua consistente com
+tudo isso.
 
 ## 1. Contagem de testes por pacote
 
@@ -19,10 +22,10 @@ $ pnpm run test
 | Pacote | Arquivos de teste | Testes |
 |---|---|---|
 | `lib/core` | 11 | 187 |
-| `artifacts/kalibra` | 16 | 210 |
-| **Total** | **27** | **397** |
+| `artifacts/kalibra` | 16 | 213 |
+| **Total** | **27** | **400** |
 
-Detalhe por arquivo, `lib/core` (187):
+Detalhe por arquivo, `lib/core` (187, intocado por Tasks 14–16 e pelo fix round 1):
 
 | Arquivo | Testes |
 |---|---|
@@ -38,13 +41,13 @@ Detalhe por arquivo, `lib/core` (187):
 | `approval/approval.test.ts` | 8 |
 | `workspace/slug.test.ts` | 8 |
 
-Detalhe por arquivo, `artifacts/kalibra` (210):
+Detalhe por arquivo, `artifacts/kalibra` (213):
 
 | Arquivo | Testes |
 |---|---|
 | `domain/adapters/local/workspaces.test.ts` | 37 |
 | `domain/adapters/local/approvals.test.ts` | 28 |
-| `pages/EditalRevisar.test.tsx` | 26 |
+| `pages/EditalRevisar.test.tsx` | 28 |
 | `__tests__/screens.snapshot.test.tsx` | 22 |
 | `domain/adapters/local/syllabus.test.ts` | 18 |
 | `domain/adapters/local/concepts.test.ts` | 16 |
@@ -54,19 +57,19 @@ Detalhe por arquivo, `artifacts/kalibra` (210):
 | `domain/adapters/local/extraction.test.ts` | 7 |
 | `components/AvailabilityFields.test.tsx` | 4 |
 | `lib/date-utils.test.ts` | 4 |
+| `pages/Aprovacoes.test.tsx` | 4 |
 | `components/SourceExcerpt.test.tsx` | 3 |
 | `components/CargoFilter.test.tsx` | 3 |
-| `pages/Aprovacoes.test.tsx` | 3 |
 | `pages/NovoWorkspace.test.tsx` | 3 |
 
 `lib/core` continua puro (sem I/O) — a espinha do domínio descrita no "Estado ao fim da Fase
 1B" do plano: conceito global, programa de estudo, deduplicação, contrato de extração, diff
 de versões e fila de aprovação, tudo testado sem tocar `localStorage`/`fetch`/relógio.
 
-Números antes de Tasks 14–16 (para referência): `lib/core` já estava em 187 (nenhuma task
-destas mexeu em `lib/core`); `artifacts/kalibra` estava em 200. Task 14 acrescentou 5 testes
-(4 num novo `describe('EditalRevisar — Task 14 …')` + 1 em `Aprovacoes.test.tsx`), Task 15
-acrescentou 5 (`describe('Edital — Task 15 …')`) — 200 → 210.
+Evolução dos números de `artifacts/kalibra` nesta rodada: 200 (antes de Tasks 14–16) → 210
+(Task 14 +5, Task 15 +5) → 213 no fix round 1 (`EditalRevisar.test.tsx` 26 → 28: um teste
+para cada achado Crítico/Importante do "fix único" — seção 10; `Aprovacoes.test.tsx` 3 → 4:
+um teste para o achado do link cruzando workspace).
 
 ## 2. Saída do portão
 
@@ -81,16 +84,19 @@ artifacts/api-server typecheck: Done
 artifacts/mockup-sandbox typecheck: Done
 artifacts/kalibra typecheck: Done
 ```
-Resultado: **passou** (exit 0), sem erros em nenhum dos 4 pacotes com typecheck.
+Resultado: **passou** (exit 0), sem erros em nenhum dos 4 pacotes com typecheck. (O fix round
+1 quebrou o typecheck uma vez no caminho — `within(row())` recebendo `Element` em vez de
+`HTMLElement` num teste novo — corrigido com um cast antes deste resultado final; não chegou
+a ser commitado quebrado.)
 
 ### `pnpm run test`
 
 ```
 lib/core:            11 arquivos, 187 testes — passou
-artifacts/kalibra:   16 arquivos, 210 testes — passou
+artifacts/kalibra:   16 arquivos, 213 testes — passou
 ```
-Resultado: **passou**. Ver seção 3 para as três execuções sob fusos diferentes (mesmo
-resultado nas três, 0 snapshots reescritos).
+Resultado: **passou**. Ver seção 4 para as três execuções sob fusos diferentes (mesmo
+resultado nas três, 0 snapshots reescritos, incluindo depois do fix round 1).
 
 ### `pnpm run build`
 
@@ -122,8 +128,16 @@ $ grep -rn "from '@/data'" artifacts/kalibra/src/pages/Edital.tsx || echo "Edita
 Edital nao le mais dados mockados
 ```
 
-Os greps 1, 2 e 4 deram exatamente a mensagem de confirmação esperada. O grep 3
-(`hasEdital`) não deu a mensagem de saída — o padrão `grep -v "hasEdital("` é literal
+Os greps 1, 2 e 4 deram exatamente a mensagem de confirmação esperada. **Nota sobre o grep
+1:** na primeira passada do fix round 1, os comentários novos de `EditalRevisar.tsx`
+(explicando por que a fila substitui o armazenamento por aba) citavam literalmente as
+palavras `` `localStorage` `` e `` `sessionStorage` `` em prosa, e o grep — que não distingue
+comentário de código — os pegou. Reescritos para descrever o mesmo mecanismo sem citar as
+APIs pelo nome (“armazenamento durável e compartilhado entre abas” / “armazenamento por
+aba”); o grep volta a dar só a mensagem de confirmação, e nenhuma tela — comentário ou código
+— toca essas APIs de verdade.
+
+O grep 3 (`hasEdital`) não dá a mensagem de saída — o padrão `grep -v "hasEdital("` é literal
 demais: ele também casa qualquer menção a `hasEdital` que não seja seguida imediatamente por
 `(`, incluindo a própria linha de `import`. Investigando as 17 linhas devolvidas:
 
@@ -154,7 +168,10 @@ novo" — não é uma regressão desta fase, é uma limitação do padrão de bu
 
 ## 4. A suíte em três fusos (Task 16, Step 3)
 
-O Bash desta sessão descarta `TZ` — rodado via PowerShell, como o brief instruiu:
+O Bash desta sessão descarta `TZ` — rodado via PowerShell, como o brief instruiu. Executado
+duas vezes: uma vez ao final de Tasks 14–16 (210 testes em `artifacts/kalibra`), e de novo
+depois do fix round 1 (213 testes), para confirmar que a correção não introduziu nenhuma
+dependência de relógio nova.
 
 ```powershell
 foreach ($tz in @("UTC","America/Sao_Paulo","Pacific/Kiritimati")) { $env:TZ = $tz; pnpm run test }
@@ -162,16 +179,18 @@ foreach ($tz in @("UTC","America/Sao_Paulo","Pacific/Kiritimati")) { $env:TZ = $
 
 | Fuso | `lib/core` | `artifacts/kalibra` | Snapshots reescritos |
 |---|---|---|---|
-| `UTC` | 187 passou | 210 passou | 0 |
-| `America/Sao_Paulo` | 187 passou | 210 passou | 0 |
-| `Pacific/Kiritimati` | 187 passou | 210 passou | 0 |
+| `UTC` | 187 passou | 213 passou | 0 |
+| `America/Sao_Paulo` | 187 passou | 213 passou | 0 |
+| `Pacific/Kiritimati` | 187 passou | 213 passou | 0 |
 
-Resultado idêntico nos três fusos (397 testes passando em cada rodada), nenhuma linha
-`Snapshots … written/updated` em nenhuma das três execuções — exatamente o esperado pelo
-brief. `Pacific/Kiritimati` (UTC+14, o fuso mais adiantado do mundo) e `UTC` são os extremos
-mais prováveis de expor um `new Date()` sem fuso explícito; `lib/core` não lê relógio algum
-(grep da seção 3), e o congelamento de tempo do frontend (`screens.snapshot.test.tsx`, via
-`vi.useFakeTimers()`/`vi.setSystemTime()`, herdado da Fase 1A) já resolve o determinismo ali.
+Resultado idêntico nos três fusos (400 testes passando em cada rodada, depois do fix round
+1), nenhuma linha `Snapshots … written/updated` em nenhuma das três execuções — exatamente o
+esperado pelo brief. `Pacific/Kiritimati` (UTC+14, o fuso mais adiantado do mundo) e `UTC` são
+os extremos mais prováveis de expor um `new Date()` sem fuso explícito; `lib/core` não lê
+relógio algum (grep da seção 3), e o congelamento de tempo do frontend
+(`screens.snapshot.test.tsx`, via `vi.useFakeTimers()`/`vi.setSystemTime()`, herdado da Fase
+1A) já resolve o determinismo ali. Nenhum dos testes novos do fix round 1 usa relógio real —
+`readApprovals()`/`readWorkspaceStatus()` e as buscas por `data-testid` não dependem de data.
 
 ## 5. Conferência visual manual nos dois temas (Task 16, Step 4)
 
@@ -204,8 +223,8 @@ servidor de dev foi encerrado logo em seguida.
 **O que foi conferido como substituto** (evidência de código + suíte automatizada, não
 inspeção visual real):
 - `pnpm run build` e a subida de `pnpm run dev` não falham — a aplicação está sintaticamente
-  e estruturalmente sã nas duas telas que Tasks 14–15 tocaram.
-- Os 210 testes de `artifacts/kalibra` (incluindo 22 em `screens.snapshot.test.tsx`, que
+  e estruturalmente sã nas telas que Tasks 14–15 e o fix round 1 tocaram.
+- Os 213 testes de `artifacts/kalibra` (incluindo 22 em `screens.snapshot.test.tsx`, que
   cobrem 16 rotas, e os testes dedicados de `EditalRevisar.test.tsx`/`Edital.test.tsx`/
   `Aprovacoes.test.tsx`) exercitam o HTML renderizado via `@testing-library/react`, com
   `@clerk/react` inteiramente mockado (`clerk-mock.ts`) — nunca o widget real.
@@ -227,16 +246,27 @@ inspeção visual real):
   nem por um navegador renderizando de fato.
 - A tela Edital com o programa salvo, como um usuário veria na prática (scroll, hover,
   tooltip do `title` nas células "sem dados", responsividade real de viewport).
+- O comportamento real de fechar a aba/reiniciar o navegador que o achado 1 do fix round 1
+  descreve — o teste que o cobre (seção 10) simula a perda de `sessionStorage` chamando
+  `window.sessionStorage.clear()` entre dois `render()`, que é a aproximação mais fiel
+  disponível em jsdom, mas não é literalmente fechar uma aba do navegador.
 
-A evidência de que Tasks 14–16 estão corretas descansa inteiramente sobre a suíte de testes
-(que mocka Clerk e roda em jsdom, não num navegador) e sobre a leitura manual dos diffs de
-snapshot antes de cada `-u` (seção 6) — não sobre inspeção visual real. Isto está registrado
-como lacuna aberta, não como "verificado".
+A evidência de que Tasks 14–16 e o fix round 1 estão corretos descansa inteiramente sobre a
+suíte de testes (que mocka Clerk e roda em jsdom, não num navegador) e sobre a leitura manual
+dos diffs de snapshot antes de cada `-u` (seção 6) — não sobre inspeção visual real. Isto está
+registrado como lacuna aberta, não como "verificado".
 
-## 6. Snapshots que mudaram nesta fase (Tasks 14–16), e por quê
+## 6. Snapshots que mudaram nesta fase (Tasks 14–16 e fix round 1), e por quê
 
-Duas rodadas de atualização de snapshot, uma por task de produto; ambos os diffs foram lidos
-por completo antes de rodar `-u`, como o brief exige.
+Duas rodadas de atualização de snapshot em Tasks 14–16, uma por task de produto; ambos os
+diffs foram lidos por completo antes de rodar `-u`, como o brief exige. **O fix round 1 não
+moveu nenhum snapshot** (seção 4 confirma 0 reescritos, nas três rodadas de fuso, depois da
+correção) — as três correções (achados 1, 2 e 3) mudam ONDE a proposta é lida e PARA ONDE um
+link aponta, não o HTML renderizado nos casos que os snapshots exercitam: a rota
+`/edital/revisar/1` sem importação pendente (achados 1/2 só importam quando existe uma
+revisão em andamento) e o item de exemplo de `/aprovacoes` (`workspaceId: 'setec-campinas'`,
+igual ao workspace da rota visitada — achado 3 só muda o href quando os dois divergem, caso
+que nenhum fixture de snapshot cobre; coberto por um teste dedicado em vez disso, seção 10).
 
 ### Task 14 — `renderiza /aprovacoes com itens pendentes de forma estável`
 
@@ -246,8 +276,7 @@ Aprovar/Rejeitar (`button-approve-appr-2`, `button-reject-appr-2`). Nada mais mu
 snapshot — o cartão `appr-1` (`concept_merge`) e todo o resto da página permaneceram
 byte a byte idênticos.
 
-**Por quê:** Task 14 move a persistência do programa para dentro de
-`EditalRevisar.handleConfirm` (aprovar o item da fila é o que dispara a gravação). Se
+**Por quê:** a persistência do programa mora inteira em `EditalRevisar.handleConfirm`. Se
 `ApprovalCard` continuasse oferecendo Aprovar/Rejeitar inline para `edital_structure`, um
 clique em "Aprovar" na fila decidiria o item sem nunca escrever o programa — a fila diria
 "aprovado" e nada teria mudado de fato. `ApprovalCard.tsx` passou a esconder essa decisão
@@ -256,46 +285,88 @@ o link "Revisar estrutura" (que já existia) como caminho de decisão.
 
 ### Task 15 — `renderiza /workspace/setec-campinas/edital de forma estável`
 
-Diff: o eyebrow mudou de `"estrutura da prova · 84 tópicos mapeados"` para
-`"estrutura da prova · 0 tópicos mapeados"`, as oito linhas mocadas de `@/data`
-desapareceram, e um bloco `data-testid="edital-topics-empty"` com o texto
-"Nenhum tópico no programa ainda — importe e confirme um edital para ver a estrutura aqui."
-tomou o lugar da tabela. Nada em nenhuma outra rota do snapshot mudou.
+Diff completo (relido para este registro a partir do `.snap` do commit `cf5c2b0`, linha a
+linha — a descrição anterior deste documento cobria só parte dele):
+
+1. **Eyebrow**: `"estrutura da prova · 84 tópicos mapeados"` → `"estrutura da prova · 0
+   tópicos mapeados"`.
+2. **Bloco novo do filtro de cargo** (`CargoFilter`), inserido entre o cabeçalho e o cartão de
+   filtros — não existia na versão mocada:
+   ```html
+   <div class="space-y-2">
+   <p class="k-eyebrow">tópicos de</p>
+   <div class="flex flex-wrap items-center gap-2" data-testid="cargo-filter">
+   <button ... data-testid="cargo-filter-todos">todos os cargos</button>
+   <button ... data-testid="cargo-filter-c1">Analista Técnico (Informática)</button>
+   <button ... data-testid="cargo-filter-c2">Agente de Suporte Técnico</button>
+   </div>
+   </div>
+   ```
+3. **Select de matéria**: as três `<option>` de `@/data` (Língua Portuguesa, Matemática e
+   Raciocínio Lógico, Conhecimentos Específicos) desaparecem — sobra só `<option>Todas</option>`,
+   porque o fixture do snapshot não tem programa salvo e `subjectOptions` é derivado dele.
+4. **Select de prioridade** ganha `disabled=""` e
+   `title="Prioridade chega com o diagnóstico (Fase 1C) — ainda não há dado para filtrar."`.
+5. **Badge de contagem**: `8 tópicos` → `0 tópicos`.
+6. **As oito linhas mocadas de `@/data`** (Razão/proporção, Porcentagem, Conjuntos numéricos,
+   Interpretação de textos, Concordância e regência, Lei de Acesso à Informação, Administração
+   pública direta, Ética no serviço público — cada uma com sua barra de progresso, chip de
+   prioridade colorido, `%` de acerto e status) são inteiramente removidas.
+7. **Substituídas por um único bloco de estado vazio**:
+   ```html
+   <div class="p-8 text-center text-[12px] text-[#8e98a8]" data-testid="edital-topics-empty">
+   Nenhum tópico no programa ainda — importe e confirme um edital para ver a estrutura aqui.
+   </div>
+   ```
+
+Nada em nenhuma outra rota do snapshot mudou.
 
 **Por quê:** o fixture padrão do workspace `setec-campinas` usado pela suíte de snapshot não
 tem programa de estudo salvo (`kalibra_syllabus:*` nunca foi semeado nesse teste) — então,
-puxando de `useSyllabus` em vez de `@/data`, a lista honestamente aparece vazia. Isto é
-exatamente o comportamento que a Task 15 pede: a tela não pode mais fingir 84 tópicos que não
-existem. O comportamento com programa real (linhas reais, chip de item comum, células
-honestas) está coberto pelos 5 testes novos de `Edital.test.tsx` (seção 1), que semeiam
-`kalibra_syllabus:*` diretamente — fora do loop de snapshot, porque o fixture do snapshot é
-deliberadamente o caso "workspace sem programa ainda".
+puxando de `useSyllabus` em vez de `@/data`, a lista honestamente aparece vazia, o filtro de
+matéria não tem opção nenhuma para oferecer além de "Todas", e o filtro de prioridade — que
+nunca pode filtrar nada de verdade até o diagnóstico (Fase 1C) — fica desabilitado com uma
+explicação em `title`. Isto é exatamente o comportamento que a Task 15 pede: a tela não pode
+mais fingir 84 tópicos que não existem. O comportamento com programa real (linhas reais, chip
+de item comum, filtro de cargo restringindo a lista, células honestas) está coberto pelos 5
+testes novos de `Edital.test.tsx` (seção 1), que semeiam `kalibra_syllabus:*` diretamente —
+fora do loop de snapshot, porque o fixture do snapshot é deliberadamente o caso "workspace sem
+programa ainda".
 
 Nenhuma outra rota do arquivo de snapshot (`/portal`, `/workspace/setec-campinas`,
 `/workspace/setec-campinas/edital/revisar/1`, `/aprovacoes` sem itens, etc.) moveu em nenhuma
-das duas rodadas — confirmado lendo a lista completa de testes de
-`screens.snapshot.test.tsx` em cada execução (16 rotas de `it.each`, ambas com `✓`, exceto a
-rota afetada em cada rodada). Depois de cada `-u`, a suíte completa foi rodada de novo e
-confirmou 0 escritas adicionais (e as três rodadas sob fuso diferente, seção 4, confirmam
-isso de novo).
+das duas rodadas de Tasks 14–16 nem na rodada do fix round 1 — confirmado lendo a lista
+completa de testes de `screens.snapshot.test.tsx` em cada execução (16 rotas de `it.each`,
+todas com `✓` nas execuções sem mudança de snapshot, exceto a rota afetada em cada uma das
+duas rodadas que tiveram mudança real). Depois de cada `-u`, a suíte completa foi rodada de
+novo e confirmou 0 escritas adicionais (e as rodadas sob fuso diferente, seção 4, confirmam
+isso de novo, inclusive depois do fix round 1).
 
-## 7. O que Tasks 14–16 mudaram, resumido
+## 7. O que Tasks 14–16 e o fix round 1 mudaram, resumido
 
 - **Task 14** (`f1c8f9e`): ao montar `EditalRevisar` com uma proposta para revisar, um item
   `edital_structure` entra na fila (`payloadBefore` = programa salvo, ou `null` na primeira
-  importação; `payloadAfter` = `{ version, syllabus, mergedCount }`), idempotente entre
-  remontagens via um novo campo `PendingWorkspaceImport.approvalItemId`. "Confirmar
-  estrutura" aprova esse item antes de gravar o programa; "Descartar" rejeita. A checagem de
-  `canTransition` continua acontecendo antes de qualquer persistência (nenhum retrocesso ao
-  padrão que já causou dois achados Críticos nesta fase). `ApprovalCard`/`Aprovacoes.tsx`
-  deixam de oferecer decisão inline para `edital_structure` — só o link para a tela dedicada.
+  importação). "Confirmar estrutura" **grava o programa e depois aprova esse item** (nessa
+  ordem — ver a correção da seção 9); "Descartar" rejeita. A checagem de `canTransition`
+  continua acontecendo antes de qualquer persistência (nenhum retrocesso ao padrão que já
+  causou dois achados Críticos nesta fase). `ApprovalCard`/`Aprovacoes.tsx` deixam de
+  oferecer decisão inline para `edital_structure` — só o link para a tela dedicada.
 - **Task 15** (`cf5c2b0`): `Edital.tsx` lê `useSyllabus` em vez de `@/data`; itens-folha do
   programa são as linhas da tabela, o item pai vira a coluna "matéria". Ganhou `CargoFilter`
   (filtra a lista e mostra `totalQuestionsFor` do cargo selecionado) e um aviso de
   deduplicação (`isCommon`) quando algum tópico é comum a mais de um cargo. Prioridade e
   acerto mostram estado honesto ("sem dados" / "sem dados até o diagnóstico") em vez de zero
   fabricado; o filtro de prioridade fica desabilitado até existir dado real.
-- **Task 16** (este commit): este documento.
+- **Task 16** (`f79a96d`): a primeira versão deste documento.
+- **Fix round 1** (`4092764`, `c6fd346`): três achados de uma revisão de código —
+  detalhados na seção 10. Em resumo: a proposta em revisão passou a ser reconstruída a partir
+  do próprio item da fila (nunca mais de `sessionStorage`), o item aprovado passou a registrar
+  a árvore realmente gravada (não a proposta congelada no enfileiramento), e o link "Revisar
+  estrutura" passou a apontar sempre para o workspace dono do item. `payloadAfter` de
+  `edital_structure` mudou de forma: `{ version, syllabus, mergedCount }` (Task 14) →
+  `{ version, review, mergedCount }`, onde `review` é o `DedupResult` inteiro (`syllabus`,
+  `merged`, `newConcepts`, `proposedLinks`) — necessário para reconstruir a proposta
+  completa a partir só do item da fila, sem depender de `sessionStorage`.
 
 ## 8. Desvios encontrados
 
@@ -303,6 +374,10 @@ isso de novo).
   mas por uma limitação do próprio padrão (`grep -v "hasEdital("` casa a linha de `import`
   também), não por uma regressão real — analisado em detalhe na seção 3. Nenhuma mudança de
   código foi necessária; o invariante que o grep tenta proteger continua de pé.
+- **O grep 1 (persistência) também precisou de um ajuste de prosa** no fix round 1: comentários
+  novos citavam `` `localStorage` ``/`` `sessionStorage` `` pelo nome, e o grep — que não
+  distingue comentário de código — os pegou. Reescritos para descrever o mesmo mecanismo sem
+  citar as APIs; nenhum código foi tocado, só texto de comentário (seção 3).
 - **Task 14 mudou o comportamento de testes já existentes de `EditalRevisar.test.tsx`**: várias
   asserções de `readApprovals()).toHaveLength(0)` (antes de confirmar) e `toHaveLength(2)`
   (depois de confirmar, só `concept_merge`) passaram a `1` e `3` respectivamente, porque
@@ -310,12 +385,12 @@ isso de novo).
   a mudança de comportamento que a própria Task 14 pede (a decisão passa a ser explícita na
   fila, não mais implícita) — os testes foram atualizados para refletir o novo contrato, com
   comentários explicando a contagem nova em cada um.
-- **Decisão de design não coberta literalmente pelo brief**: esconder Aprovar/Rejeitar/
-  seleção em lote para `edital_structure` em `ApprovalCard.tsx` (Task 14) não estava no texto
-  do brief (que só lista `EditalRevisar.tsx`/`Aprovacoes.tsx` como arquivos a modificar), mas
-  era necessário para não abrir um caminho onde aprovar pela fila decide o item sem nunca
-  escrever o programa — a mesma classe de bug que a Task 14 existe para fechar. Documentado
-  no commit de Task 14 e na seção 6 acima.
+- **Decisão de design não coberta literalmente pelo brief da Task 14**: esconder
+  Aprovar/Rejeitar/seleção em lote para `edital_structure` em `ApprovalCard.tsx` não estava no
+  texto do brief (que só lista `EditalRevisar.tsx`/`Aprovacoes.tsx` como arquivos a
+  modificar), mas era necessário para não abrir um caminho onde aprovar pela fila decide o
+  item sem nunca escrever o programa — a mesma classe de bug que a Task 14 existe para
+  fechar. Documentado no commit de Task 14 e na seção 6.
 - **Coluna "status" da tabela do Edital (Task 15)**: o brief pede estado honesto só para
   prioridade e acerto por tópico; "status" (dominar/em andamento/não iniciado) não tem essa
   ressalva explícita. Decisão tomada: todo tópico mostra "não iniciado", porque isso é
@@ -325,33 +400,190 @@ isso de novo).
   vazio, corretamente).
 - **Verificação manual em navegador (Step 4)**: não realizada, por ausência de
   `VITE_CLERK_PUBLISHABLE_KEY` e de ferramenta de automação de navegador neste ambiente —
-  mesma lacuna já registrada nas Fases 0 e 1A, reconfirmada aqui para Tasks 14–16
-  especificamente (seção 5). A tentativa de subir `pnpm run dev` e confirmar o boot do
-  servidor foi feita antes de descartar o passo, não só por leitura de código.
+  mesma lacuna já registrada nas Fases 0 e 1A, reconfirmada aqui para Tasks 14–16 e o fix
+  round 1 (seção 5). A tentativa de subir `pnpm run dev` e confirmar o boot do servidor foi
+  feita antes de descartar o passo, não só por leitura de código.
+- **A escolha entre href absoluto e filtro por workspace (achado 3, seção 10)**: o brief
+  deixava as duas opções em aberto, pedindo para justificar a escolhida. Optou-se por href
+  absoluto — justificativa completa na seção 10.
+- **Correção factual sobre a ordem de escrita do `handleConfirm`** (achado menor da revisão):
+  este documento e o relatório da task chegaram a afirmar que o item era aprovado ANTES de o
+  programa ser gravado. O código sempre fez o contrário — concede os conceitos, grava o
+  Syllabus, e só então aprova o item da fila — e essa ordem não mudou no fix round 1 (só o
+  QUE é gravado no `approve`, não a posição da chamada). A afirmação errada foi corrigida
+  nas seções 6 e 7 deste documento e no relatório da task; ver seção 10 para o detalhe.
 - Nenhum outro desvio, classe nova fora do esperado, elemento removido ou mudança de texto
   foi encontrado nas etapas que puderam ser executadas (typecheck, build, testes, greps).
 
-## 9. Estado final confirmado
+## 9. Correção factual: a ordem real de `handleConfirm`
 
-- `lib/core`: 187 testes, 11 arquivos, intocado por Tasks 14–16 — nenhuma destas tasks
-  precisou mexer em regra de domínio já testada.
-- `artifacts/kalibra`: 210 testes, 16 arquivos, 397 testes no total da fase, mesmo resultado
+A submissão original de Tasks 14–16 (este documento e o relatório da task) afirmou que
+"Confirmar estrutura" aprova o item da fila **antes** de gravar o programa. Isso está
+invertido — sempre foi, mesmo antes do fix round 1 — e importa porque é exatamente o
+raciocínio de "torn write" que justifica a ordem `canTransition` → persistência (fix round 2
+da Task 11/EditalRevisar, já registrado nesta fase) não pode carregar uma afirmação errada
+sobre qual escrita vem primeiro.
+
+A ordem real, em `EditalRevisar.handleConfirm`, dentro do bloco `if (review)`, sempre foi:
+
+1. `review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept))` — conceitos
+   provisórios novos entram na biblioteca global.
+2. `syllabusApi.save(review.syllabus)` — o programa é gravado.
+3. `approvalsApi.approve(structureApprovalId, payload)` — **só então** o item `edital_structure`
+   é aprovado (no fix round 1, com o payload atualizado para a árvore recém-gravada).
+4. `review.proposedLinks.forEach(...)` — os itens `concept_merge` são enfileirados.
+5. `stageWorkspaceImport(..., { extractionApplied: true })`.
+
+O comportamento sempre foi correto (nenhuma escrita depende de a aprovação já ter acontecido);
+só a descrição em prosa estava com a ordem trocada. Corrigido nas seções 6 e 7 deste
+documento e no relatório da task (`task-14-16-report.md`).
+
+## 10. Fix round 1 — revisão e correção
+
+Uma revisão de código sobre Tasks 14–16 confirmou que o ciclo funciona, o invariante de
+aprovação humana se mantém, os estados vazios honestos estão corretos, e este documento de
+verificação foi julgado genuinamente honesto (números reconferidos estaticamente). Encontrou,
+porém, três achados reais — os dois primeiros com a mesma causa raiz — e três menores.
+
+### Achado 1 (Crítico) — um item `edital_structure` podia ficar indecidível para sempre
+
+O item de aprovação é durável (`localStorage`). A proposta que ele representa vivia em
+`sessionStorage`, por aba. Fechar a aba no meio da revisão, reiniciar o navegador, ou abrir a
+fila numa segunda aba deixava o item pendente apontando para uma proposta que não existia
+mais em lugar nenhum: nem `EditalRevisar.handleConfirm` nem `handleDiscard` tinham como agir
+sobre ele (`structureApprovalId` nascia `null`, e o botão virava no-op) — o "aguardando
+decisão" da fila ficava permanentemente errado.
+
+### Achado 2 (Importante) — o item aprovado podia registrar uma proposta que não era a gravada
+
+`payloadAfter` era gravado uma vez, no enfileiramento, e nunca atualizado. Toda edição depois
+disso — renomear, excluir, separar, mudar peso/questões, adicionar — mudava o que
+`handleConfirm` de fato gravava no programa sem nunca atualizar o registro da fila. O ponto
+inteiro da fila é que nada entra no programa sem uma aprovação registrada; se o registro
+descreve uma árvore diferente da que entrou, a garantia é só aparente.
+
+### Fix único para os dois achados
+
+`EditalRevisar` deixou de tratar `sessionStorage` como a fonte da proposta. Ao montar, procura
+na fila (por `workspaceId` + versão da URL + `canDecide(status)`) um item `edital_structure`
+já pendente; se existe, a proposta É `payloadAfter.review` dele — reconstruída, não
+recomputada (recomputar via `previewExtraction` geraria ids de conceito novos a cada
+montagem, via `Math.random`, e desalinharia a tela do que está gravado). Só quando nenhum
+item assim existe é que a proposta nasce de `previewExtraction` (extração recém-terminada
+nesta aba) e é enfileirada agora. `approve(id, payload)` — `useApprovals.approve` ganhou um
+segundo parâmetro opcional — grava a árvore **já editada** como novo `payloadAfter` na MESMA
+escrita que decide o item, nunca duas chamadas separadas que poderiam divergir.
+
+Dois testes novos em `EditalRevisar.test.tsx` (describe "Task 14 — aprovação da estrutura
+fecha o ciclo") cobrem a propriedade pedida:
+
+- `fix round 1 (achado 1): perder o sessionStorage (fechar a aba, reiniciar o navegador) não
+  deixa o item pendente para sempre` — monta, desmonta, `window.sessionStorage.clear()`,
+  monta de novo, confirma, e afirma que o Syllabus foi gravado e o item ficou `aprovado`.
+- `fix round 1 (achado 2): o item aprovado registra a árvore EDITADA (renomear + separar),
+  não a proposta congelada no enfileiramento` — usa a fixture de um item comum a dois cargos,
+  renomeia o item e depois o separa de um cargo (as duas edições que o achado citou), confirma,
+  e afirma `approvedPayload.review.syllabus` igual (via `toEqual`) ao Syllabus realmente lido
+  de volta do `localStorage` — a propriedade exata que o achado pediu para estabelecer.
+
+O campo `PendingWorkspaceImport.approvalItemId`, adicionado pela Task 14 original para dar
+idempotência entre remontagens, foi removido: a busca por `workspaceId` + versão na própria
+fila cumpre o mesmo papel sem depender de `sessionStorage` — a causa raiz dos achados 1 e 2.
+
+### Achado 3 (Importante) — o link da fila ignorava o workspace do próprio item
+
+`ApprovalCard` montava `href={\`/edital/revisar/${versão}\`}` — um caminho relativo, resolvido
+pelo `WouterRouter` aninhado de `WorkspaceApp.tsx` (`base={"/workspace/" + slug}`) contra o
+`slug` do workspace **atual**, não o do item. A fila, por sua vez, não filtra por
+`workspaceId` — é um inbox entre workspaces (mesmo padrão dos itens `concept_merge`, cuja
+biblioteca de conceitos também é global). Abrir `/aprovacoes` a partir do workspace A e
+clicar em "Revisar estrutura" de um item do workspace B navegava para dentro de A.
+
+**Escolha: href absoluto para `item.workspaceId`, não filtrar a fila por workspace.**
+Justificativa: a fila não tem hoje nenhum indício de que "só os itens deste workspace"
+seja o modelo pretendido — nem a cópia da tela ("Nada vira conteúdo oficial sem você decidir",
+sem menção a workspace) nem o outro tipo de item (`concept_merge`, cuja biblioteca de
+conceitos já é global ao usuário, não por workspace) sugerem isso. Filtrar mudaria
+comportamento visível (itens de outros workspaces sumiriam da lista) por causa de um bug de
+roteamento; corrigir só o link resolve o bug na raiz sem essa mudança de escopo. A implementação
+(`reviewHrefFor`) usa o mesmo prefixo `~` que `EditalRevisar.tsx` já usa para escapar o Router
+aninhado (`~${import.meta.env.BASE_URL}workspace/${item.workspaceId}/edital/revisar/${versão}`),
+confirmado como a convenção oficial do wouter (`src/index.js`: `targetPath[0] === "~" ?
+targetPath.slice(1) : router.base + targetPath`), não um hack local.
+
+Teste novo em `Aprovacoes.test.tsx` ("o link da estrutura sempre aponta para o workspace DONO
+do item"): semeia um item `edital_structure` com `workspaceId: 'outro-workspace'`, visita
+`/workspace/setec-campinas/aprovacoes`, e afirma que o atributo `href` resolvido do link é
+`/workspace/outro-workspace/edital/revisar/1` — nunca contendo `setec-campinas`.
+
+### Três achados menores
+
+- **Erro de concordância em `ApprovalCard`**: `` `já vem${n === 1 ? '' : 'm'}` `` produzia
+  "já vemm unidos" para mais de um item — "vem" no plural é "vêm" (circunflexo), não "vemm"
+  (dobrar a consoante). Corrigido trocando a palavra inteira por condição
+  (`mergedCount === 1 ? 'já vem' : 'já vêm'`), não um sufixo colado.
+- **Ordem de escrita descrita ao contrário** neste documento e no relatório da task — ver
+  seção 9 para a correção completa.
+- **Descrição incompleta do snapshot da Task 15** neste documento — cobria só o eyebrow, as
+  linhas mocadas e o estado vazio; faltava o bloco inteiro do `CargoFilter`, o select de
+  prioridade desabilitado com `title`, e o select de matéria reduzido a uma única opção.
+  Completada na seção 6.
+
+### Um ponto estacionado, registrado e não corrigido
+
+Cada item `edital_structure` agora guarda o `DedupResult` inteiro (duas vezes — uma no
+enfileiramento, outra reescrita no `approve`), e itens decididos nunca são removidos da fila:
+`localStorage` cresce a cada reimportação, e `saveApprovals` não trata cota esgotada (um throw
+ali aconteceria DEPOIS da gravação do Syllabus, um "torn write" da mesma família que o fix
+round 2 da Task 11 já corrigiu para o status do workspace). Real, mas fica para a fase que
+introduzir limites de armazenamento — e a forma do payload já mudou uma vez neste próprio fix
+round, então qualquer decisão de formato agora arriscaria mudar de novo em breve.
+
+### Gate re-executado depois da correção
+
+`pnpm run typecheck` (passou, depois de corrigir um erro de tipo num teste novo —
+`within(row())` recebendo `Element` em vez de `HTMLElement`, resolvido com um cast antes deste
+resultado), `pnpm run test` (400 testes — 187 `lib/core` + 213 `artifacts/kalibra` — passando,
+três vezes sob fusos diferentes, seção 4, 0 snapshots reescritos em todas), `pnpm run build`
+(passou, mesmos dois avisos pré-existentes da seção 2).
+
+**Arquivos tocados neste fix round:**
+`artifacts/kalibra/src/pages/EditalRevisar.tsx` (fonte da proposta reconstruída da fila,
+`approve` com payload atualizado), `artifacts/kalibra/src/pages/EditalRevisar.test.tsx` (dois
+testes novos, um teste existente ajustado para não depender mais de
+`pending.approvalItemId`), `artifacts/kalibra/src/domain/adapters/local/approvals.ts`
+(`approve` ganha o segundo parâmetro opcional), `artifacts/kalibra/src/domain/adapters/local/workspaces.ts`
+(campo `approvalItemId` removido), `artifacts/kalibra/src/components/ApprovalCard.tsx`
+(`reviewHrefFor` absoluto, concordância corrigida), `artifacts/kalibra/src/pages/Aprovacoes.test.tsx`
+(teste novo do link cruzando workspace), e este documento + o relatório da task (achado da
+ordem de escrita, seção 9). Nenhum arquivo em `lib/core`, `src/index.css`, `src/data.ts` ou
+`src/components/ui/` foi tocado. Nenhum snapshot moveu (seções 4 e 6).
+
+## 11. Estado final confirmado
+
+- `lib/core`: 187 testes, 11 arquivos, intocado por Tasks 14–16 e pelo fix round 1 — nenhuma
+  destas mudanças precisou mexer em regra de domínio já testada.
+- `artifacts/kalibra`: 213 testes, 16 arquivos, 400 testes no total da fase, mesmo resultado
   em três fusos horários (UTC, America/Sao_Paulo, Pacific/Kiritimati), 0 snapshots
-  reescritos em nenhuma das três rodadas.
+  reescritos em nenhuma das três rodadas — antes e depois do fix round 1.
 - Nada entra no programa de estudo sem uma decisão registrada na fila de aprovação — inclusive
   a estrutura extraída do edital, que fechou o ciclo nesta fase (Task 14): a fila não é mais
   só onde `concept_merge` aparece depois do fato, é onde a própria confirmação da estrutura
-  vive como uma decisão.
+  vive como uma decisão. Depois do fix round 1, essa decisão sobrevive fechar a aba, reiniciar
+  o navegador, ou abrir o link da fila numa aba nova (achado 1), e o que fica registrado é
+  sempre a árvore que de fato entrou no programa, mesmo depois de editar a proposta (achado 2).
 - A tela Edital reflete o programa realmente salvo, nunca dados mocados — com honestidade
   explícita sobre o que a Fase 1B não sabe ainda (prioridade e acerto por tópico, que só
   chegam com o diagnóstico da Fase 1C).
+- O link "Revisar estrutura" da fila sempre abre o workspace dono da proposta, mesmo quando
+  visitado a partir de outro workspace (achado 3).
 - Os dois débitos da Fase 1A seguem quitados e confirmados por grep: a máquina de estados
   descreve o fluxo real e é aplicada (`canTransition`/`assertTransition`, checados antes de
-  qualquer persistência em todo handler de clique desta fase), e `hasEdital` é só uma função
-  derivada (seção 3).
+  qualquer persistência em todo handler de clique desta fase — nenhum retrocesso ao
+  anti-padrão do fix round 2 da Task 11), e `hasEdital` é só uma função derivada (seção 3).
 - Nenhuma tela toca `localStorage`, `sessionStorage` ou `fetch` diretamente fora de
   `components/ui/` (confirmado por grep, seção 3).
 - Nenhum dos arquivos protegidos (`src/index.css`, `src/data.ts`,
-  `src/components/ui/`, lógica de `lib/core`) foi tocado por Tasks 14–16.
+  `src/components/ui/`, lógica de `lib/core`) foi tocado por Tasks 14–16 nem pelo fix round 1.
 
 **Próximo plano:** Fase 1C — diagnóstico obrigatório, plano quinzenal e sessões de estudo.
