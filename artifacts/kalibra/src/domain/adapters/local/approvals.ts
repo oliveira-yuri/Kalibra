@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   canDecide,
   pendingCount,
@@ -7,6 +7,7 @@ import {
   type ApprovalType,
   type ApprovalStatus,
 } from '@workspace/core';
+import { confirmConcept } from './concepts';
 
 const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pendente', 'revisando', 'aprovado', 'rejeitado'];
 
@@ -141,28 +142,62 @@ export function applyDecision(
   });
 }
 
+/**
+ * Efeito colateral de uma decisão aprovada: um `concept_merge` aprovado
+ * promove o conceito referenciado (guardado em `sourceRef` — por convenção,
+ * para este tipo, `sourceRef` é o id do `Concept` proposto) a `confirmed`
+ * na biblioteca global (`concepts.ts`). Sem isso, nada na aplicação jamais
+ * produz um conceito `confirmed`, e a ponte R3/R4 de `shouldLinkDirectly`
+ * (`lib/core`) — quatro rodadas de revisão para acertar — fica inatingível
+ * em produção. Idempotente: reaplicar sobre um item já aprovado apenas
+ * reconfirma o mesmo conceito.
+ */
+export function applyApprovalSideEffects(decided: ApprovalItem, userId?: string): void {
+  if (decided.type === 'concept_merge' && decided.status === 'aprovado' && decided.sourceRef) {
+    confirmConcept(decided.sourceRef, userId);
+  }
+}
+
 export function useApprovals(userId?: string) {
   const [items, setItems] = useState<ApprovalItem[]>(() => getApprovals(userId));
+  // Ver a mesma nota em concepts.ts/syllabus.ts: duas mutações síncronas no
+  // mesmo evento (achado da revisão — "batched writes silently lose all but
+  // the last") não podem partir do mesmo `items` obsoleto capturado no
+  // closure de quando o handler começou; `itemsRef` é atualizado
+  // sincronamente a cada `persist`, então a segunda chamada já enxerga o
+  // resultado da primeira.
+  const itemsRef = useRef(items);
 
   useEffect(() => {
-    setItems(getApprovals(userId));
-    const handleStorage = () => setItems(getApprovals(userId));
+    const loaded = getApprovals(userId);
+    itemsRef.current = loaded;
+    setItems(loaded);
+
+    const handleStorage = () => {
+      const reloaded = getApprovals(userId);
+      itemsRef.current = reloaded;
+      setItems(reloaded);
+    };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, [userId]);
 
   const persist = (next: ApprovalItem[]) => {
+    itemsRef.current = next;
     saveApprovals(next, userId);
     setItems(next);
     window.dispatchEvent(new Event('storage'));
   };
 
   const approve = (id: string) => {
-    persist(applyDecision(items, id, 'aprovado', new Date()));
+    const next = applyDecision(itemsRef.current, id, 'aprovado', new Date());
+    const decided = next.find((item) => item.id === id);
+    if (decided) applyApprovalSideEffects(decided, userId);
+    persist(next);
   };
 
   const reject = (id: string, reason?: string) => {
-    persist(applyDecision(items, id, 'rejeitado', new Date(), reason ?? null));
+    persist(applyDecision(itemsRef.current, id, 'rejeitado', new Date(), reason ?? null));
   };
 
   const enqueue = (
@@ -170,7 +205,7 @@ export function useApprovals(userId?: string) {
     now: Date,
   ): string => {
     const full = buildApprovalItem(item, now);
-    persist([...items, full]);
+    persist([...itemsRef.current, full]);
     return full.id;
   };
 

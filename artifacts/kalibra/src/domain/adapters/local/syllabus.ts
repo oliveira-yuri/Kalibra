@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   emptySyllabus,
   splitItem,
@@ -7,9 +7,8 @@ import {
   type SyllabusItem,
   type SyllabusItemCargo,
   type Concept,
-  type ConceptKind,
-  type ConceptStatus,
 } from '@workspace/core';
+import { useConcepts } from './concepts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -51,20 +50,6 @@ function isValidLink(value: unknown): value is SyllabusItemCargo {
     && isNullableNumber(value.questionCount);
 }
 
-const VALID_CONCEPT_KINDS: readonly ConceptKind[] = ['disciplina', 'topico', 'subtopico'];
-const VALID_CONCEPT_STATUSES: readonly ConceptStatus[] = ['confirmed', 'provisional'];
-
-function isValidConcept(value: unknown): value is Concept {
-  return isRecord(value)
-    && typeof value.id === 'string' && value.id.length > 0
-    && typeof value.canonicalName === 'string'
-    && typeof value.slug === 'string'
-    && isNullableString(value.parentId)
-    && typeof value.kind === 'string' && (VALID_CONCEPT_KINDS as readonly string[]).includes(value.kind)
-    && Array.isArray(value.aliases) && value.aliases.every((alias) => typeof alias === 'string')
-    && typeof value.status === 'string' && (VALID_CONCEPT_STATUSES as readonly string[]).includes(value.status);
-}
-
 /**
  * Converte um registro salvo em qualquer formato anterior para o formato
  * atual. Nunca lança; devolve null só quando o registro nem sequer é um
@@ -76,6 +61,10 @@ function isValidConcept(value: unknown): value is Concept {
  * Cada item de `items` e `links` é isolado num try/catch dentro do `map` —
  * defesa em profundidade, a mesma lição da Fase 1A (workspaces.ts): um
  * registro corrompido não pode derrubar os demais.
+ *
+ * Não migra conceitos: um `Concept` é global por usuário, não por
+ * workspace, e vive em `concepts.ts` sob sua própria chave
+ * (`kalibra_concepts:<userId>`) — ver a nota lá para o porquê.
  */
 export function migrateSyllabus(raw: unknown): Syllabus | null {
   if (!isRecord(raw)) return null;
@@ -109,63 +98,25 @@ export function migrateSyllabus(raw: unknown): Syllabus | null {
   return { items, links };
 }
 
-/**
- * Migra a lista de conceitos guardada junto do programa de estudo. Segue a
- * mesma disciplina de `migrateSyllabus`: nunca lança, item malformado é
- * descartado sem derrubar os demais.
- */
-function migrateConcepts(raw: unknown): Concept[] {
-  if (!isRecord(raw) || !Array.isArray(raw.concepts)) return [];
-  return raw.concepts
-    .map((concept) => {
-      try {
-        return isValidConcept(concept) ? concept : null;
-      } catch (error) {
-        console.error('Conceito corrompido, descartado.', error);
-        return null;
-      }
-    })
-    .filter((concept): concept is Concept => concept !== null);
-}
-
-export type SyllabusRecord = {
-  syllabus: Syllabus;
-  concepts: Concept[];
-};
-
-function emptyRecord(): SyllabusRecord {
-  return { syllabus: emptySyllabus(), concepts: [] };
-}
-
 const STORAGE_PREFIX = 'kalibra_syllabus';
 const storageKeyFor = (workspaceSlug: string, userId?: string) =>
   `${STORAGE_PREFIX}:${userId || 'anonymous'}:${workspaceSlug}`;
 
-/**
- * A forma persistida é achatada — `items`/`links` no nível raiz, junto de
- * `concepts` — porque `migrateSyllabus` opera sobre esse mesmo nível (é o
- * formato que ela documenta aceitar). Aninhar `{ syllabus: {...} }` faria
- * `migrateSyllabus` procurar `items`/`links` no lugar errado.
- */
-export function getSyllabusRecord(workspaceSlug: string, userId?: string): SyllabusRecord {
+export function getSyllabus(workspaceSlug: string, userId?: string): Syllabus {
   try {
     const saved = localStorage.getItem(storageKeyFor(workspaceSlug, userId));
     if (saved) {
-      const parsed: unknown = JSON.parse(saved);
-      const syllabus = migrateSyllabus(parsed);
-      if (syllabus) {
-        return { syllabus, concepts: migrateConcepts(parsed) };
-      }
+      const syllabus = migrateSyllabus(JSON.parse(saved));
+      if (syllabus) return syllabus;
     }
   } catch (error) {
     console.error('Não foi possível carregar o programa de estudo local.', error);
   }
-  return emptyRecord();
+  return emptySyllabus();
 }
 
-export function saveSyllabusRecord(record: SyllabusRecord, workspaceSlug: string, userId?: string) {
-  const flat = { items: record.syllabus.items, links: record.syllabus.links, concepts: record.concepts };
-  localStorage.setItem(storageKeyFor(workspaceSlug, userId), JSON.stringify(flat));
+export function saveSyllabus(syllabus: Syllabus, workspaceSlug: string, userId?: string) {
+  localStorage.setItem(storageKeyFor(workspaceSlug, userId), JSON.stringify(syllabus));
 }
 
 function makeId(seed: string): string {
@@ -173,42 +124,54 @@ function makeId(seed: string): string {
 }
 
 export function useSyllabus(workspaceSlug: string, userId?: string) {
-  const [record, setRecord] = useState<SyllabusRecord>(() => getSyllabusRecord(workspaceSlug, userId));
+  const conceptsApi = useConcepts(userId);
+
+  const [syllabus, setSyllabus] = useState<Syllabus>(() => getSyllabus(workspaceSlug, userId));
+  // Ver a mesma nota em concepts.ts: duas mutações síncronas no mesmo evento
+  // não podem partir do `syllabus` obsoleto capturado no closure do render.
+  const syllabusRef = useRef(syllabus);
 
   useEffect(() => {
-    setRecord(getSyllabusRecord(workspaceSlug, userId));
+    const loaded = getSyllabus(workspaceSlug, userId);
+    syllabusRef.current = loaded;
+    setSyllabus(loaded);
+
+    const handleStorage = () => {
+      const reloaded = getSyllabus(workspaceSlug, userId);
+      syllabusRef.current = reloaded;
+      setSyllabus(reloaded);
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, [workspaceSlug, userId]);
 
-  const persist = (next: SyllabusRecord) => {
-    saveSyllabusRecord(next, workspaceSlug, userId);
-    setRecord(next);
+  const persist = (next: Syllabus) => {
+    syllabusRef.current = next;
+    saveSyllabus(next, workspaceSlug, userId);
+    setSyllabus(next);
+    window.dispatchEvent(new Event('storage'));
   };
 
-  const save = (syllabus: Syllabus) => persist({ ...record, syllabus });
+  const save = (next: Syllabus) => persist(next);
 
   const renameItem = (itemId: string, label: string) => {
     persist({
-      ...record,
-      syllabus: {
-        ...record.syllabus,
-        items: record.syllabus.items.map((item) =>
-          item.id === itemId ? { ...item, sourceLabel: label } : item),
-      },
+      ...syllabusRef.current,
+      items: syllabusRef.current.items.map((item) =>
+        (item.id === itemId ? { ...item, sourceLabel: label } : item)),
     });
   };
 
   const removeItem = (itemId: string) => {
     persist({
-      ...record,
-      syllabus: {
-        items: record.syllabus.items
-          .filter((item) => item.id !== itemId)
-          .map((item) => (item.parentItemId === itemId ? { ...item, parentItemId: null } : item)),
-        links: record.syllabus.links.filter((link) => link.syllabusItemId !== itemId),
-      },
+      items: syllabusRef.current.items
+        .filter((item) => item.id !== itemId)
+        .map((item) => (item.parentItemId === itemId ? { ...item, parentItemId: null } : item)),
+      links: syllabusRef.current.links.filter((link) => link.syllabusItemId !== itemId),
     });
   };
 
+  /** Escreve o conceito na biblioteca global (`concepts.ts`) e o item/ligações no workspace. */
   const addItem = (parentItemId: string | null, label: string, cargoIds: string[]) => {
     const itemId = makeId('item');
     const conceptId = makeId('concept');
@@ -242,22 +205,20 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
       questionCount: null,
     }));
 
+    conceptsApi.addConcept(concept);
     persist({
-      syllabus: {
-        items: [...record.syllabus.items, item],
-        links: [...record.syllabus.links, ...links],
-      },
-      concepts: [...record.concepts, concept],
+      items: [...syllabusRef.current.items, item],
+      links: [...syllabusRef.current.links, ...links],
     });
   };
 
   const splitFromCargo = (itemId: string, cargoId: string) => {
-    persist({ ...record, syllabus: splitItem(record.syllabus, itemId, cargoId, makeId) });
+    persist(splitItem(syllabusRef.current, itemId, cargoId, makeId));
   };
 
   return {
-    syllabus: record.syllabus,
-    concepts: record.concepts,
+    syllabus,
+    concepts: conceptsApi.concepts,
     save,
     renameItem,
     removeItem,

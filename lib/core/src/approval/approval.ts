@@ -47,7 +47,10 @@ export function groupByType(items: readonly ApprovalItem[]): Record<ApprovalType
   ) as Record<ApprovalType, ApprovalItem[]>;
 
   for (const item of items) {
-    result[item.type].push(item);
+    // `item.type` só é `ApprovalType` de verdade quando passou por
+    // `migrateApprovalItem`; um valor fora de `APPROVAL_TYPES` chegando via
+    // cast (`as ApprovalType`) não pode desreferenciar um bucket inexistente.
+    (result[item.type] ??= []).push(item);
   }
 
   return result;

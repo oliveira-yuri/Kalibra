@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { ApprovalItem } from '@workspace/core';
+import { renderHook, act } from '@testing-library/react';
+import type { ApprovalItem, Concept } from '@workspace/core';
 import {
   migrateApprovalItem,
   getApprovals,
   saveApprovals,
   buildApprovalItem,
   applyDecision,
+  applyApprovalSideEffects,
+  useApprovals,
 } from './approvals';
+import { getConcepts, saveConcepts } from './concepts';
 
 const ITEM: ApprovalItem = {
   id: 'appr-1',
@@ -182,5 +186,102 @@ describe('applyDecision', () => {
     const outro: ApprovalItem = { ...ITEM, id: 'appr-2' };
     const resultado = applyDecision([ITEM, outro], ITEM.id, 'aprovado', NOW);
     expect(resultado[1]).toEqual(outro);
+  });
+});
+
+describe('applyApprovalSideEffects — achado 2 da revisão: aprovar concept_merge confirma o conceito', () => {
+  const CONCEPT: Concept = {
+    id: 'concept-x',
+    canonicalName: 'Matemática financeira',
+    slug: 'matematica-financeira',
+    parentId: null,
+    kind: 'topico',
+    aliases: [],
+    status: 'provisional',
+  };
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('promove o conceito referenciado por sourceRef a confirmed quando o item aprovado é concept_merge', () => {
+    saveConcepts([CONCEPT]);
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'aprovado', sourceRef: 'concept-x',
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    expect(getConcepts().find((c) => c.id === 'concept-x')?.status).toBe('confirmed');
+  });
+
+  it('não confirma nada quando o tipo é edital_structure', () => {
+    saveConcepts([CONCEPT]);
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'edital_structure', status: 'aprovado', sourceRef: 'concept-x',
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    expect(getConcepts().find((c) => c.id === 'concept-x')?.status).toBe('provisional');
+  });
+
+  it('não confirma nada quando o item foi rejeitado, não aprovado', () => {
+    saveConcepts([CONCEPT]);
+    const decidido: ApprovalItem = {
+      ...ITEM, type: 'concept_merge', status: 'rejeitado', sourceRef: 'concept-x',
+    };
+
+    applyApprovalSideEffects(decidido);
+
+    expect(getConcepts().find((c) => c.id === 'concept-x')?.status).toBe('provisional');
+  });
+
+  it('não lança quando sourceRef é nulo', () => {
+    const decidido: ApprovalItem = { ...ITEM, type: 'concept_merge', status: 'aprovado', sourceRef: null };
+    expect(() => applyApprovalSideEffects(decidido)).not.toThrow();
+  });
+});
+
+describe('useApprovals — duas escritas síncronas no mesmo tick sobrevivem ambas (achado 3 da revisão)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  const INPUT: Omit<ApprovalItem, 'id' | 'status' | 'createdAt' | 'decidedAt' | 'reason'> = {
+    workspaceId: 'setec-campinas',
+    type: 'edital_structure',
+    title: 'Proposta',
+    rationale: 'motivo',
+    sourceRef: null,
+    confidence: null,
+    payloadBefore: null,
+    payloadAfter: null,
+  };
+
+  it('duas chamadas de enqueue dentro do mesmo act() persistem os dois itens', () => {
+    const { result } = renderHook(() => useApprovals());
+
+    act(() => {
+      result.current.enqueue({ ...INPUT, title: 'Primeira' }, new Date('2026-01-01T00:00:00.000Z'));
+      result.current.enqueue({ ...INPUT, title: 'Segunda' }, new Date('2026-01-01T00:00:00.000Z'));
+    });
+
+    expect(result.current.items).toHaveLength(2);
+    expect(result.current.items.map((item) => item.title)).toEqual(['Primeira', 'Segunda']);
+    expect(getApprovals()).toHaveLength(2);
+  });
+
+  it('enqueue seguido de approve no mesmo tick não perde a aprovação', () => {
+    const { result } = renderHook(() => useApprovals());
+    let id = '';
+
+    act(() => {
+      id = result.current.enqueue(INPUT, new Date('2026-01-01T00:00:00.000Z'));
+    });
+
+    act(() => {
+      result.current.approve(id);
+    });
+
+    expect(result.current.items.find((item) => item.id === id)?.status).toBe('aprovado');
   });
 });

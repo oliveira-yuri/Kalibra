@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 import type { Syllabus, SyllabusItem, SyllabusItemCargo } from '@workspace/core';
-import { migrateSyllabus, getSyllabusRecord, saveSyllabusRecord } from './syllabus';
+import { migrateSyllabus, getSyllabus, saveSyllabus, useSyllabus } from './syllabus';
+import { getConcepts } from './concepts';
 
 const ITEM: SyllabusItem = {
   id: 'item-1',
@@ -80,7 +82,7 @@ describe('migração do programa de estudo', () => {
   });
 });
 
-describe('getSyllabusRecord / saveSyllabusRecord', () => {
+describe('getSyllabus / saveSyllabus', () => {
   const KEY = 'kalibra_syllabus:anonymous:setec-campinas';
 
   beforeEach(() => {
@@ -92,26 +94,76 @@ describe('getSyllabusRecord / saveSyllabusRecord', () => {
   });
 
   it('devolve um programa vazio quando não há nada salvo', () => {
-    const record = getSyllabusRecord('setec-campinas');
-    expect(record.syllabus).toEqual({ items: [], links: [] });
-    expect(record.concepts).toEqual([]);
+    expect(getSyllabus('setec-campinas')).toEqual({ items: [], links: [] });
   });
 
   it('faz o round-trip de salvar e ler', () => {
-    saveSyllabusRecord({ syllabus: SYLLABUS, concepts: [] }, 'setec-campinas');
-    const record = getSyllabusRecord('setec-campinas');
-    expect(record.syllabus).toEqual(SYLLABUS);
+    saveSyllabus(SYLLABUS, 'setec-campinas');
+    expect(getSyllabus('setec-campinas')).toEqual(SYLLABUS);
   });
 
   it('namespacea a chave por usuário e por workspace', () => {
-    saveSyllabusRecord({ syllabus: SYLLABUS, concepts: [] }, 'setec-campinas', 'user-1');
+    saveSyllabus(SYLLABUS, 'setec-campinas', 'user-1');
     expect(localStorage.getItem('kalibra_syllabus:user-1:setec-campinas')).not.toBeNull();
     expect(localStorage.getItem(KEY)).toBeNull();
   });
 
+  it('não guarda conceitos junto do programa — eles vivem em kalibra_concepts, não em kalibra_syllabus', () => {
+    saveSyllabus(SYLLABUS, 'setec-campinas');
+    const saved = JSON.parse(localStorage.getItem(KEY)!);
+    expect(saved).not.toHaveProperty('concepts');
+  });
+
   it('nunca lança e descarta um registro totalmente corrompido', () => {
     localStorage.setItem(KEY, 'não é json válido{{{');
-    expect(() => getSyllabusRecord('setec-campinas')).not.toThrow();
-    expect(getSyllabusRecord('setec-campinas').syllabus).toEqual({ items: [], links: [] });
+    expect(() => getSyllabus('setec-campinas')).not.toThrow();
+    expect(getSyllabus('setec-campinas')).toEqual({ items: [], links: [] });
+  });
+});
+
+describe('useSyllabus — conceitos vêm da biblioteca global, não do workspace', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('addItem grava o conceito em kalibra_concepts (visível a qualquer workspace do mesmo usuário)', () => {
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+
+    act(() => {
+      result.current.addItem(null, 'Direito Constitucional', ['c1']);
+    });
+
+    expect(result.current.concepts).toHaveLength(1);
+    expect(result.current.concepts[0].canonicalName).toBe('Direito Constitucional');
+    expect(result.current.concepts[0].status).toBe('provisional');
+    // A mesma biblioteca de conceitos, lida independentemente do workspace.
+    expect(getConcepts('user-1')).toHaveLength(1);
+
+    // Um segundo workspace do MESMO usuário enxerga o mesmo conceito —
+    // é a razão de existir de um conceito global (achado 1 da revisão).
+    const outroWorkspace = renderHook(() => useSyllabus('bb-escriturario', 'user-1'));
+    expect(outroWorkspace.result.current.concepts).toHaveLength(1);
+    expect(outroWorkspace.result.current.concepts[0].canonicalName).toBe('Direito Constitucional');
+  });
+
+  it('duas chamadas de addItem no mesmo tick sobrevivem ambas (achado 3 da revisão)', () => {
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+
+    act(() => {
+      result.current.addItem(null, 'Direito Constitucional', ['c1']);
+      result.current.addItem(null, 'Direito Administrativo', ['c1']);
+    });
+
+    expect(result.current.syllabus.items).toHaveLength(2);
+    expect(result.current.syllabus.items.map((item) => item.sourceLabel)).toEqual([
+      'Direito Constitucional',
+      'Direito Administrativo',
+    ]);
+    expect(result.current.concepts).toHaveLength(2);
+    expect(getSyllabus('setec-campinas', 'user-1').items).toHaveLength(2);
   });
 });

@@ -12,4 +12,5 @@ export const domainConfig = {
   extraction: 'local',
   syllabus: 'local',
   approvals: 'local',
+  concepts: 'local',
 } satisfies Record<string, ModuleSource>;

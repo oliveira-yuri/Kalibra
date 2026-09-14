@@ -53,6 +53,10 @@ function isFirstLevelHeading(line: string): boolean {
  * Fase 4 (extração por IA) vai substituir — mantido pequeno de propósito.
  */
 function extractEntriesFromText(text: string, cargoIds: string[]): RawSyllabusEntry[] {
+  // Sem cargoIds, nenhuma entrada teria a quem pertencer — um edital bem
+  // formado não pode virar erro de `structure` só porque o chamador não
+  // informou cargos ainda. `demoFileEntries` já se defende assim; consistente.
+  const cargos = cargoIds.length > 0 ? cargoIds : ['c1'];
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const entries: RawSyllabusEntry[] = [];
   let currentDiscipline: string | null = null;
@@ -65,7 +69,7 @@ function extractEntriesFromText(text: string, cargoIds: string[]): RawSyllabusEn
       continue;
     }
 
-    for (const cargoId of cargoIds) {
+    for (const cargoId of cargos) {
       entries.push({
         cargoId,
         label: line,

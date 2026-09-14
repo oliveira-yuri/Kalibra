@@ -70,4 +70,10 @@ describe('groupByType', () => {
   it('só declara os dois tipos que esta fase emite', () => {
     expect(APPROVAL_TYPES).toEqual(['edital_structure', 'concept_merge']);
   });
+
+  it('nunca lança mesmo para um tipo fora de APPROVAL_TYPES vindo de um cast inseguro', () => {
+    const rogue = makeItem({ type: 'plano_quinzenal' as unknown as 'edital_structure' });
+    expect(() => groupByType([rogue])).not.toThrow();
+    expect(groupByType([rogue])['plano_quinzenal' as unknown as 'edital_structure']).toEqual([rogue]);
+  });
 });

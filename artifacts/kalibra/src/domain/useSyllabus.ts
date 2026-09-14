@@ -1,7 +1,6 @@
 import { useSyllabus as localUseSyllabus } from './adapters/local/syllabus';
 import { domainConfig } from './config';
 
-export type { SyllabusRecord } from './adapters/local/syllabus';
 export { migrateSyllabus } from './adapters/local/syllabus';
 
 if (domainConfig.syllabus !== 'local') {
