@@ -169,6 +169,15 @@ export interface PendingWorkspaceImport {
    * enquanto a extração ainda não chegou a "pronto".
    */
   extractionOutput?: ExtractionOutput;
+  /**
+   * Marca que `dedupeEntries` já rodou sobre `extractionOutput` (Task 11) —
+   * sem isto, reabrir a mesma tela de revisão (mesmo import, sem confirmar
+   * nem descartar) rodaria a deduplicação de novo a cada montagem e
+   * duplicaria itens/conceitos/aprovações. `extractionOutput` continua
+   * presente mesmo depois de aplicado: é o único lugar que guarda as
+   * incertezas do PD-06 para o bloco "Não encontrado no edital".
+   */
+  extractionApplied?: boolean;
 }
 
 const STORAGE_KEY = 'kalibra_workspaces';

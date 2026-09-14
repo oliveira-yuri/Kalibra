@@ -3,10 +3,13 @@ import {
   emptySyllabus,
   splitItem,
   slugify,
+  dedupeEntries,
   type Syllabus,
   type SyllabusItem,
   type SyllabusItemCargo,
   type Concept,
+  type ExtractionOutput,
+  type DedupResult,
 } from '@workspace/core';
 import { useConcepts } from './concepts';
 
@@ -216,6 +219,34 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     persist(splitItem(syllabusRef.current, itemId, cargoId, makeId));
   };
 
+  /** Peso e quantidade de questões vivem na ligação item-cargo (o mesmo tópico vale diferente para cargos diferentes) — nunca no item. */
+  const updateLink = (
+    itemId: string,
+    cargoId: string,
+    patch: Partial<Pick<SyllabusItemCargo, 'weight' | 'questionCount'>>,
+  ) => {
+    persist({
+      ...syllabusRef.current,
+      links: syllabusRef.current.links.map((link) =>
+        (link.syllabusItemId === itemId && link.cargoId === cargoId ? { ...link, ...patch } : link)),
+    });
+  };
+
+  /**
+   * O único chamador de `dedupeEntries` (`@workspace/core`) em produção — a função
+   * roda há muito só sob teste. Constrói o `Syllabus` a partir das entradas brutas da
+   * extração, contra a biblioteca de conceitos JÁ carregada (`conceptsApi.concepts`),
+   * grava os conceitos provisórios novos na biblioteca global e persiste o programa
+   * resultante. `proposedLinks` e `merged` voltam para quem chamou decidir o que fazer
+   * (enfileirar aprovação, mostrar união ao usuário) — nunca aplicados aqui.
+   */
+  const applyExtraction = (output: ExtractionOutput): DedupResult => {
+    const result = dedupeEntries(workspaceSlug, output.entries, conceptsApi.concepts, makeId);
+    result.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
+    persist(result.syllabus);
+    return result;
+  };
+
   return {
     syllabus,
     concepts: conceptsApi.concepts,
@@ -224,5 +255,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     removeItem,
     addItem,
     splitFromCargo,
+    updateLink,
+    applyExtraction,
   };
 }
