@@ -9,7 +9,7 @@ import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
 import { useExtraction } from '@/domain/useExtraction';
 import {
-  nextActionFor, assertTransition,
+  nextActionFor, assertTransition, canTransition, WORKSPACE_STATUS_LABELS,
   type ExtractionErrorKind, type ExtractionStage, type WorkspaceStatus,
 } from '@workspace/core';
 import { subjects, topics } from '@/data';
@@ -45,6 +45,20 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
+  // Autocura de um workspace preso em "extraindo_edital" de uma sessão anterior que
+  // nunca terminou (aba fechada, navegador reiniciado — nenhum cleanup de desmontagem
+  // roda nesses casos). Sem isto, um usuário que reabre o app encontra o mesmo status
+  // sem nenhuma aresta de saída (Finding 1, fix round 1). `!isProcessing` é o que
+  // distingue essa herança de uma extração de verdade em andamento NESTA sessão (que
+  // já teria `isProcessing` true e não pode ser interrompida por engano).
+  useEffect(() => {
+    if (workspace?.status === 'extraindo_edital' && !isProcessing) {
+      workspaceStatusRef.current = 'erro';
+      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage a uma troca de status externa (herdada ou de outra aba), não a cada render.
+  }, [workspace?.status, isProcessing]);
+
   const handleRegisterPractice = (topicId: string, total: number, correct: number) => {
     const topic = topics.find(t => t.id === topicId);
     const percent = Math.round((correct / total) * 100);
@@ -61,12 +75,27 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
       setUpdateError('Cole o conteúdo atualizado do edital antes de continuar.');
       return;
     }
-    setUpdateError('');
 
     // Ao contrário de NovoWorkspace (workspace ainda não existe), aqui o workspace já
-    // é real — o status caminha de verdade por `updateWorkspace`, visível em qualquer
-    // outra tela (Portal, WorkspaceStatusChip) enquanto a extração roda (Task 10).
+    // é real e pode estar em QUALQUER status quando o usuário clica em reimportar —
+    // inclusive um em que a transição para "aguardando_upload" não é válida (ex.:
+    // "diagnóstico em andamento"). Fix round 1 (Finding 1, crítico): a versão anterior
+    // chamava `assertTransition` direto sobre a entrada do usuário, sem checar antes —
+    // o throw escapava do handler de clique, o modal ficava travado e o usuário não via
+    // mensagem nenhuma. `canTransition` decide ANTES de qualquer `assertTransition`
+    // rodar; o assert continua depois só como cinto-e-suspensório de design-by-contract,
+    // nunca mais alcançável com uma entrada inválida.
     const current = workspace?.status ?? 'sem_edital';
+    if (!canTransition(current, 'aguardando_upload')) {
+      setUpdateError(
+        `Não é possível reimportar agora: o workspace está em "${WORKSPACE_STATUS_LABELS[current]}". Aguarde essa etapa terminar e tente de novo.`,
+      );
+      return;
+    }
+    setUpdateError('');
+
+    // O status caminha de verdade por `updateWorkspace`, visível em qualquer outra
+    // tela (Portal, WorkspaceStatusChip) enquanto a extração roda (Task 10).
     assertTransition(current, 'aguardando_upload');
     workspaceStatusRef.current = 'aguardando_upload';
     updateWorkspace(workspaceSlug, { status: 'aguardando_upload', nextAction: nextActionFor('aguardando_upload') });
@@ -90,6 +119,21 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     workspaceStatusRef.current = nextStatus;
     updateWorkspace(workspaceSlug, { status: nextStatus, nextAction: nextActionFor(nextStatus) });
   }, [extraction.progress.stage, isProcessing, workspaceSlug]);
+
+  // `extraindo_edital` só tem duas saídas válidas no grafo de `lib/core`:
+  // "aguardando_revisao_edital" (extração terminou) e "erro". Se a extração é
+  // interrompida ANTES de chegar lá — cancelada, ou a tela fecha/navega no meio do
+  // caminho — nada mais no app jamais tira o workspace desse status: não há aresta de
+  // volta para "aguardando_upload". Fix round 1 (Finding 1): sempre que uma
+  // interrupção acontece com o status ainda em "extraindo_edital", este efeito o leva
+  // para "erro" — a única saída válida — de onde uma nova tentativa de reimportar
+  // (erro -> aguardando_upload, aresta válida) volta a funcionar.
+  useEffect(() => () => {
+    if (workspaceStatusRef.current === 'extraindo_edital') {
+      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só o cleanup de desmontagem importa; lê o ref mais recente, não o que a montagem capturou.
+  }, []);
 
   const handleReady = () => {
     // O status já foi levado a "aguardando_revisao_edital" pelo efeito acima quando
@@ -118,6 +162,19 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     if (kind === 'corrupted') setSourceFileName('');
   };
 
+  // Cancelar no meio de "extraindo_edital" tem a mesma lacuna que o cleanup de
+  // desmontagem cobre: sem uma aresta de volta para "aguardando_upload", só "erro" é
+  // válido daqui (Finding 1, fix round 1) — feito aqui também para o usuário ver o
+  // status mudar na hora, sem precisar sair da tela primeiro.
+  const handleCancelExtraction = () => {
+    extraction.cancel();
+    if (workspaceStatusRef.current === 'extraindo_edital') {
+      workspaceStatusRef.current = 'erro';
+      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+    }
+    setIsProcessing(false);
+  };
+
   const filtered = topics.filter((topic) => (subjectFilter === 'Todas' || topic.subject === subjectFilter) && (priorityFilter === 'todas' || topic.priority === priorityFilter) && (statusFilter === 'todos' || topic.status === statusFilter));
 
   return <div className="space-y-5">
@@ -134,7 +191,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
               <EditalUploadProgress
                 progress={extraction.progress}
                 onReady={handleReady}
-                onCancel={() => { extraction.cancel(); setIsProcessing(false); }}
+                onCancel={handleCancelExtraction}
                 onAction={handleExtractionAction}
               />
             </div>
