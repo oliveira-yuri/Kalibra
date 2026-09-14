@@ -10,6 +10,7 @@ import { Questoes } from '@/pages/Questoes';
 import { Erros } from '@/pages/Erros';
 import { Recomendacoes } from '@/pages/Recomendacoes';
 import { Diagnostico } from '@/pages/Diagnostico';
+import { Aprovacoes } from '@/pages/Aprovacoes';
 import { NotFound } from '@/pages/NotFound';
 import { useStudyState } from '@/domain/useStudyState';
 import { useNotes } from '@/domain/useNotes';
@@ -31,6 +32,7 @@ export function WorkspaceApp({ theme, onToggleTheme, slug }: { theme: Theme; onT
         <Route path="/erros" component={() => <Erros errors={errors} />} />
         <Route path="/recomendacoes" component={() => <Recomendacoes recommendations={recommendations} plan={plan} onApprove={approveRecommendation} />} />
         <Route path="/diagnostico" component={() => <Diagnostico workspaceSlug={slug} />} />
+        <Route path="/aprovacoes" component={Aprovacoes} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

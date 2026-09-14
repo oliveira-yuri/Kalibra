@@ -37,6 +37,7 @@ const ROTAS = [
   '/workspace/setec-campinas/erros',
   '/workspace/setec-campinas/recomendacoes',
   '/workspace/setec-campinas/diagnostico',
+  '/workspace/setec-campinas/aprovacoes',
   '/',
   '/sign-in',
   '/sign-up',
@@ -100,6 +101,53 @@ describe('telas do Kalibra', () => {
     const { default: App } = await import('../App');
     const { container } = render(<App />);
     expect(container.innerHTML).toContain('Fazer o diagnóstico inicial');
+  });
+
+  it('renderiza /aprovacoes com itens pendentes de forma estável', async () => {
+    // Nada hoje enfileira um item de verdade (achado 1 do brief da Task 9 — a fila
+    // nasce vazia em produção); sem semear o localStorage aqui, o snapshot só provaria
+    // o estado vazio e nunca exercitaria o cartão, o diff ou os botões de decisão.
+    window.localStorage.setItem(`kalibra_approvals:${TEST_USER.id}`, JSON.stringify([
+      {
+        id: 'appr-1',
+        workspaceId: 'setec-campinas',
+        type: 'concept_merge',
+        status: 'pendente',
+        title: 'Fundir "Lei nº 14.133/2021" com "Nova Lei de Licitações"',
+        rationale: 'As duas entradas do edital citam o mesmo diploma legal com nomes diferentes.',
+        sourceRef: 'edital · item 3.2.1',
+        targetConceptId: 'concept-licitacoes',
+        confidence: 0.91,
+        payloadBefore: { canonicalName: 'Nova Lei de Licitações', status: 'provisional' },
+        payloadAfter: { canonicalName: 'Lei nº 14.133/2021', status: 'confirmed' },
+        createdAt: '2026-09-01T00:00:00.000Z',
+        decidedAt: null,
+        reason: null,
+      },
+      {
+        id: 'appr-2',
+        workspaceId: 'setec-campinas',
+        type: 'edital_structure',
+        status: 'pendente',
+        title: 'Estrutura do edital identificada — versão 2',
+        rationale: 'Extração automática do texto colado na atualização do edital.',
+        sourceRef: null,
+        targetConceptId: null,
+        confidence: 0.8,
+        payloadBefore: null,
+        payloadAfter: { version: '2', entries: [] },
+        createdAt: '2026-09-02T00:00:00.000Z',
+        decidedAt: null,
+        reason: null,
+      },
+    ]));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/aprovacoes');
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+    expect(container.innerHTML).toContain('button-approve-appr-1');
+    expect(container.innerHTML).toContain('approval-diff');
+    expect(container.innerHTML).toContain('link-review-structure-appr-2');
+    expect(container.innerHTML).toMatchSnapshot();
   });
 });
 
