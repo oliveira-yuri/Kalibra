@@ -332,3 +332,167 @@ os revelou):
   ("separar... não remove o conteúdo do outro cargo") exercita exatamente esse split e
   confirma que o conteúdo sobrevive nos dois lados, mas não que a topologia volte a ser a
   mesma — porque não é.
+
+## 9. Onda de correção da revisão final de branch (2026-09-14)
+
+A revisão final de branch inteira devolveu **não pronta para merge** com dois achados
+Importantes e dois menores baratos. Esta seção descreve o comportamento DEPOIS da onda
+única de correção, e fecha a lista do que fica parqueado como limite conhecido.
+
+Commits: `d6c1697` (I-1 + M-5) e `85b6b3c` (I-2 + M-4), sobre `1eedb31`.
+
+### 9.1 I-1 — o editor não aceita mais texto para um cargo que já não existe
+
+**Antes:** `EditalSourceBlocks.tsx:34` calculava `const ativo = multiplos ? aba : null`
+e nunca validava se `aba` ainda estava em `cargos`. Removendo (ou apagando o nome de) o
+cargo cuja aba estava aberta, a aba sumia da barra, **nenhuma aba ficava acesa** e o
+textarea continuava mostrando — e aceitando — o texto do cargo morto, com
+`data-cargo="<id morto>"`. Tudo o que fosse digitado dali em diante entrava em
+`sourceBlocks` sob o id morto, e a poda do submit (`NovoWorkspace.tsx`, achado I3 da
+Task 6) o descartava em silêncio.
+
+**Depois:** a aba ativa é validada contra a lista de cargos **a cada render**. Quando o
+cargo da aba aberta deixa de existir, o campo volta para o bloco **comum** — o único
+destino que nenhuma edição de cargo pode fazer sumir — e a aba "Comum a todos" acende.
+O critério é comportamental e está fixado por teste: **não existe textarea editável cujo
+conteúdo o submit vá descartar**.
+
+Vale para as duas formas de o cargo "deixar de existir", porque para o componente elas
+são a mesma coisa (a tela de criação só passa os cargos NOMEADOS):
+
+| Ação do usuário | Comportamento agora |
+|---|---|
+| Clicar no X do cargo da aba aberta | Campo volta ao bloco comum, com o texto comum; digitar dali em diante grava em `cargoId: null` |
+| Apagar o nome do cargo da aba aberta | Idem |
+| Remover um cargo que **não** é o da aba aberta | Nada muda para quem está digitando |
+
+Testes: `EditalSourceBlocks.test.tsx` (4 novos, no componente) e `NovoWorkspace.test.tsx`
+(2 novos, na jornada real de criação com três cargos). Reverter `ativo` para a forma
+antiga deixa os 6 vermelhos.
+
+### 9.2 I-2 — excluir com um cargo no filtro exclui só daquele cargo
+
+**Antes:** `SyllabusTree.tsx` chamava `onRemove(item.id)` em qualquer situação, e
+`EditalRevisar.handleRemove` apagava o item e **todas** as ligações dele. Com o filtro em
+"Analista", excluir "Crase" (comum a Analista e Técnico) apagava o conteúdo do Técnico
+junto, com peso e quantidade de questões, sem confirmação e sem aviso — enquanto o chip
+da mesma linha dizia "comum a todos" e o menu logo acima oferecia "Separar de Analista",
+a operação não destrutiva. Violava o critério de aceite **"alterar um cargo não
+contamina os demais"**.
+
+**Depois**, o contrato de comportamento em vigor:
+
+| Situação | O que "Excluir" faz | Rótulo no menu |
+|---|---|---|
+| Filtro num cargo, item comum a vários | Remove **só** a ligação daquele cargo; os demais ficam com o item, o peso e a quantidade intactos | `Excluir de <cargo>` |
+| Filtro em "todos os cargos", item comum | Remove o item inteiro, como antes | `Excluir de todos os cargos` |
+| Item que pertence a um cargo só | Remove o item inteiro (tirar a última ligação é excluir o item) | `Excluir` |
+
+A operação pura nova é `unlinkItemFromCargo(syllabus, itemId, cargoId)`, em
+`lib/core/src/syllabus/syllabus.ts`, ao lado de `linkItemToCargo` e `splitItem`. Três
+regras, todas consequência do mesmo critério:
+
+1. **Os subtópicos vão junto.** Um item que deixa de pertencer ao cargo não deixa filhos
+   pendurados naquele cargo.
+2. **Item sem nenhuma ligação deixa de existir.** Tirar o último cargo é excluir o item —
+   o modelo não tem lugar para conteúdo que não pertence a cargo nenhum.
+3. **Filho que sobrevive a um pai excluído vira raiz** (`parentItemId: null`), nunca
+   aponta para um pai que já não existe.
+
+Itens fora da subárvore afetada nunca são removidos, mesmo que já estivessem sem ligação
+antes: a função responde por uma exclusão, não por uma faxina do registro. `lib/core`
+continua puro — sem relógio, I/O, storage ou `window`.
+
+Os **dois** caminhos de `EditalRevisar` foram ligados, não um só:
+
+- proposta em revisão (estado `review`, nada persistido ainda) → `unlinkItemFromCargo`
+  sobre `review.syllabus`;
+- programa já persistido → `syllabusApi.unlinkFromCargo`, novo no adaptador local, que
+  chama a mesma função pura e persiste.
+
+Testes: 12 em `lib/core/src/syllabus/syllabus.test.ts` (incluindo os quatro de
+subtópicos), 4 em `SyllabusTree.test.tsx` (rótulo e qual callback dispara nos três
+casos) e 7 em `EditalRevisar.test.tsx` — 4 no caminho da proposta (some da visão do
+Analista, continua na do Técnico; peso 30 e 7 questões do Técnico intactos depois da
+exclusão do Analista; confirmar grava `links` só com `c2`; sem filtro continua apagando
+tudo) e 3 no caminho persistido (a ligação `c1` some do `localStorage`, a `c2` fica com
+`weight: 6, questionCount: 3`; "Crase" continua visível para o Técnico; item de um cargo
+só é excluído inteiro).
+
+### 9.3 M-5 — a aparência do campo volta a ser de quem monta o componente
+
+Ao adotar o componente compartilhado, o textarea da tela de criação perdeu
+`min-h-[200px] font-mono text-[11px] leading-relaxed` e ficou com as medidas do modal de
+reimportação (`min-h-[150px] text-[12px]`). Perder `font-mono` na superfície principal de
+colar edital era o que mais custava. O componente passa a aceitar `textareaClassName`
+(padrão: as medidas do modal, então `Edital.tsx` fica exatamente como estava) e
+`NovoWorkspace` passa as suas. Nenhum token novo, `index.css` intocado.
+
+### 9.4 M-4 — dois comentários imprecisos corrigidos
+
+- `lib/core/src/syllabus/syllabus.ts`: `linkItemToCargo` não é "o inverso de
+  `splitItem`". `splitItem` sempre cria um item NOVO, então ligar e separar de volta
+  devolve dois itens onde havia um — o conteúdo sobrevive nos dois cargos, a topologia
+  não volta a ser a mesma. O texto agora diz "a direção contrária", aponta a diferença e
+  remete a `unlinkItemFromCargo` para quem quer tirar um cargo sem criar item novo.
+- `EditalRevisar.tsx`: o rascunho carrega `sourceBlocks` (um bloco por cargo mais o
+  comum), não `sourceText`.
+
+### 9.5 Portão depois da onda
+
+| Comando | Resultado |
+|---|---|
+| `pnpm run typecheck` | passou (4 pacotes, exit 0) |
+| `pnpm run test` | passou — **564 testes** (231 `lib/core` + 333 `artifacts/kalibra`), contra 532 antes |
+| `pnpm run build` | passou (exit 0), com os mesmos dois avisos pré-existentes (sourcemap de `components/ui/tooltip.tsx` e chunk > 500 kB) |
+| `TZ` em `UTC`, `America/Sao_Paulo`, `Pacific/Kiritimati` | 564 em cada, idêntico; nenhuma linha "Snapshots … written" |
+
+Contagem por arquivo tocado: `syllabus.test.ts` 24 → 36; `EditalRevisar.test.tsx` 50 →
+57; `SyllabusTree.test.tsx` 16 → 20; `EditalSourceBlocks.test.tsx` 7 → 13;
+`NovoWorkspace.test.tsx` 7 → 10.
+
+`screens.snapshot.test.tsx.snap` volta a aparecer em `git status` com `git diff` vazio —
+a normalização CRLF já documentada na seção 5, não mudança de conteúdo (`git diff
+--numstat` não devolve linha alguma, e o arquivo não contém o textarea alterado).
+
+Restrições globais reconferidas: `index.css` intocado, nenhuma dependência nova
+(`git diff --stat -- '*package.json' pnpm-lock.yaml` vazio), nenhuma tela de produção
+tocando storage direto, React/react-dom em `19.1.0` exato, `lib/core` puro.
+
+### 9.6 Cada correção provada por reversão mecânica
+
+Antes de commitar, cada guarda foi revertida mecanicamente e a suíte rodada; todas
+ficaram vermelhas, e o código foi restaurado em seguida.
+
+| Reversão | Vermelhos |
+|---|---|
+| `ativo` volta a `multiplos ? aba : null` | 6 (4 em `EditalSourceBlocks.test.tsx`, 2 em `NovoWorkspace.test.tsx`) |
+| `textareaClassName` removido da tela de criação | 1 (`expected 'k-input min-h-[150px] …' to contain 'font-mono'`) |
+| `porCargo` neutralizado em `SyllabusTree` | 7 (2 no componente, 5 na tela) |
+| só o ramo persistido trocado por `removeItem` | 2 |
+| só o ramo da proposta trocado por `removeSyllabusItem` | 3 |
+| filtro de ligações de `unlinkItemFromCargo` ignorando o cargo | 4 (`lib/core`) |
+| cascata de subtópicos desligada | 2 (`lib/core`) |
+
+## 10. Limites parqueados desta fase (decisão explícita, não esquecimento)
+
+Além dos da seção 8, a onda de correção decidiu **não** mexer nestes — entram como
+limites conhecidos da Fase 1B.5:
+
+- **`sourceBlocks` continua write-only:** nenhuma tela pré-carrega os blocos salvos ao
+  reabrir o editor do edital.
+- **`Edital.tsx:408` mantém o chip divergente** (`N cargos`, sempre) em vez de "comum a
+  todos" / "só \<cargo\>" como `SyllabusTree`.
+- **Reclassificação silenciosa:** nomear um cargo DEPOIS de já ter digitado deixa o texto
+  classificado como comum, sem aviso (não há perda de dado).
+- **Id cru na aba de um cargo sem nome** — inalcançável em produção, porque as telas só
+  passam cargos nomeados.
+- **Teste amarrado a `vi.setSystemTime(2)`** para forçar id de cargo previsível (a onda
+  reusou o mesmo padrão, com `3` para o terceiro cargo).
+- **Separar (`splitItem`) e aplicar (`linkItemToCargo`) não levam os filhos junto** —
+  pré-existente. A exclusão por cargo (`unlinkItemFromCargo`) leva; uniformizar as três é
+  mudança de modelo, com fase própria.
+- **Conferência visual manual nos dois temas continua não feita** (sem
+  `VITE_CLERK_PUBLISHABLE_KEY` neste ambiente) — ver seção 6. As classes novas do menu e
+  do campo seguem o par `light dark:` já usado nos arquivos, mas isso é leitura de
+  código, não conferência em navegador.
