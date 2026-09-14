@@ -234,18 +234,23 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
 
   /**
    * O único chamador de `dedupeEntries` (`@workspace/core`) em produção — a função
-   * roda há muito só sob teste. Constrói o `Syllabus` a partir das entradas brutas da
-   * extração, contra a biblioteca de conceitos JÁ carregada (`conceptsApi.concepts`),
-   * grava os conceitos provisórios novos na biblioteca global e persiste o programa
-   * resultante. `proposedLinks` e `merged` voltam para quem chamou decidir o que fazer
-   * (enfileirar aprovação, mostrar união ao usuário) — nunca aplicados aqui.
+   * roda há muito só sob teste. Constrói a PROPOSTA de `Syllabus` a partir das entradas
+   * brutas da extração, contra a biblioteca de conceitos JÁ carregada
+   * (`conceptsApi.concepts`) — e só isso. `proposedLinks`, `newConcepts` e `merged`
+   * voltam para quem chamou decidir o que fazer com eles.
+   *
+   * Achado da revisão (fix round 1, "Finding 2" — crítico): a versão anterior desta
+   * função também gravava — `conceptsApi.addConcept` para cada `newConcepts` e
+   * `persist(result.syllabus)` — só de ser CHAMADA, e `EditalRevisar` chamava no
+   * mount. Abrir a tela de revisão sozinha, sem clicar em nada, já sobrescrevia
+   * qualquer programa de estudo salvo antes de qualquer aprovação — o oposto exato do
+   * que o spec exige ("`syllabus_item` só nasce na aprovação"). Esta função agora é
+   * pura: não toca `localStorage`, não muda `conceptsRef`/`syllabusRef`. Quem decide
+   * gravar o resultado (conceitos novos, Syllabus, itens de aprovação) é a ação de
+   * confirmar da tela — nunca o simples ato de exibi-la. Ver `EditalRevisar.handleConfirm`.
    */
-  const applyExtraction = (output: ExtractionOutput): DedupResult => {
-    const result = dedupeEntries(workspaceSlug, output.entries, conceptsApi.concepts, makeId);
-    result.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
-    persist(result.syllabus);
-    return result;
-  };
+  const previewExtraction = (output: ExtractionOutput): DedupResult =>
+    dedupeEntries(workspaceSlug, output.entries, conceptsApi.concepts, makeId);
 
   return {
     syllabus,
@@ -256,6 +261,6 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     addItem,
     splitFromCargo,
     updateLink,
-    applyExtraction,
+    previewExtraction,
   };
 }

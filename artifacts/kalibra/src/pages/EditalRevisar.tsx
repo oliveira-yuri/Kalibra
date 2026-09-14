@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
 import { useSyllabus } from '@/domain/useSyllabus';
+import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
 import {
-  nextActionFor, isCommon, diffSyllabus,
-  type ProposedConceptLink, type Syllabus, type SyllabusItem,
+  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition,
+  type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
+  type SyllabusItemCargo, type Concept,
 } from '@workspace/core';
 import { SyllabusTree } from '@/components/SyllabusTree';
 import { CargoFilter } from '@/components/CargoFilter';
@@ -27,6 +29,87 @@ function subjectPrefixedLabel(syllabus: Syllabus, item: SyllabusItem): string {
   return parent ? `${parent.sourceLabel} · ${item.sourceLabel}` : item.sourceLabel;
 }
 
+function makeReviewId(seed: string): string {
+  return `${seed}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// As quatro transformações puras abaixo espelham `useSyllabus.{renameItem,removeItem,
+// addItem}`, mas DEVOLVEM em vez de persistir. Existem porque, enquanto uma extração
+// ainda não foi confirmada, nada pode ser gravado (spec: "syllabus_item só nasce na
+// aprovação") — mas o usuário ainda precisa poder editar a PROPOSTA antes de aprová-la.
+// `splitItem` já é pura em lib/core; reaproveitada direto.
+
+function renameSyllabusItem(syllabus: Syllabus, itemId: string, label: string): Syllabus {
+  return {
+    ...syllabus,
+    items: syllabus.items.map((item) => (item.id === itemId ? { ...item, sourceLabel: label } : item)),
+  };
+}
+
+function removeSyllabusItem(syllabus: Syllabus, itemId: string): Syllabus {
+  return {
+    items: syllabus.items
+      .filter((item) => item.id !== itemId)
+      .map((item) => (item.parentItemId === itemId ? { ...item, parentItemId: null } : item)),
+    links: syllabus.links.filter((link) => link.syllabusItemId !== itemId),
+  };
+}
+
+function updateSyllabusLink(
+  syllabus: Syllabus,
+  itemId: string,
+  cargoId: string,
+  patch: Partial<Pick<SyllabusItemCargo, 'weight' | 'questionCount'>>,
+): Syllabus {
+  return {
+    ...syllabus,
+    links: syllabus.links.map((link) =>
+      (link.syllabusItemId === itemId && link.cargoId === cargoId ? { ...link, ...patch } : link)),
+  };
+}
+
+function addSyllabusItemPure(
+  syllabus: Syllabus,
+  workspaceSlug: string,
+  parentItemId: string | null,
+  label: string,
+  cargoIds: string[],
+): { syllabus: Syllabus; concept: Concept } {
+  const itemId = makeReviewId('item');
+  const conceptId = makeReviewId('concept');
+
+  const concept: Concept = {
+    id: conceptId,
+    canonicalName: label,
+    slug: slugify(label),
+    parentId: null,
+    kind: parentItemId ? 'topico' : 'disciplina',
+    aliases: [],
+    status: 'provisional',
+  };
+
+  const item: SyllabusItem = {
+    id: itemId,
+    workspaceId: workspaceSlug,
+    conceptId,
+    parentItemId,
+    sourceLabel: label,
+    sourceExcerpt: null,
+    page: null,
+    confidence: 1,
+    uncertain: false,
+  };
+
+  const links: SyllabusItemCargo[] = cargoIds.map((cargoId) => ({
+    syllabusItemId: itemId, cargoId, weight: null, questionCount: null,
+  }));
+
+  return {
+    syllabus: { items: [...syllabus.items, item], links: [...syllabus.links, ...links] },
+    concept,
+  };
+}
+
 export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const { user } = useUser();
   const [, setLocation] = useLocation();
@@ -36,73 +119,95 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const [pending] = useState(() => getPendingWorkspaceImport(workspaceSlug, user?.id));
   const workspace = pending?.workspace || workspaces.find((w) => w.slug === workspaceSlug);
   const syllabusApi = useSyllabus(workspaceSlug, user?.id);
+  const conceptsApi = useConcepts(user?.id);
   const approvalsApi = useApprovals(user?.id);
 
   const [cargoFilter, setCargoFilter] = useState<string | null>(null);
   const [missing, setMissing] = useState<Record<string, string>>({});
-  // Capturado só quando esta montagem de fato aplica uma extração nova (abaixo) — é o
-  // "antes" do PD-08. `null` quando não há o que comparar (primeira versão, ou a tela
-  // foi aberta sem uma importação pendente de verdade).
-  const [previousSyllabus, setPreviousSyllabus] = useState<Syllabus | null>(null);
 
-  // Roda `dedupeEntries` (Task 11) exatamente uma vez por importação pendente — a
-  // guarda dupla (`appliedRef` nesta montagem + `extractionApplied` persistido) existe
-  // porque só o ref não sobrevive a uma remontagem (usuário sai e volta à mesma tela
-  // sem confirmar nem descartar), o que rodaria a deduplicação de novo e duplicaria
-  // itens, conceitos provisórios e aprovações.
-  const appliedRef = useRef(false);
-  useEffect(() => {
-    if (appliedRef.current) return;
-    appliedRef.current = true;
-    if (!pending?.extractionOutput || pending.extractionApplied) return;
+  // A PROPOSTA de `dedupeEntries` (Task 11), computada uma única vez na montagem
+  // (inicializador preguiçoso de `useState`) — nunca recalculada por causa de um
+  // re-render. `null` quando não há extração pendente para revisar (workspace já
+  // confirmado antes, ou revisitando sem reimportar). Fix round 1 (Finding 2): esta
+  // computação é PURA — `useSyllabus.previewExtraction` não persiste nada — então o
+  // simples ato de montar esta tela nunca mais sobrescreve o Syllabus salvo. O que sai
+  // daqui só é gravado em `handleConfirm`.
+  const [review, setReview] = useState<DedupResult | null>(() => (
+    pending?.extractionOutput && !pending.extractionApplied
+      ? syllabusApi.previewExtraction(pending.extractionOutput)
+      : null
+  ));
 
-    // Snapshot de ANTES de `applyExtraction` sobrescrever o Syllabus persistido —
-    // o fechamento deste efeito (deps `[]`) vê o `syllabusApi.syllabus` carregado na
-    // montagem, isto é, a versão anterior de verdade (Task 13).
-    setPreviousSyllabus(syllabusApi.syllabus);
-    const result = syllabusApi.applyExtraction(pending.extractionOutput);
-    const now = new Date();
-    // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick —
-    // os hooks de aprovação são ref-sincronizados exatamente para que as N
-    // chamadas sobrevivam todas (ver approvals.test.ts e o teste desta tela).
-    result.proposedLinks.forEach((link) => {
-      approvalsApi.enqueue({
-        workspaceId: workspaceSlug,
-        type: 'concept_merge',
-        title: `Fundir item extraído com "${link.conceptId}"`,
-        rationale: rationaleFor(link),
-        // Proveniência (de onde a proposta veio): o item do edital que a gerou.
-        sourceRef: link.itemId,
-        // O que a decisão muta: o conceito que a ligação propõe confirmar —
-        // NUNCA `sourceRef` (achado da revisão da fila de aprovação: usar
-        // proveniência aqui faria `confirmConcept` receber um id que não bate
-        // com nada, e a aprovação "aplicaria" em silêncio, sem efeito).
-        targetConceptId: link.conceptId,
-        confidence: link.score,
-        payloadBefore: { status: 'provisional' },
-        payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
-      }, now);
-    });
-    stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma única vez, sobre o `pending` congelado na montagem.
-  }, []);
+  // Idempotência de `handleConfirm`: um clique duplo antes da navegação não pode
+  // persistir a mesma proposta duas vezes (duplicaria concept_merge na fila). A
+  // marca em `pending.extractionApplied` (Task 11) fica só como sinal secundário —
+  // `clearPendingWorkspaceImport` já remove o registro inteiro ao final do confirm.
+  const confirmedRef = useRef(false);
+
+  // O Syllabus efetivamente exibido: a proposta em revisão quando existe, senão o que
+  // já está persistido (edição normal de uma estrutura já confirmada).
+  const currentSyllabus = review ? review.syllabus : syllabusApi.syllabus;
 
   const uncertainFields = pending?.extractionOutput?.uncertainties ?? [];
   // Um item comum a mais de um cargo é exatamente o que `dedupeEntries` uniu — o spec
   // exige que o usuário entenda isso de cara, não que descubra sozinho (Task 12).
-  const hasCommonItems = syllabusApi.syllabus.items.some((item) => isCommon(syllabusApi.syllabus, item.id));
-  // PD-08: comparação entre versões de edital. Só existe algo a comparar quando esta
-  // montagem realmente aplicou uma extração nova — sem isso, "versão 2" aberta sem
-  // reimportar não tem "antes" nenhum para diffar contra.
-  const diff = previousSyllabus
-    ? diffSyllabus(previousSyllabus, syllabusApi.syllabus, syllabusApi.concepts)
+  const hasCommonItems = currentSyllabus.items.some((item) => isCommon(currentSyllabus, item.id));
+  // PD-08: comparação entre versões de edital. `syllabusApi.syllabus` continua sendo o
+  // "antes" de verdade enquanto não se confirma — nada foi sobrescrito ainda — e
+  // `review.syllabus` é o "depois" proposto.
+  const diff = review
+    ? diffSyllabus(syllabusApi.syllabus, review.syllabus, syllabusApi.concepts)
     : null;
 
   const handleConfirm = () => {
+    if (confirmedRef.current) return;
+    confirmedRef.current = true;
+
+    if (review) {
+      // Só agora — na aprovação, nunca antes — "syllabus_item nasce": os conceitos
+      // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
+      // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
+      // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
+      review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
+      syllabusApi.save(review.syllabus);
+
+      const now = new Date();
+      // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
+      // de aprovação são ref-sincronizados exatamente para que as N chamadas
+      // sobrevivam todas (ver approvals.test.ts e o teste desta tela).
+      review.proposedLinks.forEach((link) => {
+        approvalsApi.enqueue({
+          workspaceId: workspaceSlug,
+          type: 'concept_merge',
+          title: `Fundir item extraído com "${link.conceptId}"`,
+          rationale: rationaleFor(link),
+          // Proveniência (de onde a proposta veio): o item do edital que a gerou.
+          sourceRef: link.itemId,
+          // O que a decisão muta: o conceito que a ligação propõe confirmar — NUNCA
+          // `sourceRef` (achado da revisão da fila de aprovação: usar proveniência
+          // aqui faria `confirmConcept` receber um id que não bate com nada, e a
+          // aprovação "aplicaria" em silêncio, sem efeito).
+          targetConceptId: link.conceptId,
+          confidence: link.score,
+          payloadBefore: { status: 'provisional' },
+          payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
+        }, now);
+      });
+
+      if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
+    }
+
     // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
     // texto solto aqui — para que o card nunca mostre uma frase que contradiz o chip de
     // status ao lado dela (ver regressão I2).
     const status = 'diagnostico_pendente' as const;
+    // Fix round 1 (achado menor): todo outro lugar do lote que muda `status` passa por
+    // `assertTransition` (Task 10); só este confirm não passava. A aresta é válida em
+    // todo fluxo real que chega aqui (extração terminada = "aguardando_revisao_edital",
+    // ou edição manual de uma estrutura já confirmada) — o guard de "já está lá" evita
+    // um assert vazio quando não há nada a transicionar.
+    const statusBeforeConfirm = pending?.isNew ? (pending.workspace?.status ?? status) : (workspace?.status ?? status);
+    if (statusBeforeConfirm !== status) assertTransition(statusBeforeConfirm, status);
     if (pending?.isNew && pending.workspace) {
       addWorkspace({
         ...pending.workspace,
@@ -123,16 +228,63 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   };
 
   const handleDiscard = () => {
+    // Nada foi persistido por `review` — descartar é só esquecer a proposta em memória
+    // e limpar a importação pendente. O Syllabus salvo nunca foi tocado.
     clearPendingWorkspaceImport(workspaceSlug, user?.id);
     if (pending?.isNew) setLocation(`~${import.meta.env.BASE_URL}portal`);
     else setLocation('/edital');
+  };
+
+  const handleRename = (itemId: string, label: string) => {
+    if (review) {
+      setReview((current) => (current && { ...current, syllabus: renameSyllabusItem(current.syllabus, itemId, label) }));
+    } else {
+      syllabusApi.renameItem(itemId, label);
+    }
+  };
+
+  const handleRemove = (itemId: string) => {
+    if (review) {
+      setReview((current) => (current && { ...current, syllabus: removeSyllabusItem(current.syllabus, itemId) }));
+    } else {
+      syllabusApi.removeItem(itemId);
+    }
+  };
+
+  const handleSplit = (itemId: string, cargoId: string) => {
+    if (review) {
+      setReview((current) => (current && { ...current, syllabus: splitItem(current.syllabus, itemId, cargoId, makeReviewId) }));
+    } else {
+      syllabusApi.splitFromCargo(itemId, cargoId);
+    }
+  };
+
+  const handleWeightChange = (itemId: string, cargoId: string, weight: number | null) => {
+    if (review) {
+      setReview((current) => (current && { ...current, syllabus: updateSyllabusLink(current.syllabus, itemId, cargoId, { weight }) }));
+    } else {
+      syllabusApi.updateLink(itemId, cargoId, { weight });
+    }
+  };
+
+  const handleQuestionCountChange = (itemId: string, cargoId: string, questionCount: number | null) => {
+    if (review) {
+      setReview((current) => (current && { ...current, syllabus: updateSyllabusLink(current.syllabus, itemId, cargoId, { questionCount }) }));
+    } else {
+      syllabusApi.updateLink(itemId, cargoId, { questionCount });
+    }
   };
 
   const handleAdd = (parentItemId: string | null) => {
     const label = window.prompt(parentItemId ? 'Nome do novo tópico' : 'Nome da nova matéria');
     if (!label?.trim()) return;
     const cargoIds = cargoFilter ? [cargoFilter] : (workspace?.cargos.map((cargo) => cargo.id) ?? []);
-    syllabusApi.addItem(parentItemId, label.trim(), cargoIds);
+    if (review) {
+      const { syllabus, concept } = addSyllabusItemPure(review.syllabus, workspaceSlug, parentItemId, label.trim(), cargoIds);
+      setReview((current) => (current && { ...current, syllabus, newConcepts: [...current.newConcepts, concept] }));
+    } else {
+      syllabusApi.addItem(parentItemId, label.trim(), cargoIds);
+    }
   };
 
   const fillMissing = (field: string) => {
@@ -145,7 +297,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       <header>
         <div className="flex items-center gap-3 mb-2">
           <p className="k-eyebrow">ESTRUTURA EXTRAÍDA DO EDITAL</p>
-          <span className="k-chip">versão {version} · {syllabusApi.syllabus.items.length} itens mapeados</span>
+          <span className="k-chip">versão {version} · {currentSyllabus.items.length} itens mapeados</span>
         </div>
         <h1 className="text-[24px] font-semibold">Revise antes de confirmar.</h1>
         <p className="text-[13px] text-[#8e98a8]">Você pode renomear, mover, excluir e adicionar tópicos manualmente.</p>
@@ -162,7 +314,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
             {diff.added.length > 0 && (
               <ul className="pl-6 space-y-1 text-[12px] text-[#52616c] dark:text-[#aeb8c5]">
                 {diff.added.map((addedItem) => (
-                  <li key={addedItem.id}>{subjectPrefixedLabel(syllabusApi.syllabus, addedItem)}</li>
+                  <li key={addedItem.id}>{subjectPrefixedLabel(currentSyllabus, addedItem)}</li>
                 ))}
               </ul>
             )}
@@ -176,7 +328,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
               <ul className="pl-6 space-y-1 text-[12px] text-[#52616c] dark:text-[#aeb8c5]">
                 {diff.removed.map((removedItem) => (
                   <li key={removedItem.id}>
-                    {subjectPrefixedLabel(previousSyllabus!, removedItem)}
+                    {subjectPrefixedLabel(syllabusApi.syllabus, removedItem)}
                     <div className="flex items-center gap-1 mt-1 text-[#c94f45] dark:text-[#ff907d] font-medium text-[10px]">
                       <AlertCircle size={12} /> pode ter histórico de estudo — o dado não é apagado, só sai da lista ativa
                     </div>
@@ -218,15 +370,15 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       )}
 
       <SyllabusTree
-        syllabus={syllabusApi.syllabus}
+        syllabus={currentSyllabus}
         cargoId={cargoFilter}
         cargos={workspace?.cargos ?? []}
-        onRename={syllabusApi.renameItem}
-        onRemove={syllabusApi.removeItem}
+        onRename={handleRename}
+        onRemove={handleRemove}
         onAdd={handleAdd}
-        onSplit={syllabusApi.splitFromCargo}
-        onWeightChange={(itemId, cargoId, weight) => syllabusApi.updateLink(itemId, cargoId, { weight })}
-        onQuestionCountChange={(itemId, cargoId, questionCount) => syllabusApi.updateLink(itemId, cargoId, { questionCount })}
+        onSplit={handleSplit}
+        onWeightChange={handleWeightChange}
+        onQuestionCountChange={handleQuestionCountChange}
       />
 
       {uncertainFields.length > 0 && (

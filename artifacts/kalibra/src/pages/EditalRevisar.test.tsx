@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, screen } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 import { stageWorkspaceImport } from '@/domain/useWorkspaces';
@@ -69,22 +69,35 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     cleanup();
   });
 
-  it('roda dedupeEntries sobre a saída da extração e persiste o Syllabus resultante', async () => {
+  const clickConfirm = () => fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+  it('computa a proposta ao montar (a árvore já mostra os dois itens), mas só persiste o Syllabus ao confirmar', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
-    render(<App />);
+    const { container } = render(<App />);
 
+    // A árvore já mostra a proposta — fix round 1 (Finding 2) não pode significar
+    // "a tela não mostra nada até confirmar", só que MONTAR não pode GRAVAR.
+    expect(container.innerHTML).toContain('Crase');
+    expect(container.innerHTML).toContain('Matemática financeira básica');
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
+
+    clickConfirm();
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
       ['Crase', 'Matemática financeira básica'].sort(),
     );
   });
 
-  it('salva os conceitos provisórios novos de DedupResult.newConcepts na biblioteca global', async () => {
+  it('salva os conceitos provisórios novos de DedupResult.newConcepts na biblioteca global, só ao confirmar', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
 
+    // Antes de confirmar, a biblioteca global tem só os dois conceitos semeados.
+    expect(JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!)).toHaveLength(2);
+
+    clickConfirm();
     const concepts: Concept[] = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
     // Os dois conceitos semeados continuam lá, mais dois provisórios novos — um por
     // entrada, já que nenhuma das duas casou com um conceito CONFIRMED (Crase só bate
@@ -94,10 +107,13 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     expect(concepts.filter((c) => c.status === 'provisional')).toHaveLength(3);
   });
 
-  it('cada proposedLink vira um item concept_merge com targetConceptId = conceptId da proposta, NUNCA sourceRef', async () => {
+  it('cada proposedLink vira um item concept_merge com targetConceptId = conceptId da proposta, NUNCA sourceRef — só ao confirmar', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+
+    expect(readApprovals()).toHaveLength(0);
+    clickConfirm();
 
     const approvals = readApprovals();
     expect(approvals).toHaveLength(2);
@@ -115,15 +131,30 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     });
   });
 
-  it('as duas chamadas de enqueue (uma por proposedLink) sobrevivem no mesmo tick — nenhuma se perde', async () => {
+  it('as duas chamadas de enqueue (uma por proposedLink) sobrevivem no mesmo tick do confirmar — nenhuma se perde', async () => {
+    seedPendingImport();
+    const { default: App } = await import('../App');
+    render(<App />);
+    clickConfirm();
+
+    // Duas propostas nesta fixture: se os hooks não fossem ref-sincronizados, a
+    // segunda chamada de `enqueue` no mesmo handler reconstruiria a partir do estado
+    // obsoleto e sobrescreveria a primeira — ficaria só 1, não 2.
+    expect(readApprovals()).toHaveLength(2);
+  });
+
+  it('confirmar duas vezes seguidas (clique duplo) não duplica nada — idempotência do confirm', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
 
-    // Duas propostas nesta fixture: se os hooks não fossem ref-sincronizados, a
-    // segunda chamada de `enqueue` no mesmo efeito reconstruiria a partir do estado
-    // obsoleto e sobrescreveria a primeira — ficaria só 1, não 2.
+    const button = screen.getByText('Confirmar estrutura');
+    fireEvent.click(button);
+    fireEvent.click(button);
+
     expect(readApprovals()).toHaveLength(2);
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    expect(syllabus.items).toHaveLength(2);
   });
 
   it('lista output.uncertainties no bloco "Não encontrado no edital", nunca um valor inventado', async () => {
@@ -135,21 +166,23 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     expect(screen.getByText('peso das matérias')).toBeTruthy();
   });
 
-  it('não roda a deduplicação de novo ao remontar a mesma tela (extractionApplied evita duplicar)', async () => {
+  it('remontar sem confirmar não persiste nada; confirmar na remontagem grava uma única vez (sem duplicar)', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
 
     const first = render(<App />);
-    expect(readApprovals()).toHaveLength(2);
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
     first.unmount();
 
-    // Remonta a MESMA tela (usuário saiu e voltou sem confirmar nem descartar) — a
-    // importação pendente na sessionStorage ainda existe, com `extractionOutput`
-    // preservado (para as incertezas continuarem visíveis) mas `extractionApplied`
-    // marcado — sem essa marca, dedupeEntries rodaria de novo e duplicaria tudo.
+    // Remonta a MESMA tela (usuário saiu e voltou sem confirmar nem descartar) — como
+    // nada foi persistido na primeira montagem, recomputar a proposta de novo é
+    // inofensivo (idempotente): só ao confirmar esta segunda montagem é que algo é
+    // escrito, e uma única vez.
     render(<App />);
-    expect(readApprovals()).toHaveLength(2);
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
+    clickConfirm();
 
+    expect(readApprovals()).toHaveLength(2);
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items).toHaveLength(2);
   });
@@ -160,6 +193,93 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
 
     expect(readApprovals()).toHaveLength(0);
     expect(container.innerHTML).toContain('0 itens mapeados');
+  });
+});
+
+describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de confirmar)', () => {
+  // Fixture do achado: um programa já salvo, com peso e quantidade de questões reais,
+  // que a mera abertura da tela de revisão sobrescrevia antes desta correção.
+  const EXISTING_SYLLABUS = {
+    items: [
+      { id: 'existing-item', workspaceId: 'setec-campinas', conceptId: 'existing-concept', parentItemId: null, sourceLabel: 'Materia antiga preservada', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'existing-item', cargoId: 'c1', weight: 40, questionCount: 12 },
+    ],
+  };
+
+  function seedReimport() {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Disciplina nova' })],
+        detectedCargos: ['c1'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+  }
+
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(EXISTING_SYLLABUS));
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/2');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('renderizar a tela sozinha, sem clicar em nada, nunca sobrescreve o programa salvo nem cria conceito', async () => {
+    seedReimport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    expect(JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!)).toEqual(EXISTING_SYLLABUS);
+    // Nenhuma biblioteca de conceitos foi sequer criada — `previewExtraction` não
+    // grava, então `conceptsApi.addConcept` nunca roda antes do confirm.
+    expect(window.localStorage.getItem(CONCEPTS_KEY)).toBeNull();
+    expect(readApprovals()).toHaveLength(0);
+  });
+
+  it('clicar em Descartar não persiste nada — o programa salvo continua intacto', async () => {
+    seedReimport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Descartar'));
+
+    expect(JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!)).toEqual(EXISTING_SYLLABUS);
+    expect(window.localStorage.getItem(CONCEPTS_KEY)).toBeNull();
+  });
+
+  it('a árvore exibe a proposta em revisão (não a antiga) mesmo sem nada persistido', async () => {
+    seedReimport();
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+
+    // "Materia antiga preservada" ainda aparece na SEÇÃO DE DIFF (Task 13, "− 1
+    // removido") — o que a árvore de EDIÇÃO não pode mostrar é o item antigo como se
+    // ainda estivesse ativo. Só a árvore (fora do bloco de diff) é o que este teste
+    // cobre.
+    const tree = container.querySelector('[data-testid^="row-syllabus-item-"]')!.closest('section')!;
+    expect(tree.innerHTML).toContain('Disciplina nova');
+    expect(tree.innerHTML).not.toContain('Materia antiga preservada');
+  });
+
+  it('confirmar grava a proposta por cima do programa antigo — só então', async () => {
+    seedReimport();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    expect(stored.items.map((item: { sourceLabel: string }) => item.sourceLabel)).toEqual(['Disciplina nova']);
   });
 });
 
@@ -293,11 +413,11 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
     render(<App />);
 
     expect(screen.getByText(/pode ter histórico de estudo/)).toBeTruthy();
-    // `diffSyllabus` é só leitura — "Direito Penal" sai da lista ativa (não está
-    // nos itens da extração nova), mas o cálculo do diff nunca apaga nada: quem
-    // decide o que persiste é `applyExtraction`, que grava o Syllabus novo por
-    // cima do antigo (a chave continua existindo, nunca é removida).
-    expect(window.localStorage.getItem(SYLLABUS_KEY)).not.toBeNull();
+    // `diffSyllabus` é só leitura, e (fix round 1, Finding 2) nada é persistido antes
+    // de confirmar — "Direito Penal" sai da lista ativa só na PROPOSTA em memória; o
+    // programa realmente salvo continua sendo a versão 1, intocada, com os dois itens.
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    expect(stored).toEqual(VERSAO_1_SYLLABUS);
   });
 
   it('sem versão anterior para comparar, não desenha a seção de diff', async () => {

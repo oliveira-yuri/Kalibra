@@ -167,3 +167,66 @@ describe('useSyllabus — conceitos vêm da biblioteca global, não do workspace
     expect(getSyllabus('setec-campinas', 'user-1').items).toHaveLength(2);
   });
 });
+
+describe('useSyllabus.previewExtraction — fix round 1, Finding 2 (nunca persiste)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('computa a proposta de dedupeEntries sem gravar o Syllabus nem os conceitos novos', () => {
+    saveSyllabus(SYLLABUS, 'setec-campinas', 'user-1');
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+
+    let preview: ReturnType<typeof result.current.previewExtraction>;
+    act(() => {
+      preview = result.current.previewExtraction({
+        entries: [{
+          cargoId: 'c1', label: 'Disciplina nova', parentLabel: null,
+          weight: null, questionCount: null, sourceExcerpt: null, page: null, confidence: 1,
+        }],
+        detectedCargos: ['c1'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      });
+    });
+
+    expect(preview!.syllabus.items.map((item) => item.sourceLabel)).toEqual(['Disciplina nova']);
+    expect(preview!.newConcepts).toHaveLength(1);
+
+    // Nada foi escrito: o Syllabus salvo continua sendo o de antes da chamada, e a
+    // biblioteca de conceitos continua vazia — `previewExtraction` é pura.
+    expect(getSyllabus('setec-campinas', 'user-1')).toEqual(SYLLABUS);
+    expect(getConcepts('user-1')).toEqual([]);
+    expect(result.current.syllabus).toEqual(SYLLABUS);
+    expect(result.current.concepts).toEqual([]);
+  });
+
+  it('chamar previewExtraction duas vezes seguidas não muda nada no estado nem no storage', () => {
+    const { result } = renderHook(() => useSyllabus('setec-campinas', 'user-1'));
+
+    act(() => {
+      result.current.previewExtraction({
+        entries: [{
+          cargoId: 'c1', label: 'A', parentLabel: null,
+          weight: null, questionCount: null, sourceExcerpt: null, page: null, confidence: 1,
+        }],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      });
+      result.current.previewExtraction({
+        entries: [{
+          cargoId: 'c1', label: 'B', parentLabel: null,
+          weight: null, questionCount: null, sourceExcerpt: null, page: null, confidence: 1,
+        }],
+        detectedCargos: ['c1'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      });
+    });
+
+    expect(getSyllabus('setec-campinas', 'user-1')).toEqual({ items: [], links: [] });
+    expect(getConcepts('user-1')).toEqual([]);
+  });
+});
