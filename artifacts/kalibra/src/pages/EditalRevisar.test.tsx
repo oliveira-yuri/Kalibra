@@ -162,3 +162,48 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     expect(container.innerHTML).toContain('0 itens mapeados');
   });
 });
+
+describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('quando um item foi unido entre cargos, mostra o aviso explicando a união', async () => {
+    // Mesmo rótulo em c1 e c2 — dedupeEntries une num item só, comum aos dois cargos.
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [
+          entrada({ cargoId: 'c1', label: 'Matemática básica' }),
+          entrada({ cargoId: 'c2', label: 'Matemática básica' }),
+        ],
+        detectedCargos: ['c1', 'c2'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    const { container, getByTestId } = render(<App />);
+
+    expect(container.innerHTML).toContain('unidos e aparecem uma vez só');
+    expect(getByTestId(/^chip-common-/).textContent).toContain('2 cargos');
+  });
+
+  it('sem nenhum item comum, o aviso de união não aparece', async () => {
+    seedPendingImport(); // fixture desta suíte: dois itens distintos, no mesmo cargo.
+    const { default: App } = await import('../App');
+    const { container } = render(<App />);
+
+    expect(container.innerHTML).not.toContain('unidos e aparecem uma vez só');
+  });
+});

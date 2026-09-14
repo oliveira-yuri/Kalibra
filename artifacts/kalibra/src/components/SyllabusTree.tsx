@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { MoreHorizontal, Plus } from 'lucide-react';
-import { cargosFor, type Syllabus, type SyllabusItem } from '@workspace/core';
+import { cargosFor, isCommon, type Syllabus, type SyllabusItem } from '@workspace/core';
+import type { Cargo } from '@/domain/useWorkspaces';
 import { SourceExcerpt } from './SourceExcerpt';
 
 const UNCERTAIN_CHIP = 'k-chip border-[#db8f83] text-[#c94f45] dark:border-[#ff907d] dark:text-[#ff907d]';
@@ -35,22 +36,26 @@ function parseNumberOrNull(raw: string): number | null {
  * A árvore de revisão do edital (PD-06). Mantém o layout de `EditalRevisar` já
  * existente (matéria em negrito, tópicos indentados com borda à esquerda, menu de três
  * pontos) e passa a desenhar dados reais: peso/quantidade por cargo (Task 11), trecho-
- * fonte colapsável e o chip coral de incerteza. `onSplit` chega pronta desde já — quem a
- * usa de fato (chip "comum a N cargos" + "Separar de <cargo>" no menu) é a Task 12.
+ * fonte colapsável, o chip coral de incerteza e — Task 12 — a deduplicação visível: um
+ * item ligado a mais de um cargo ganha o chip "N cargos" e "Separar de <cargo>" no menu,
+ * a resposta do spec para "a IA deduplicou errado".
  */
 export function SyllabusTree({
   syllabus,
   cargoId,
+  cargos,
   onRename,
   onRemove,
   onAdd,
-  onSplit: _onSplit,
+  onSplit,
   onWeightChange,
   onQuestionCountChange,
 }: {
   syllabus: Syllabus;
   /** `null` = "todos os cargos": peso e quantidade ficam consolidados e somente leitura — o modelo os separa por cargo exatamente para não perder essa distinção. */
   cargoId: string | null;
+  /** Cargos do workspace, só para rotular "Separar de <cargo>" no menu de um item comum. */
+  cargos: Cargo[];
   onRename(itemId: string, label: string): void;
   onRemove(itemId: string): void;
   onAdd(parentItemId: string | null): void;
@@ -101,10 +106,13 @@ export function SyllabusTree({
     );
   };
 
+  const cargoName = (id: string) => cargos.find((cargo) => cargo.id === id)?.name || id;
+
   const renderMenu = (item: SyllabusItem) => {
     if (openMenu !== item.id) return null;
+    const common = isCommon(syllabus, item.id);
     return (
-      <div className="absolute right-2 top-8 z-10 flex w-40 flex-col border border-[#d5dede] bg-white p-1 shadow-lg dark:border-[#394452] dark:bg-[#161b23]">
+      <div className="absolute right-2 top-8 z-10 flex w-44 flex-col border border-[#d5dede] bg-white p-1 shadow-lg dark:border-[#394452] dark:bg-[#161b23]">
         <button
           className="k-button k-button-quiet justify-start text-[10px]"
           onClick={() => {
@@ -116,6 +124,16 @@ export function SyllabusTree({
         >
           Renomear
         </button>
+        {common && cargosFor(syllabus, item.id).map((linkedCargoId) => (
+          <button
+            key={linkedCargoId}
+            className="k-button k-button-quiet justify-start text-[10px]"
+            onClick={() => { onSplit(item.id, linkedCargoId); setOpenMenu(null); }}
+            data-testid={`button-split-${item.id}-${linkedCargoId}`}
+          >
+            Separar de {cargoName(linkedCargoId)}
+          </button>
+        ))}
         <button
           className="k-button k-button-quiet justify-start text-[10px] text-[#c94f45] dark:text-[#ff907d]"
           onClick={() => { onRemove(item.id); setOpenMenu(null); }}
@@ -127,7 +145,10 @@ export function SyllabusTree({
     );
   };
 
-  const renderRow = (item: SyllabusItem, topLevelRow: boolean) => (
+  const renderRow = (item: SyllabusItem, topLevelRow: boolean) => {
+    const itemCargos = cargosFor(syllabus, item.id);
+    const common = itemCargos.length > 1;
+    return (
     <div
       key={item.id}
       className={topLevelRow ? '' : 'relative flex flex-col group hover:bg-[#f1f4f2] dark:hover:bg-[#1a2029] p-1.5 px-3 rounded-sm transition-colors'}
@@ -138,6 +159,7 @@ export function SyllabusTree({
           {topLevelRow && <span className="text-[#8e98a8]">▾</span>}
           <span>{item.sourceLabel}</span>
           {item.uncertain && <span className={UNCERTAIN_CHIP} data-testid={`chip-uncertain-${item.id}`}>incerto</span>}
+          {common && <span className="k-chip" data-testid={`chip-common-${item.id}`}>{itemCargos.length} cargos</span>}
         </div>
         <div className="flex items-center gap-2">
           {renderFields(item)}
@@ -166,7 +188,8 @@ export function SyllabusTree({
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <section className="bg-white dark:bg-[#131821] border border-[#d5dede] dark:border-[#29313d] rounded-sm p-1">

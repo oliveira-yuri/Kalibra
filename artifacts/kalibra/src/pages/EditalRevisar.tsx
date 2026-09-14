@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport, useWorkspaces } from '@/domain/useWorkspaces';
 import { useSyllabus } from '@/domain/useSyllabus';
 import { useApprovals } from '@/domain/useApprovals';
-import { nextActionFor, type ProposedConceptLink } from '@workspace/core';
+import { nextActionFor, isCommon, type ProposedConceptLink } from '@workspace/core';
 import { SyllabusTree } from '@/components/SyllabusTree';
 import { CargoFilter } from '@/components/CargoFilter';
 
@@ -70,6 +70,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   }, []);
 
   const uncertainFields = pending?.extractionOutput?.uncertainties ?? [];
+  // Um item comum a mais de um cargo é exatamente o que `dedupeEntries` uniu — o spec
+  // exige que o usuário entenda isso de cara, não que descubra sozinho (Task 12).
+  const hasCommonItems = syllabusApi.syllabus.items.some((item) => isCommon(syllabusApi.syllabus, item.id));
 
   const handleConfirm = () => {
     // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
@@ -171,9 +174,19 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         </div>
       )}
 
+      {hasCommonItems && (
+        <div className="k-card-soft p-4 flex items-start gap-3">
+          <Info size={15} className="k-muted shrink-0 mt-0.5" />
+          <p className="text-[12px] leading-5 k-muted">
+            Conteúdos repetidos entre cargos foram unidos e aparecem uma vez só nesta lista — se a união não fizer sentido, use "Separar de &lt;cargo&gt;" no menu do item.
+          </p>
+        </div>
+      )}
+
       <SyllabusTree
         syllabus={syllabusApi.syllabus}
         cargoId={cargoFilter}
+        cargos={workspace?.cargos ?? []}
         onRename={syllabusApi.renameItem}
         onRemove={syllabusApi.removeItem}
         onAdd={handleAdd}
