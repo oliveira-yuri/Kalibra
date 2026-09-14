@@ -745,6 +745,93 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     expect(screen.getByTestId('cargo-filter-c1')).toBeTruthy();
     expect(screen.getByTestId('cargo-filter-c2')).toBeTruthy();
   });
+
+  // Simula um item enfileirado ANTES do fix round 2 existir — `review` presente
+  // (assim a tela reconstrói a proposta normalmente), mas sem `workspaceDraft` nenhum,
+  // ou com um que `migrateWorkspace` rejeita. Semeado direto na fila, sem nunca passar
+  // por `stageWorkspaceImport` — não há `pending` nenhum em nenhum momento, a mesma
+  // situação de uma retomada fria de um item assim.
+  function seedLegacyStructureItem(payloadAfterOverrides: Record<string, unknown>) {
+    const review = {
+      syllabus: {
+        items: [{ id: 'item-1', workspaceId: NOVO_WORKSPACE_KEY, conceptId: 'concept-1', parentItemId: null, sourceLabel: 'Crase', sourceExcerpt: null, page: null, confidence: 1, uncertain: false }],
+        links: [{ syllabusItemId: 'item-1', cargoId: 'c1', weight: null, questionCount: null }],
+      },
+      merged: [],
+      newConcepts: [],
+      proposedLinks: [],
+    };
+    window.localStorage.setItem(APPROVALS_KEY, JSON.stringify([{
+      id: 'appr-legacy',
+      workspaceId: NOVO_WORKSPACE_KEY,
+      type: 'edital_structure',
+      status: 'pendente',
+      title: 'Estrutura extraída do edital · versão 1',
+      rationale: '1 item mapeado a partir do edital.',
+      sourceRef: null,
+      targetConceptId: null,
+      confidence: null,
+      payloadBefore: null,
+      payloadAfter: { version: '1', review, mergedCount: 0, ...payloadAfterOverrides },
+      createdAt: '2026-09-01T00:00:00.000Z',
+      decidedAt: null,
+      reason: null,
+    }]));
+  }
+
+  it('fix round 3 (achado A residual): sem rascunho no payload (formato anterior ao fix round 2), Confirmar recusa em vez de gravar workspace órfão', async () => {
+    window.history.replaceState({}, '', `/workspace/${NOVO_WORKSPACE_KEY}/edital/revisar/1`);
+    seedLegacyStructureItem({}); // nenhuma chave `workspaceDraft` — exatamente o formato antigo.
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    // A propriedade continua "ou o workspace existe depois, ou nada foi escrito" — aqui
+    // é o "nada foi escrito", porque não há como reconstruir o rascunho.
+    expect(window.localStorage.getItem(WORKSPACES_KEY)).toBeNull();
+    expect(window.localStorage.getItem(NOVO_SYLLABUS_KEY)).toBeNull();
+    const item = readApprovals().find((candidate) => candidate.id === 'appr-legacy');
+    expect(item?.status).toBe('pendente');
+    expect(screen.getByTestId('confirm-error')).toBeTruthy();
+  });
+
+  it('fix round 3 (achado A residual): rascunho corrompido (rejeitado por migrateWorkspace) também recusa em vez de gravar', async () => {
+    window.history.replaceState({}, '', `/workspace/${NOVO_WORKSPACE_KEY}/edital/revisar/1`);
+    // Sem `slug`: `migrateWorkspace` devolve null para isto.
+    seedLegacyStructureItem({ workspaceDraft: { title: 'sem slug' } });
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    expect(window.localStorage.getItem(WORKSPACES_KEY)).toBeNull();
+    expect(window.localStorage.getItem(NOVO_SYLLABUS_KEY)).toBeNull();
+    const item = readApprovals().find((candidate) => candidate.id === 'appr-legacy');
+    expect(item?.status).toBe('pendente');
+    expect(screen.getByTestId('confirm-error')).toBeTruthy();
+  });
+
+  it('fix round 3 (achado B): descartar também anula o rascunho do workspace no payload', async () => {
+    stageNovaImportacao();
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const queuedId = readApprovals()[0].id;
+    const beforeDiscard = readApprovals()[0].payloadAfter as { workspaceDraft: unknown };
+    expect(beforeDiscard.workspaceDraft).not.toBeNull();
+
+    fireEvent.click(screen.getByText('Descartar'));
+
+    const rejected = readApprovals().find((item) => item.id === queuedId)!;
+    expect(rejected.status).toBe('rejeitado');
+    // O edital colado inteiro (`sourceText`) não pode sobreviver para sempre num item
+    // decidido — a fila nunca poda itens rejeitados.
+    const afterDiscard = rejected.payloadAfter as { workspaceDraft: unknown };
+    expect(afterDiscard.workspaceDraft).toBeNull();
+  });
 });
 
 describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar escrita pela metade)', () => {

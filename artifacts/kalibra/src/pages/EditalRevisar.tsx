@@ -195,6 +195,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const [cargoFilter, setCargoFilter] = useState<string | null>(null);
   const [missing, setMissing] = useState<Record<string, string>>({});
+  // Fix round 3 (achado A residual): mensagem da recusa de `handleConfirm` quando nem o
+  // workspace existe, nem o rascunho para criá-lo pôde ser reconstruído do payload.
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   // Fix round 1 da Task 14 (achados 1 e 2 — "a fila é a fonte de verdade da própria
   // revisão"): a PROPOSTA em revisão e o item que a representa na fila nascem juntos,
@@ -300,6 +303,24 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleConfirm = () => {
     if (confirmedRef.current) return;
+
+    // Fix round 3 (achado A residual): "carregar o que precisa, ou recusar completar".
+    // O fix round 2 implementou o carregar; faltava o recusar. Quando existe uma
+    // proposta para revisar mas o workspace nem existe de verdade (`workspaceExists`)
+    // nem tem rascunho reconstruível (`workspaceDraft` — `null` para um item enfileirado
+    // no formato anterior ao fix round 2, ou com um rascunho corrompido que
+    // `migrateWorkspace` rejeita), não há como completar sem inventar dado. Recusa ANTES
+    // de qualquer escrita: nada é gravado, o item continua pendente na fila (decidível
+    // de novo caso o dado apareça por outro caminho), e a tela explica o motivo em vez
+    // de cair, em silêncio, no `updateWorkspace` de um slug que não existe — exatamente
+    // o "no-op silencioso" que o achado A original apontou.
+    if (review && !workspaceDraft && !workspaceExists) {
+      setConfirmError(
+        'Não foi possível recuperar os dados deste workspace para confirmar a importação. Reimporte o edital para tentar de novo.',
+      );
+      return;
+    }
+    setConfirmError(null);
     confirmedRef.current = true;
 
     // O texto de "próximo passo" vem sempre de `nextActionFor(status)` — nunca de um
@@ -409,7 +430,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // e limpar a importação pendente. O Syllabus salvo nunca foi tocado. A decisão em
     // si, porém, fica registrada na fila (Task 14): rejeitar o item explicita que um
     // humano olhou a proposta e recusou, em vez de deixá-la pendente para sempre.
-    if (structureApprovalId) approvalsApi.reject(structureApprovalId);
+    if (structureApprovalId && review) {
+      // Fix round 3 (achado B): rejeitar também anula `workspaceDraft` — ele carrega o
+      // edital colado inteiro (`sourceText`), e uma decisão rejeitada é tão terminal
+      // quanto uma aprovada; nada volta a ler esse rascunho depois de decidido. Sem
+      // isto, um item rejeitado guardava o texto colado para sempre (a fila não poda
+      // itens decididos).
+      const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+      approvalsApi.reject(structureApprovalId, undefined, {
+        version, review, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
+      });
+    }
     clearPendingWorkspaceImport(workspaceSlug, user?.id);
     // O mesmo `workspaceDraft`/`workspaceExists` do confirmar (fix round 2, achado A):
     // descartar numa retomada de importação nova, cujo workspace nunca chegou a existir,
@@ -596,6 +627,13 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
             ))}
           </ul>
         </section>
+      )}
+
+      {confirmError && (
+        <div className="p-4 border border-[#db8f83] bg-[#fff0ee] dark:bg-[#30201f] dark:border-[#ff907d] rounded-[4px] flex gap-3 text-[#c94f45] dark:text-[#ff907d]" data-testid="confirm-error">
+          <AlertCircle size={18} className="shrink-0 mt-0.5" />
+          <p className="text-[12px] font-medium">{confirmError}</p>
+        </div>
       )}
 
       <div className="flex justify-end gap-3 pt-6">

@@ -217,8 +217,16 @@ export function useApprovals(userId?: string) {
     persist(next);
   };
 
-  const reject = (id: string, reason?: string) => {
-    persist(applyDecision(itemsRef.current, id, 'rejeitado', new Date(), reason ?? null));
+  const reject = (id: string, reason?: string, payloadAfter?: unknown) => {
+    // Fix round 3 (achado B): a mesma substituição de payload que `approve` já faz —
+    // rejeitar é tão terminal quanto aprovar, e nada rio abaixo volta a ler o payload de
+    // um item decidido. Sem isto, `payloadAfter.workspaceDraft` (que carrega o edital
+    // colado inteiro) sobrevivia para sempre num item rejeitado, já que a fila não poda
+    // itens decididos.
+    const withPayload = payloadAfter === undefined
+      ? itemsRef.current
+      : itemsRef.current.map((item) => (item.id === id && canDecide(item.status) ? { ...item, payloadAfter } : item));
+    persist(applyDecision(withPayload, id, 'rejeitado', new Date(), reason ?? null));
   };
 
   const enqueue = (
