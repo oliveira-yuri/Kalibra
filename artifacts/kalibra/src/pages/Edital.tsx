@@ -185,7 +185,16 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
       updates: {
         sourceMode,
         sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
-        sourceBlocks: sourceMode === 'text' ? sourceBlocks : [],
+        // Achado C1 da rodada 1 de correção: `sourceBlocks: sourceMode === 'text' ?
+        // sourceBlocks : []` escrevia a CHAVE mesmo no ramo "Arquivo" — e como este
+        // objeto é mesclado raso em cima do workspace (EditalRevisar.tsx, no
+        // `updateWorkspace(slug, { ...pending.updates, ... }`), gravar `[]` aqui
+        // apagava para sempre qualquer `sourceBlocks` já salvo (ou tornava um
+        // `sourceText` legado inacessível — `blocksFrom` trata "o array existe",
+        // mesmo vazio, como já migrado). Espalhar a chave só quando há texto de
+        // verdade é o que impede a reimportação por Arquivo de tocar num campo que
+        // não é dela.
+        ...(sourceMode === 'text' ? { sourceBlocks } : {}),
         importStatus: 'pending',
       },
       extractionOutput: extraction.output ?? undefined,
