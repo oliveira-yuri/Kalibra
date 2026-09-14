@@ -178,13 +178,6 @@ export interface PendingWorkspaceImport {
    * incertezas do PD-06 para o bloco "Não encontrado no edital".
    */
   extractionApplied?: boolean;
-  /**
-   * Id do item `edital_structure` que representa esta proposta na fila de aprovação
-   * (Task 14) — gravado assim que `EditalRevisar` enfileira a proposta pela primeira
-   * vez. Sem isto, remontar a mesma tela de revisão sem confirmar nem descartar
-   * (usuário saiu e voltou) enfileiraria um segundo item idêntico a cada montagem.
-   */
-  approvalItemId?: string;
 }
 
 const STORAGE_KEY = 'kalibra_workspaces';

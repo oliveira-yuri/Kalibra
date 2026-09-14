@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, screen, fireEvent } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, within } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 import { stageWorkspaceImport } from '@/domain/useWorkspaces';
@@ -483,11 +483,6 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
 });
 
 describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', () => {
-  function readPending(): Record<string, unknown> | null {
-    const raw = window.sessionStorage.getItem(PENDING_KEY);
-    return raw ? JSON.parse(raw) : null;
-  }
-
   beforeEach(() => {
     cleanup();
     window.localStorage.clear();
@@ -573,7 +568,89 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const approvals = readApprovals();
     expect(approvals).toHaveLength(1);
     expect(approvals[0].id).toBe(idAfterFirstMount);
-    expect(readPending()?.approvalItemId).toBe(idAfterFirstMount);
+  });
+
+  it('fix round 1 (achado 1): perder o sessionStorage (fechar a aba, reiniciar o navegador) não deixa o item pendente para sempre', async () => {
+    seedPendingImport();
+    const { default: App } = await import('../App');
+
+    const first = render(<App />);
+    const queuedId = readApprovals()[0].id;
+    first.unmount();
+
+    // Simula fechar a aba / reiniciar o navegador: o `sessionStorage` da importação
+    // pendente desaparece por completo — mas o item `edital_structure` na fila
+    // (`localStorage`, durável, entre abas) sobrevive, e é dele que a proposta agora
+    // é reconstruída.
+    window.sessionStorage.clear();
+
+    const { container } = render(<App />);
+    expect(container.innerHTML).toContain('Crase');
+    expect(container.innerHTML).toContain('Matemática financeira básica');
+
+    // Sem o fix, `structureApprovalId` nasceria `null` aqui (nenhum `pending` para
+    // enfileirar de novo, e a busca antiga dependia de `pending.approvalItemId`) e
+    // tanto Confirmar quanto Descartar virariam no-op sobre o item — ele ficaria
+    // pendente para sempre, com o "aguardando decisão" da fila permanentemente errado.
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
+      ['Crase', 'Matemática financeira básica'].sort(),
+    );
+    const decided = readApprovals().find((item) => item.id === queuedId);
+    expect(decided?.status).toBe('aprovado');
+  });
+
+  it('fix round 1 (achado 2): o item aprovado registra a árvore EDITADA (renomear + separar), não a proposta congelada no enfileiramento', async () => {
+    // Fixture com um item comum a dois cargos (mesma da task acima) — só um item comum
+    // pode ser separado ("Separar de <cargo>" só aparece no menu quando `isCommon`).
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [
+          entrada({ cargoId: 'c1', label: 'Matemática básica' }),
+          entrada({ cargoId: 'c2', label: 'Matemática básica' }),
+        ],
+        detectedCargos: ['c1', 'c2'], examFormat: null, examDurationMinutes: null, uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const queuedId = readApprovals()[0].id;
+    const enqueuedPayload = readApprovals()[0].payloadAfter as { review: { syllabus: { items: unknown[] } } };
+    // Um item só, comum aos dois cargos — a fixture que a dedup une.
+    expect(enqueuedPayload.review.syllabus.items).toHaveLength(1);
+
+    // Edita a proposta antes de confirmar: renomeia o item comum e depois o separa de
+    // um dos cargos (split cria uma cópia nova) — as duas transformações que o achado
+    // 2 apontou como capazes de desalinhar o registro da fila do que de fato é gravado.
+    vi.spyOn(window, 'prompt').mockReturnValue('RENOMEADO');
+    const row = () => screen.getByText(/Matemática básica|RENOMEADO/).closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+
+    fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row()).getByTestId(/^button-rename-/));
+
+    fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row()).getByText(/Separar de Analista/));
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    // O split virou 2 itens (renomeados os dois, cópia herda o rótulo do momento do
+    // split) — bem diferente do único item "Matemática básica" que foi enfileirado.
+    expect(syllabus.items).toHaveLength(2);
+    expect(syllabus.items.every((item: { sourceLabel: string }) => item.sourceLabel === 'RENOMEADO')).toBe(true);
+
+    // A propriedade a estabelecer: o que foi gravado e o `payloadAfter` do item
+    // aprovado são a MESMA árvore — nunca mais a proposta original congelada.
+    const approved = readApprovals().find((item) => item.id === queuedId)!;
+    expect(approved.status).toBe('aprovado');
+    const approvedPayload = approved.payloadAfter as { review: { syllabus: unknown } };
+    expect(approvedPayload.review.syllabus).toEqual(syllabus);
   });
 });
 

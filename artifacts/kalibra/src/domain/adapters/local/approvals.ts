@@ -201,8 +201,17 @@ export function useApprovals(userId?: string) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const approve = (id: string) => {
-    const next = applyDecision(itemsRef.current, id, 'aprovado', new Date());
+  const approve = (id: string, payloadAfter?: unknown) => {
+    // Fix round 1 da Task 14 (achado 2): quando quem chama tem uma versão mais nova do
+    // que decidir aprova de fato (ex.: `EditalRevisar` reaprovando a árvore depois de
+    // renomear/separar/editar peso), o payload é substituído ANTES da decisão, na MESMA
+    // escrita — nunca duas chamadas separadas, que poderiam divergir se uma delas se
+    // perdesse. Sem isto, o item aprovado continuava contando a proposta congelada no
+    // momento em que a tela abriu, não o que de fato foi gravado no programa.
+    const withPayload = payloadAfter === undefined
+      ? itemsRef.current
+      : itemsRef.current.map((item) => (item.id === id && canDecide(item.status) ? { ...item, payloadAfter } : item));
+    const next = applyDecision(withPayload, id, 'aprovado', new Date());
     const decided = next.find((item) => item.id === id);
     if (decided) applyApprovalSideEffects(decided, userId);
     persist(next);

@@ -7,7 +7,7 @@ import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
 import {
-  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition, canTransition,
+  nextActionFor, isCommon, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
 } from '@workspace/core';
@@ -31,6 +31,45 @@ function subjectPrefixedLabel(syllabus: Syllabus, item: SyllabusItem): string {
 
 function makeReviewId(seed: string): string {
   return `${seed}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Versão de um payload de aprovação `edital_structure` — usada tanto para gravar quanto
+ * para casar um item já enfileirado com a versão da URL atual (fix round 1 da Task 14). */
+function versionFromPayload(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const version = payload.version;
+  if (typeof version === 'string' && version) return version;
+  if (typeof version === 'number') return String(version);
+  return null;
+}
+
+/**
+ * Reconstrói a proposta a partir do que está gravado na fila — fix round 1 da Task 14
+ * (achados 1 e 2): a fila, persistida de forma durável e compartilhada entre abas, passa
+ * a ser a ÚNICA fonte da proposta em revisão, nunca mais o armazenamento por aba usado
+ * antes (perdido ao fechar a aba, reiniciar o navegador, ou abrir "Revisar estrutura" da
+ * fila numa aba nova — o registro sumia por completo, e o item ficava pendente para
+ * sempre, sem forma de decidir). Nunca lança: um
+ * payload de formato desconhecido ou corrompido devolve `null`, tratado como "sem
+ * proposta para revisar" em vez de derrubar a tela.
+ */
+function reviewFromPayload(payload: unknown): DedupResult | null {
+  if (!isRecord(payload)) return null;
+  const review = payload.review;
+  if (!isRecord(review)) return null;
+  const syllabus = review.syllabus;
+  if (!isRecord(syllabus) || !Array.isArray(syllabus.items) || !Array.isArray(syllabus.links)) return null;
+  if (!Array.isArray(review.merged) || !Array.isArray(review.newConcepts) || !Array.isArray(review.proposedLinks)) return null;
+  return {
+    syllabus: syllabus as unknown as Syllabus,
+    merged: review.merged as unknown as DedupResult['merged'],
+    newConcepts: review.newConcepts as unknown as Concept[],
+    proposedLinks: review.proposedLinks as unknown as ProposedConceptLink[],
+  };
 }
 
 // As quatro transformações puras abaixo espelham `useSyllabus.{renameItem,removeItem,
@@ -125,50 +164,59 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   const [cargoFilter, setCargoFilter] = useState<string | null>(null);
   const [missing, setMissing] = useState<Record<string, string>>({});
 
-  // A PROPOSTA de `dedupeEntries` (Task 11), computada uma única vez na montagem
-  // (inicializador preguiçoso de `useState`) — nunca recalculada por causa de um
-  // re-render. `null` quando não há extração pendente para revisar (workspace já
-  // confirmado antes, ou revisitando sem reimportar). Fix round 1 (Finding 2): esta
-  // computação é PURA — `useSyllabus.previewExtraction` não persiste nada — então o
-  // simples ato de montar esta tela nunca mais sobrescreve o Syllabus salvo. O que sai
-  // daqui só é gravado em `handleConfirm`.
-  const [review, setReview] = useState<DedupResult | null>(() => (
-    pending?.extractionOutput && !pending.extractionApplied
-      ? syllabusApi.previewExtraction(pending.extractionOutput)
-      : null
-  ));
+  // Fix round 1 da Task 14 (achados 1 e 2 — "a fila é a fonte de verdade da própria
+  // revisão"): a PROPOSTA em revisão e o item que a representa na fila nascem juntos,
+  // num único inicializador preguiçoso, para nunca chamar `enqueue` duas vezes. Ordem
+  // de busca:
+  //   1. Já existe um item `edital_structure` PENDENTE desta versão neste workspace na
+  //      fila (durável, compartilhada entre abas)? A proposta é `payloadAfter.review`
+  //      DELE — nunca recomputada por `previewExtraction` (que geraria ids de conceito
+  //      novos via `makeReviewId`/`Math.random` a cada montagem, desalinhando a tela do
+  //      que está gravado). É o que permite decidir mesmo depois de fechar a aba,
+  //      reiniciar o navegador, ou abrir "Revisar estrutura" da fila numa aba nova —
+  //      nenhum desses casos tem o registro por aba de quando a extração terminou.
+  //   2. Senão, se a extração acabou de terminar nesta aba (`pending.extractionOutput`,
+  //      ainda não aplicada), a proposta nasce agora de `previewExtraction` — pura,
+  //      não persiste nada — e É ENFILEIRADA agora, uma vez.
+  //   3. Senão, não há proposta para revisar (`null`): edição normal de uma estrutura
+  //      já confirmada antes.
+  const [reviewState, setReviewState] = useState<{ review: DedupResult; approvalId: string } | null>(() => {
+    const queued = approvalsApi.items.find((item) => (
+      item.type === 'edital_structure'
+      && item.workspaceId === workspaceSlug
+      && versionFromPayload(item.payloadAfter) === version
+      && canDecide(item.status)
+    ));
+    if (queued) {
+      const resumed = reviewFromPayload(queued.payloadAfter);
+      if (resumed) return { review: resumed, approvalId: queued.id };
+    }
 
-  // Task 14: a extração "termina" exatamente aqui — é o momento em que existe uma
-  // proposta para revisar. É quando o item `edital_structure` nasce na fila, para que
-  // "Confirmar estrutura" deixe de ser um botão solto e passe a ser a decisão desse
-  // item (spec §4.4, PD-06). Computado uma única vez por importação pendente, no mesmo
-  // inicializador preguiçoso de `review` acima (já resolvido nesta mesma renderização):
-  // reaproveita `pending.approvalItemId` quando uma montagem anterior já enfileirou —
-  // sem isso, sair da tela sem confirmar nem descartar e voltar duplicaria o item a
-  // cada remontagem. `payloadBefore` é o programa hoje persistido — `null` só na
-  // primeira importação (`pending.isNew`), quando não existe programa nenhum ainda.
-  const [structureApprovalId] = useState<string | null>(() => {
-    if (!review) return null;
-    if (pending?.approvalItemId) return pending.approvalItemId;
+    if (!(pending?.extractionOutput && !pending.extractionApplied)) return null;
 
-    const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+    const freshReview = syllabusApi.previewExtraction(pending.extractionOutput);
+    const mergedCount = freshReview.syllabus.items.filter((item) => isCommon(freshReview.syllabus, item.id)).length;
     const id = approvalsApi.enqueue({
       workspaceId: workspaceSlug,
       type: 'edital_structure',
       title: `Estrutura extraída do edital · versão ${version}`,
       rationale: mergedCount > 0
-        ? `${review.syllabus.items.length} itens mapeados a partir do edital, ${mergedCount} deles comuns a mais de um cargo e unidos pela deduplicação.`
-        : `${review.syllabus.items.length} itens mapeados a partir do edital.`,
+        ? `${freshReview.syllabus.items.length} itens mapeados a partir do edital, ${mergedCount} deles comuns a mais de um cargo e unidos pela deduplicação.`
+        : `${freshReview.syllabus.items.length} itens mapeados a partir do edital.`,
       sourceRef: null,
       targetConceptId: null,
       confidence: null,
+      // `payloadBefore` é o programa hoje persistido — `null` só na primeira
+      // importação (`pending.isNew`), quando não existe programa nenhum ainda.
       payloadBefore: pending?.isNew ? null : syllabusApi.syllabus,
-      payloadAfter: { version, syllabus: review.syllabus, mergedCount },
+      payloadAfter: { version, review: freshReview, mergedCount },
     }, new Date());
 
-    if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, approvalItemId: id }, user?.id);
-    return id;
+    return { review: freshReview, approvalId: id };
   });
+
+  const review = reviewState?.review ?? null;
+  const structureApprovalId = reviewState?.approvalId ?? null;
 
   // Idempotência de `handleConfirm`: um clique duplo antes da navegação não pode
   // persistir a mesma proposta duas vezes (duplicaria concept_merge na fila). A
@@ -224,12 +272,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
       review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
       syllabusApi.save(review.syllabus);
-      // Task 14: a confirmação passa pela fila — aprova o item `edital_structure`
-      // enfileirado na montagem, em vez de só gravar o programa por fora dela.
-      // `approve` nunca lança (é uma checagem `canDecide` + persistência simples),
-      // então isto não reintroduz o risco de escrita pela metade do Finding do fix
-      // round 2 acima.
-      if (structureApprovalId) approvalsApi.approve(structureApprovalId);
+      // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
+      // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
+      // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
+      // `approve(id, payload)` grava esse payload novo E decide o item numa única
+      // escrita (`useApprovals.approve`), então o registro na fila e a gravação do
+      // programa nunca podem divergir — são o MESMO objeto `review`, não duas cópias
+      // que uma edição poderia desalinhar.
+      if (structureApprovalId) {
+        const mergedCount = review.syllabus.items.filter((item) => isCommon(review.syllabus, item.id)).length;
+        approvalsApi.approve(structureApprovalId, { version, review, mergedCount });
+      }
 
       const now = new Date();
       // `enqueue` é chamado uma vez por `proposedLink`, todas no mesmo tick — os hooks
@@ -289,7 +342,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleRename = (itemId: string, label: string) => {
     if (review) {
-      setReview((current) => (current && { ...current, syllabus: renameSyllabusItem(current.syllabus, itemId, label) }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: renameSyllabusItem(current.review.syllabus, itemId, label) },
+      }));
     } else {
       syllabusApi.renameItem(itemId, label);
     }
@@ -297,7 +352,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleRemove = (itemId: string) => {
     if (review) {
-      setReview((current) => (current && { ...current, syllabus: removeSyllabusItem(current.syllabus, itemId) }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: removeSyllabusItem(current.review.syllabus, itemId) },
+      }));
     } else {
       syllabusApi.removeItem(itemId);
     }
@@ -305,7 +362,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleSplit = (itemId: string, cargoId: string) => {
     if (review) {
-      setReview((current) => (current && { ...current, syllabus: splitItem(current.syllabus, itemId, cargoId, makeReviewId) }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: splitItem(current.review.syllabus, itemId, cargoId, makeReviewId) },
+      }));
     } else {
       syllabusApi.splitFromCargo(itemId, cargoId);
     }
@@ -313,7 +372,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleWeightChange = (itemId: string, cargoId: string, weight: number | null) => {
     if (review) {
-      setReview((current) => (current && { ...current, syllabus: updateSyllabusLink(current.syllabus, itemId, cargoId, { weight }) }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: updateSyllabusLink(current.review.syllabus, itemId, cargoId, { weight }) },
+      }));
     } else {
       syllabusApi.updateLink(itemId, cargoId, { weight });
     }
@@ -321,7 +382,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
 
   const handleQuestionCountChange = (itemId: string, cargoId: string, questionCount: number | null) => {
     if (review) {
-      setReview((current) => (current && { ...current, syllabus: updateSyllabusLink(current.syllabus, itemId, cargoId, { questionCount }) }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: updateSyllabusLink(current.review.syllabus, itemId, cargoId, { questionCount }) },
+      }));
     } else {
       syllabusApi.updateLink(itemId, cargoId, { questionCount });
     }
@@ -333,7 +396,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     const cargoIds = cargoFilter ? [cargoFilter] : (workspace?.cargos.map((cargo) => cargo.id) ?? []);
     if (review) {
       const { syllabus, concept } = addSyllabusItemPure(review.syllabus, workspaceSlug, parentItemId, label.trim(), cargoIds);
-      setReview((current) => (current && { ...current, syllabus, newConcepts: [...current.newConcepts, concept] }));
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus, newConcepts: [...current.review.newConcepts, concept] },
+      }));
     } else {
       syllabusApi.addItem(parentItemId, label.trim(), cargoIds);
     }
