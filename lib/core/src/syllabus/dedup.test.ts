@@ -330,6 +330,23 @@ describe('deduplicação por similaridade, não só igualdade exata de rótulo',
     const link = syllabus.links.find((l) => l.cargoId === 'c1');
     expect(link?.questionCount).toBe(10);
   });
+
+  it('preenche questionCount quando a primeira emissão veio sem dado (Finding B, round 4)', () => {
+    // Achado da revisão: "manter os valores já registrados" na linha
+    // repetida estava errado quando o valor já registrado é null — a
+    // duplicata (rótulo idêntico, mesmo cargo) é estritamente mais
+    // informativa que nada, e não há razão pra preferir "sem dado" a um dado
+    // real.
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', [
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: null }),
+      entrada({ cargoId: 'c1', label: 'Matemática', questionCount: 10 }),
+    ], [], makeId);
+
+    expect(syllabus.items).toHaveLength(1);
+    const link = syllabus.links.find((l) => l.cargoId === 'c1');
+    expect(link?.questionCount).toBe(10);
+  });
 });
 
 // Fix round 2, achado B (crítico): o agrupamento guloso contra o primeiro
@@ -348,11 +365,17 @@ describe('deduplicação por similaridade, não só igualdade exata de rótulo',
 // ordem de chegada) sempre esteve certa; só a explicação do porquê estava
 // errada.
 describe('deduplicação independe da ordem de chegada das entradas (Finding B)', () => {
+  const LABEL_POR_NOME: Record<'A' | 'B' | 'C', string> = {
+    A: 'Redacao oficial',
+    B: 'Redacao oficiais',
+    C: 'Redacao oficiaisss',
+  };
+
   const triplo = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
     const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
-      A: entrada({ cargoId: 'c-a', label: 'Redacao oficial' }),
-      B: entrada({ cargoId: 'c-b', label: 'Redacao oficiais' }),
-      C: entrada({ cargoId: 'c-c', label: 'Redacao oficiaisss' }),
+      A: entrada({ cargoId: 'c-a', label: LABEL_POR_NOME.A }),
+      B: entrada({ cargoId: 'c-b', label: LABEL_POR_NOME.B }),
+      C: entrada({ cargoId: 'c-c', label: LABEL_POR_NOME.C }),
     };
     return ordem.map((nome) => porNome[nome]);
   };
@@ -361,7 +384,7 @@ describe('deduplicação independe da ordem de chegada das entradas (Finding B)'
     ['A,B,C', ['A', 'B', 'C']],
     ['B,A,C', ['B', 'A', 'C']],
     ['C,B,A', ['C', 'B', 'A']],
-  ] as const)('ordem %s: sempre 1 item só, não importa a ordem de agrupamento', (_nome, ordem) => {
+  ] as const)('ordem %s: sempre 1 item só, com sourceLabel do que aparece primeiro nessa ordem', (_nome, ordem) => {
     resetIds();
     const { syllabus } = dedupeEntries('w1', triplo(ordem), [], makeId);
 
@@ -369,6 +392,11 @@ describe('deduplicação independe da ordem de chegada das entradas (Finding B)'
     // nunca 2 (que é o que aconteceria sem a Fase 1 ordenada: [A,B,C] só
     // funde A+B porque sim(A,C)=0.778 fica abaixo do limiar sozinho).
     expect(syllabus.items).toHaveLength(1);
+    // Achado da revisão (fix round 4, "Finding C"): a asserção antiga fixava
+    // o bug (sourceLabel sempre o alfabeticamente primeiro); a forma certa,
+    // depois do fix do achado B, é o rótulo de quem aparece primeiro NESTA
+    // ordem de entrada — não um vencedor fixo.
+    expect(syllabus.items[0].sourceLabel).toBe(LABEL_POR_NOME[ordem[0]]);
   });
 });
 
@@ -438,6 +466,42 @@ describe('sourceLabel e ordem de items refletem a ordem do edital, não a ordem 
 
     expect(newConcepts).toHaveLength(1);
     expect(newConcepts[0].canonicalName).toBe('Interpretação de textos');
+  });
+});
+
+// Fix round 4, achado A (regressão): a Fase 3 (hierarquia) comparava
+// `parentLabel` só contra o rótulo CANÔNICO do grupo (o de menor índice
+// original) — reabrindo a dependência de ordem que o achado B do round 2 já
+// tinha eliminado do agrupamento. Um `parentLabel` que bate um membro
+// não-canônico do grupo unido (mas não o canônico) falhava dependendo de
+// quem virou canônico, que por sua vez depende só da ordem de chegada.
+describe('resolução de pai independe de qual membro do grupo virou canônico (Finding A, round 4)', () => {
+  const cenario = (ordem: readonly ('A' | 'B' | 'C')[]): RawSyllabusEntry[] => {
+    const porNome: Record<'A' | 'B' | 'C', RawSyllabusEntry> = {
+      A: entrada({ cargoId: 'c1', label: 'Redacao oficial' }),
+      B: entrada({ cargoId: 'c2', label: 'Redacao oficiais' }),
+      C: entrada({ cargoId: 'c3', label: 'Redacao oficiaisss' }),
+    };
+    const filho = entrada({
+      cargoId: 'c4', label: 'Concordancia verbal', parentLabel: 'Redacao oficiaisss',
+    });
+    return [...ordem.map((nome) => porNome[nome]), filho];
+  };
+
+  it.each([
+    ['A,B,C', ['A', 'B', 'C']],
+    ['C,B,A', ['C', 'B', 'A']],
+  ] as const)('ordem %s: o filho acha o pai unido, mesmo quando "Redacao oficiaisss" não é o canônico', (_nome, ordem) => {
+    resetIds();
+    const { syllabus } = dedupeEntries('w1', cenario(ordem), [], makeId);
+
+    // Grupo unido (A+B+C, sim(A,C)=0.778 < limiar sozinho, mas conectados via
+    // B) + o filho = 2 itens.
+    expect(syllabus.items).toHaveLength(2);
+
+    const pai = syllabus.items.find((item) => item.sourceLabel !== 'Concordancia verbal');
+    const filho = syllabus.items.find((item) => item.sourceLabel === 'Concordancia verbal');
+    expect(filho?.parentItemId).toBe(pai?.id);
   });
 });
 

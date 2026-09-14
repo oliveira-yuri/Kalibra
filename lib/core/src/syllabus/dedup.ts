@@ -66,13 +66,10 @@ type EntryRef = { entry: RawSyllabusEntry; index: number };
 
 /**
  * Um grupo de entradas que o casamento por similaridade considerou o mesmo
- * conteúdo. `anchorLabel` é o rótulo usado para comparar CANDIDATOS NOVOS
- * contra este grupo (via `nameSimilarity`) — durante o agrupamento (Fase 1)
- * é o rótulo de quem criou o grupo na ordem ordenada; depois que a Fase 2
- * calcula qual membro é o "canônico" (o de menor índice original, ou seja, o
- * que aparece primeiro no edital), `anchorLabel` é atualizado para o rótulo
- * canônico — mantendo uma identidade só para o grupo, usada também na busca
- * de pai na Fase 3 (hierarquia).
+ * conteúdo. `anchorLabel` é o rótulo usado só DURANTE O AGRUPAMENTO (Fase 1)
+ * para decidir se um candidato novo entra neste grupo — é o rótulo de quem
+ * criou o grupo na ordem ordenada, e não muda depois disso. A busca de pai
+ * na Fase 3 (hierarquia) NÃO usa `anchorLabel` — ver `findGroupByAnyMember`.
  */
 type Group = { anchorLabel: string; members: EntryRef[] };
 
@@ -83,7 +80,7 @@ type Group = { anchorLabel: string; members: EntryRef[] };
  * diferentes escritas de formas ligeiramente distintas ("Interpretação de
  * textos" vs "Interpretação de texto") são o mesmo item, não dois. A guarda
  * de numeração embutida em `nameSimilarity` impede que isso funda leis ou
- * artigos diferentes.
+ * artigos diferentes. Usada só na Fase 1 (agrupamento).
  */
 function findGroup(rawLabel: string, groups: readonly Group[]): Group | undefined {
   let best: { group: Group; score: number } | undefined;
@@ -92,6 +89,36 @@ function findGroup(rawLabel: string, groups: readonly Group[]): Group | undefine
     const score = nameSimilarity(rawLabel, group.anchorLabel);
     if (score >= CONCEPT_MATCH_THRESHOLD && (!best || score > best.score)) {
       best = { group, score };
+    }
+  }
+
+  return best?.group;
+}
+
+/**
+ * Como `findGroup`, mas casa `rawLabel` contra QUALQUER rótulo dos membros do
+ * grupo, não só um rótulo único — usada na Fase 3 (resolução de pai).
+ *
+ * Achado da revisão (fix round 4, "Finding A"): a Fase 3 comparava
+ * `parentLabel` só contra o rótulo canônico do grupo (o de menor índice
+ * original). Isso reabria a dependência de ordem que o round 2 (achado B) já
+ * tinha eliminado do AGRUPAMENTO: um `parentLabel` escrito igual ao rótulo de
+ * um cargo NÃO-canônico do grupo unido (mas parecido demais com o canônico
+ * pra passar do limiar) falhava, e se falhava ou não dependia só de qual
+ * membro tinha o menor índice original naquela chamada — ou seja, da ordem de
+ * chegada. Comparar contra QUALQUER membro é estritamente mais permissivo
+ * (nunca rejeita algo que a versão anterior aceitava) e restaura a
+ * independência de ordem também para a hierarquia.
+ */
+function findGroupByAnyMember(rawLabel: string, groups: readonly Group[]): Group | undefined {
+  let best: { group: Group; score: number } | undefined;
+
+  for (const group of groups) {
+    for (const member of group.members) {
+      const score = nameSimilarity(rawLabel, member.entry.label);
+      if (score >= CONCEPT_MATCH_THRESHOLD && (!best || score > best.score)) {
+        best = { group, score };
+      }
     }
   }
 
@@ -109,6 +136,18 @@ function maxNullable(a: number | null, b: number | null): number | null {
   if (a === null) return b;
   if (b === null) return a;
   return Math.max(a, b);
+}
+
+/**
+ * Achado da revisão (fix round 4, "Finding B"): no caminho de emissão
+ * duplicada (mesmo rótulo bruto de novo no mesmo cargo), "manter os valores
+ * já registrados" estava errado quando o valor já registrado é `null` — a
+ * duplicata é estritamente mais informativa que nada, e não há razão pra
+ * preferir "sem dado" a um dado real. Preenche só onde o lado existente
+ * falta; quando os dois têm valor, mantém o primeiro (o da emissão anterior).
+ */
+function fillNullable(existing: number | null, incoming: number | null): number | null {
+  return existing === null ? incoming : existing;
 }
 
 export function dedupeEntries(
@@ -180,12 +219,6 @@ export function dedupeEntries(
     const membersByAppearance = [...group.members].sort((a, b) => a.index - b.index);
     const canonical = membersByAppearance[0].entry;
     const normalized = normalizeConceptName(canonical.label);
-
-    // A identidade do grupo, para a busca de pai na Fase 3, passa a ser o
-    // rótulo canônico — o mesmo que virou `sourceLabel` — não mais o rótulo
-    // que só serviu para montar o grupo na Fase 1.
-    group.anchorLabel = canonical.label;
-
     const id = makeId(normalized);
 
     // Restrições R3 e R4 do spec: só um conceito já confirmado serve de ponte
@@ -274,13 +307,23 @@ export function dedupeEntries(
       // alimenta `totalQuestionsFor`/`consolidatedQuestionCount`, que decidem
       // quantas questões de diagnóstico gerar. O único sinal disponível é o
       // rótulo bruto: se já vimos ESSE rótulo exato neste cargo, é a mesma
-      // linha repetida — mantém os valores já registrados. Se o rótulo é
-      // diferente (agrupado por similaridade, não por igualdade), é uma
-      // linha distinta de verdade — mescla (soma questionCount, já que são
-      // dois blocos de questões contados; usa o maior weight, que é
-      // porcentagem do total e não é aditivo).
+      // linha repetida. Se o rótulo é diferente (agrupado por similaridade,
+      // não por igualdade), é uma linha distinta de verdade — mescla (soma
+      // questionCount, já que são dois blocos de questões contados; usa o
+      // maior weight, que é porcentagem do total e não é aditivo).
       const seenLabels = contributedLabelsByCargo.get(entry.cargoId);
       if (seenLabels?.has(entry.label)) {
+        // Achado da revisão (fix round 4, "Finding B"): "manter os valores já
+        // registrados" na linha repetida estava errado quando o valor já
+        // registrado é `null` — a duplicata é estritamente mais informativa
+        // que nada. Preenche só onde faltava; onde os dois têm valor, mantém
+        // o da primeira emissão.
+        const existing = links[existingLinkIndex];
+        links[existingLinkIndex] = {
+          ...existing,
+          questionCount: fillNullable(existing.questionCount, entry.questionCount),
+          weight: fillNullable(existing.weight, entry.weight),
+        };
         continue;
       }
       seenLabels?.add(entry.label);
@@ -300,7 +343,7 @@ export function dedupeEntries(
     if (!entry.parentLabel) continue;
 
     const child = bucketByEntry.get(entry);
-    const parentGroup = findGroup(entry.parentLabel, groups);
+    const parentGroup = findGroupByAnyMember(entry.parentLabel, groups);
     const parent = parentGroup && itemByGroup.get(parentGroup);
     if (child && parent && child.id !== parent.id) {
       child.parentItemId = parent.id;
