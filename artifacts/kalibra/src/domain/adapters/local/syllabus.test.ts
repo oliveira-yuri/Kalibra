@@ -305,3 +305,27 @@ describe('useSyllabus.previewExtraction — fix round 1, Finding 2 (nunca persis
     expect(getConcepts('user-1')).toEqual([]);
   });
 });
+
+describe('useSyllabus.linkToCargo — Fase 1B.5 (Task 7: ligar um item existente a mais um cargo)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('linkToCargo liga o item ao cargo sem tocar nas ligações existentes', () => {
+    const { result } = renderHook(() => useSyllabus('w'));
+    act(() => { result.current.addItem(null, 'Português', ['c1']); });
+    const itemId = result.current.syllabus.items[0].id;
+    act(() => { result.current.updateLink(itemId, 'c1', { weight: 30 }); });
+    act(() => { result.current.linkToCargo(itemId, 'c2'); });
+
+    const links = result.current.syllabus.links.filter((link) => link.syllabusItemId === itemId);
+    expect(links).toHaveLength(2);
+    expect(links.find((link) => link.cargoId === 'c1')?.weight).toBe(30);
+    expect(links.find((link) => link.cargoId === 'c2')?.weight).toBeNull();
+    expect(result.current.syllabus.items).toHaveLength(1);
+  });
+});

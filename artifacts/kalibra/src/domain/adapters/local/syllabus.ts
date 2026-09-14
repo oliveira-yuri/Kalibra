@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   emptySyllabus,
   splitItem,
+  linkItemToCargo,
   slugify,
   dedupeEntries,
   type Syllabus,
@@ -259,6 +260,11 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     persist(splitItem(syllabusRef.current, itemId, cargoId, makeId));
   };
 
+  /** Liga um item existente a mais um cargo — o inverso de `splitFromCargo` (Fase 1B.5). */
+  const linkToCargo = (itemId: string, cargoId: string) => {
+    persist(linkItemToCargo(syllabusRef.current, itemId, cargoId));
+  };
+
   /** Peso e quantidade de questões vivem na ligação item-cargo (o mesmo tópico vale diferente para cargos diferentes) — nunca no item. */
   const updateLink = (
     itemId: string,
@@ -300,6 +306,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     removeItem,
     addItem,
     splitFromCargo,
+    linkToCargo,
     updateLink,
     previewExtraction,
   };

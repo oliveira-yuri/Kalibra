@@ -11,7 +11,7 @@ import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
 import { versionFromPayload, comparedSyllabusVersion } from '@/domain/edital-structure-payload';
 import {
-  nextActionFor, isCommon, hasCommonItems, diffSyllabus, splitItem, slugify, assertTransition, canTransition, canDecide,
+  nextActionFor, isCommon, hasCommonItems, diffSyllabus, splitItem, linkItemToCargo, slugify, assertTransition, canTransition, canDecide,
   renameConcept,
   type ProposedConceptLink, type DedupResult, type Syllabus, type SyllabusItem,
   type SyllabusItemCargo, type Concept,
@@ -628,6 +628,17 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     }
   };
 
+  /** Liga um item existente a mais um cargo — o inverso de `handleSplit` (Fase 1B.5). */
+  const handleLinkToCargo = (itemId: string, cargoId: string) => {
+    if (review) {
+      setReviewState((current) => (current && {
+        ...current, review: { ...current.review, syllabus: linkItemToCargo(current.review.syllabus, itemId, cargoId) },
+      }));
+    } else {
+      syllabusApi.linkToCargo(itemId, cargoId);
+    }
+  };
+
   const handleWeightChange = (itemId: string, cargoId: string, weight: number | null) => {
     if (review) {
       setReviewState((current) => (current && {
@@ -752,6 +763,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         onRemove={handleRemove}
         onAdd={handleAdd}
         onSplit={handleSplit}
+        onLinkToCargo={handleLinkToCargo}
         onWeightChange={handleWeightChange}
         onQuestionCountChange={handleQuestionCountChange}
       />

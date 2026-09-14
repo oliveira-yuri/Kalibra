@@ -370,7 +370,9 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     const { container, getByTestId } = render(<App />);
 
     expect(container.innerHTML).toContain('unidos e aparecem uma vez só');
-    expect(getByTestId(/^chip-common-/).textContent).toContain('2 cargos');
+    // setec-campinas só tem 2 cargos (c1, c2) e o item está ligado aos dois — o chip
+    // agora lê "comum a todos" (Fase 1B.5), não mais a contagem "2 cargos".
+    expect(getByTestId(/^chip-common-/).textContent).toContain('comum a todos');
   });
 
   it('sem nenhum item comum, o aviso de união não aparece', async () => {
@@ -379,6 +381,82 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     const { container } = render(<App />);
 
     expect(container.innerHTML).not.toContain('unidos e aparecem uma vez só');
+  });
+});
+
+describe('EditalRevisar — Fase 1B.5, Task 7 (aplicar item a mais um cargo — os dois caminhos do handler)', () => {
+  beforeEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  const PERSISTED_SYLLABUS = {
+    items: [
+      { id: 'item-persistido', workspaceId: 'setec-campinas', conceptId: 'concept-persistido', parentItemId: null, sourceLabel: 'Direito Administrativo', sourceExcerpt: null, page: null, confidence: 1, uncertain: false },
+    ],
+    links: [
+      { syllabusItemId: 'item-persistido', cargoId: 'c1', weight: 20, questionCount: 5 },
+    ],
+  };
+
+  it('caminho persistido (sem proposta em revisão): aplicar a um cargo grava direto no programa já salvo', async () => {
+    // Sem stageWorkspaceImport nenhum: `pending` fica null, o efeito de enfileirar não
+    // roda, e `review` continua null — a árvore mostra `syllabusApi.syllabus` (o mesmo
+    // caminho já coberto pelo teste "sem importação pendente..." da Task 11).
+    window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(PERSISTED_SYLLABUS));
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const row = screen.getByText('Direito Administrativo').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+    fireEvent.click(within(row).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row).getByTestId('button-link-item-persistido-c2'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const links = stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === 'item-persistido');
+    expect(links).toHaveLength(2);
+    // A ligação com c1 (já existente, com peso) não pode ser tocada.
+    expect(links.find((link: { cargoId: string }) => link.cargoId === 'c1').weight).toBe(20);
+    // A ligação nova com c2 nasce com peso e quantidade nulos.
+    expect(links.find((link: { cargoId: string }) => link.cargoId === 'c2').weight).toBeNull();
+  });
+
+  it('caminho da proposta em revisão: aplicar a um cargo muda a proposta em memória e só grava ao confirmar', async () => {
+    stageWorkspaceImport('setec-campinas', {
+      isNew: false,
+      updates: {},
+      extractionOutput: {
+        entries: [entrada({ cargoId: 'c1', label: 'Direito Constitucional' })],
+        detectedCargos: ['c1', 'c2'],
+        examFormat: null,
+        examDurationMinutes: null,
+        uncertainties: [],
+      },
+    }, TEST_USER.id);
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    const row = () => screen.getByText('Direito Constitucional').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
+    fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
+    fireEvent.click(within(row()).getByTestId(/^button-link-.*-c2$/));
+
+    // Antes de confirmar, nada foi persistido — mesma regra do Finding 2 do fix round 1
+    // (`review` é a fonte de verdade em memória até "Confirmar estrutura").
+    expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
+
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+
+    const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
+    const item = stored.items.find((entry: { sourceLabel: string }) => entry.sourceLabel === 'Direito Constitucional');
+    const links = stored.links.filter((link: { syllabusItemId: string }) => link.syllabusItemId === item.id);
+    expect(links.map((link: { cargoId: string }) => link.cargoId).sort()).toEqual(['c1', 'c2']);
   });
 });
 
