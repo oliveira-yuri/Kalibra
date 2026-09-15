@@ -519,37 +519,202 @@ comportava o diagnóstico.
 
 ---
 
-## §3 — API, contratos e a troca de adaptadores *(A ESCREVER)*
+## §3 — API, contratos e a troca de adaptadores *(APROVADO)*
 
-Pontos que já se sabe que precisam ser cobertos:
+### 3.0 O problema que a leitura do código revelou
 
-- Desenho dos endpoints por módulo (workspace, cargos, edital/blocos, concepts,
-  syllabus, aprovações) e o verbo/forma de cada um.
-- O pipeline `lib/api-spec` (OpenAPI) → Orval → `lib/api-zod` +
-  `lib/api-client-react`: quem escreve o quê, e em que ordem, para que o tipo
-  gerado seja a fonte e não uma cópia.
-- A porta comum que adaptador local e adaptador API implementam.
-- **O harness de contrato** — tarefa própria: roda os mesmos cenários de
-  workspace/dedupe/diff/FSRS contra os dois adaptadores e prova que obedecem o
-  mesmo contrato. Decisão registrada: obrigatório, não "nice to have".
-- Atualização otimista com TanStack Query: onde reverte, e como o erro chega ao
-  toast existente sem tela nova.
-- Forma do erro da API (código, mensagem, sem segredo) e como `lib/core` traduz
-  para texto de produto.
-- Endpoints de job para IA declarados no OpenAPI mas **não implementados** —
-  confirmar que declarar sem implementar não gera código morto no cliente
-  gerado (risco real do Orval: ele gera hook para tudo que está no spec).
+A "porta" hoje não existe. `artifacts/kalibra/src/domain/useWorkspaces.ts` é um
+re-export do adaptador local, e os **tipos são definidos dentro do adaptador
+local** (`WorkspaceDraft`, `Cargo`, `SourceMode`, `ImportStatus`). O contrato não
+é independente: o contrato **é** o adaptador local.
 
-## §4 — Testes, verificação e riscos *(A ESCREVER)*
+Um adaptador de API teria de importar tipos de `adapters/local/workspaces`, o que
+inverte a dependência e torna o harness de contrato uma tautologia — comparar o
+adaptador local contra um contrato que ele próprio define.
 
-Pontos que já se sabe que precisam ser cobertos:
+Há também vazamento: `stageWorkspaceImport`, `getPendingWorkspaceImport` e
+`migrateWorkspace` estão na porta, mas são mecânica de armazenamento, não domínio.
 
-- PGlite como banco de teste; como as migrações são aplicadas na suíte.
-- Testes de isolamento entre usuários (os três do §1).
-- O harness de contrato, e o que ele prova.
-- O que **não** dá para verificar neste ambiente (sem Docker, sem chaves) e como
-  isso é registrado honestamente — a 1B.5 registrou a conferência visual como não
-  feita em vez de inventá-la; mesma regra aqui.
-- Risco: dois adaptadores em paralelo.
-- Risco: `main` ganha um backend que ninguém consegue rodar sem as chaves.
-- Risco: a fase encontra defeitos tolerados pelo `localStorage` (§2.9) e cresce.
+### 3.1 Primeiro, declarar a porta de verdade
+
+Antes de qualquer endpoint, os módulos a migrar ganham contrato próprio em
+`src/domain/ports/`, independente dos dois adaptadores: tipos do domínio e a
+interface que cada adaptador implementa. Os tipos migram do adaptador local para
+a porta, e o adaptador local passa a importá-los — como o de API fará.
+
+### 3.2 O que não é porta
+
+- **`stageWorkspaceImport` / `getPendingWorkspaceImport` /
+  `clearPendingWorkspaceImport`** guardam uma importação em andamento entre duas
+  telas. É continuidade de interface por aba, efêmera, nunca compartilhada.
+  **Continua em `sessionStorage` mesmo com backend**, como módulo explicitamente
+  client-side, fora da porta. O adaptador de API não implementa isso porque não
+  faz sentido implementar.
+- **`migrateWorkspace`** é migração de registro do `localStorage`. Interno do
+  adaptador local; sai da porta.
+
+### 3.3 Endpoints por módulo
+
+Todos sob `/api`, todos privados, todos filtrando por `user_id` derivado da
+sessão.
+
+| Módulo | Endpoints |
+|---|---|
+| workspaces | `GET /workspaces` · `POST /workspaces` · `GET /workspaces/{slug}` · `PATCH /workspaces/{slug}` |
+| cargos | `POST /workspaces/{slug}/cargos` · `PATCH /workspaces/{slug}/cargos/{id}` · `DELETE /workspaces/{slug}/cargos/{id}` |
+| blocos | `PUT /workspaces/{slug}/source-blocks` (substitui o conjunto — é como a tela edita) |
+| concepts | `GET /concepts` · `POST /concepts` · `PATCH /concepts/{id}` |
+| syllabus | `GET /workspaces/{slug}/syllabus` · `PUT /workspaces/{slug}/syllabus` · `POST …/syllabus/items` · `PATCH …/syllabus/items/{id}` · `DELETE …/syllabus/items/{id}` · `PUT …/syllabus/items/{id}/cargos/{cargoId}` · `DELETE …/syllabus/items/{id}/cargos/{cargoId}` |
+| aprovações | `GET /approvals` · `POST /approvals` · `PATCH /approvals/{id}` |
+
+Os granulares existem porque mapeiam um-para-um os métodos que o hook já expõe
+(`renameItem`, `addItem`, `updateLink`, `linkToCargo`, `unlinkFromCargo`), e
+porque deixam o servidor validar a operação específica com `lib/core`.
+
+O `PUT` de documento inteiro existe porque o confirmar da revisão grava uma
+árvore computada de uma vez. Como é a operação destrutiva — **e só ela** — carrega
+concorrência otimista: o cliente envia a versão que leu (`If-Match`), e o
+servidor recusa se mudou. Sem isso, uma aba com dado velho apaga o trabalho da
+outra.
+
+### 3.4 O pipeline de contratos: quem escreve o quê
+
+1. **`lib/api-spec/openapi.yaml` é escrito à mão.** É a fonte.
+2. **Orval gera** `lib/api-zod` (schemas Zod + tipos) e `lib/api-client-react`
+   (hooks de React Query).
+3. **O `api-server` importa os schemas Zod gerados** para validar entrada e
+   saída. Não escreve os seus.
+4. **O adaptador de API importa os hooks gerados.**
+
+Assim o tipo gerado é fonte única, não cópia que diverge. E o servidor validar
+com o mesmo schema que o cliente usa faz divergência entre spec e implementação
+virar erro de compilação, não bug de produção.
+
+Validação de **forma** vem do Zod gerado; validação de **domínio** vem de
+`lib/core`. São coisas diferentes: o Zod diz "isto é um número entre 0 e 100";
+`lib/core` diz "esta transição de status é ilegal".
+
+### 3.5 Autenticação no cliente: cookie, não token
+
+`lib/api-client-react/src/custom-fetch.ts` tem `setAuthTokenGetter`, mas o próprio
+arquivo avisa que ele nunca deve ser usado em aplicação web, onde o cookie de
+sessão acompanha a chamada sozinho. O Kalibra é web e já tem o proxy do Clerk.
+
+**Nada de token getter.** Decorre um invariante: nenhum código do frontend lê,
+guarda ou repassa token de sessão.
+
+### 3.6 Forma do erro
+
+Resposta de erro é `application/problem+json` (o `custom-fetch` já aceita esse
+tipo): `type`, `title`, `status`, `detail` e um `code` estável que o cliente possa
+comparar.
+
+**O texto que o usuário vê é escolhido pelo cliente a partir do `code`, não vem do
+servidor.** Mensagem de produto em português é decisão de interface, e mensagem
+vinda do servidor é o caminho mais fácil para um segredo ou detalhe interno vazar
+para a tela — o que a §1.7 proíbe.
+
+### 3.7 Atualização otimista, sem tela nova
+
+TanStack Query já é dependência. Cada mutação: `onMutate` aplica na hora e guarda
+o estado anterior; `onError` reverte e dispara o toast que o app já tem;
+`onSettled` invalida a query.
+
+A regra que impede isso de virar perda silenciosa: **toda reversão é visível.**
+Uma escrita que falha e reverte sem o usuário ver é exatamente a família de
+defeito — "o app aceita e descarta em silêncio" — que apareceu três vezes na Fase
+1B.5.
+
+### 3.8 O harness de contrato *(tarefa própria)*
+
+Suíte parametrizada que roda **os mesmos cenários contra os dois adaptadores**:
+criar workspace, importar edital, deduplicar, renomear, aplicar e separar cargo,
+diff de versão (PD-08), decidir aprovação.
+
+Roda contra o local com `localStorage` de teste, e contra o de API com o
+`api-server` real sobre PGlite. Se um cenário passa num e falha no outro, **o
+contrato está quebrado** — e a divergência aparece como teste vermelho em vez de
+bug de dado meses depois.
+
+Já se sabe de uma divergência que ele vai encontrar: `unique(user_id, slug)` em
+`concept` (§2.9). A correção é endurecer o local.
+
+### 3.9 Os jobs de IA e o risco de código morto
+
+O §1.8 fixa que o contrato de IA nasce assíncrono. Mas **o Orval gera um hook para
+cada operação do spec** — declarar `POST /jobs/question-generation` agora
+produziria um hook de React Query que ninguém chama, precisamente o que a decisão
+registrada proíbe ("tabela sem endpoint é aceitável; código sem chamador não").
+
+Saída: o contrato dos jobs vive em **`lib/api-spec/openapi.jobs.yaml`**, arquivo
+separado que o Orval **ainda não lê**. A forma fica fixada, revisável e
+versionada; nenhuma linha é gerada. Quando a fase da IA chegar, acrescenta-se o
+arquivo à entrada do Orval e os hooks nascem com chamador no mesmo commit.
+
+### 3.10 Ordem de migração
+
+Um módulo por vez, na ordem das dependências:
+
+**workspaces + cargos** → **source-blocks** → **concepts** → **syllabus** →
+**aprovações**
+
+Workspaces primeiro porque tudo pende dele. Concepts antes de syllabus porque
+`syllabus_item` referencia conceito. Aprovações por último porque referencia
+workspace e conceito. Cada passo vira `'api'` em `config.ts` e a suíte inteira
+roda antes do seguinte.
+
+### Invariantes do §3 que viram teste
+
+- `userId` vem só da sessão Clerk validada — corpo, query e path são ignorados.
+- Toda rota privada filtra por `user_id`; nenhuma consulta por `id` sozinho.
+- Adaptador local e adaptador de API implementam **o mesmo contrato** — o harness
+  roda os mesmos cenários contra os dois.
+- Os tipos do domínio moram na porta, não no adaptador local; o adaptador local
+  os importa.
+- Nenhum componente React referencia `localStorage`, `sessionStorage` ou `fetch`
+  direto.
+- Regra de domínio existe só em `lib/core` — nenhuma reimplementada no
+  `api-server`.
+- Nenhuma tarefa pesada de IA roda dentro de requisição HTTP.
+- Nenhum segredo chega ao frontend; o bundle não contém `DATABASE_URL`,
+  `ANTHROPIC_API_KEY` nem `CLERK_SECRET_KEY`.
+- Nenhum código do frontend lê, guarda ou repassa token de sessão.
+- O `api-server` valida entrada e saída com os schemas Zod **gerados**, não com
+  schemas escritos à mão.
+- `PUT` de documento inteiro com versão desatualizada é recusado; não sobrescreve
+  em silêncio.
+- Toda mutação otimista que falha reverte **e** mostra o erro — reversão
+  silenciosa é defeito.
+- Texto de erro ao usuário vem do cliente a partir do `code`; nenhuma mensagem do
+  servidor é renderizada crua.
+- `openapi.jobs.yaml` não é lido pelo Orval nesta fase — nenhum hook gerado sem
+  chamador.
+- `stageWorkspaceImport` não faz parte da porta e não tem implementação de API.
+
+### Decisões explícitas do §3
+
+- **A porta é declarada antes de qualquer endpoint**, em `src/domain/ports/`, e os
+  tipos migram do adaptador local para ela.
+- **Staging de importação continua client-side**, fora da porta;
+  `migrateWorkspace` volta a ser interno do adaptador local.
+- **`openapi.yaml` é escrito à mão e é a fonte**; Zod e hooks são gerados; o
+  servidor importa o gerado.
+- **Forma vem do Zod gerado; domínio vem de `lib/core`.**
+- **Cookie de sessão, não token getter** — o frontend nunca manipula token.
+- **Erro em `problem+json` com `code` estável**; o texto é do cliente.
+- **Concorrência otimista só nas operações destrutivas de documento inteiro.**
+- **Contrato de jobs de IA em arquivo separado que o Orval não lê.**
+- **Ordem de migração: workspaces+cargos → source-blocks → concepts → syllabus →
+  aprovações.**
+- **Harness de contrato é tarefa própria**, e roda o adaptador de API contra o
+  `api-server` real sobre PGlite.
+
+---
+
+## §4 — Testes, verificação e riscos *(ABSORVIDO NO PLANO)*
+
+O Yuri optou por ir direto ao plano de implementação. O conteúdo previsto para
+esta seção — PGlite como banco de teste, testes de isolamento, o que não dá para
+verificar neste ambiente, e os riscos — está distribuído fase a fase em
+`docs/superpowers/plans/2026-09-15-kalibra-fase-1c.md`, nos campos "testes
+obrigatórios" e "riscos" de cada fase.
