@@ -54,24 +54,51 @@ modo que os dois adaptadores passem a implementar algo que nenhum dos dois
 define. **Nenhuma mudança de comportamento e nenhuma mudança de assinatura
 síncrona/assíncrona.**
 
+> **Plano executável:** `docs/superpowers/plans/2026-09-15-kalibra-fase-1a-portas.md`
+> — 31 tarefas em 8 seções. A descoberta feita ao escrevê-lo corrigiu três pontos
+> desta seção; as correções já estão incorporadas abaixo.
+
 **Arquivos**
-- Criar: `artifacts/kalibra/src/domain/ports/{workspaces,source-blocks,concepts,syllabus,approvals,index}.ts`
+- Criar: `artifacts/kalibra/src/domain/ports/{workspaces,concepts,syllabus,approvals,index}.ts`
 - Criar: `artifacts/kalibra/src/domain/staging.ts` (importação pendente, client-side)
-- Modificar: `artifacts/kalibra/src/domain/adapters/local/*.ts` — passam a importar tipos das portas
+- Modificar: `artifacts/kalibra/src/domain/adapters/local/{workspaces,concepts,syllabus,approvals}.ts`
 - Modificar: `artifacts/kalibra/src/domain/use*.ts` — re-exportam da porta, não do adaptador
-- Modificar: consumidores que hoje fazem `import type { Cargo } from '@/domain/useWorkspaces'`
+- Modificar: os 6 consumidores que hoje fazem `import type { Cargo } from '@/domain/useWorkspaces'`
+
+**O que a descoberta corrigiu**
+
+1. **Só `adapters/local/workspaces.ts` declara tipo de domínio.** `concepts`,
+   `syllabus` e `approvals` já importam os seus de `@workspace/core`. Mover tipo é
+   tarefa exclusiva de workspaces (cinco tipos); as outras três portas são
+   declaração de interface, sem movimentação.
+2. **Não há porta de `source-blocks` a criar aqui.** Não existe adaptador local de
+   blocos: `sourceBlocks` é campo de `WorkspaceDraft` e `CargoTextBlock` vem de
+   `@workspace/core`. Criá-la agora seria contrato sem implementação — código sem
+   chamador. A capacidade fica na porta de workspaces; **a separação é da Fase 6**,
+   quando ganhar endpoint próprio e segunda implementação.
+3. **`migrateWorkspace` tem chamador de produção.** `EditalRevisar.tsx:96` o usa
+   para validar payload não confiável da fila, não para migrar registro salvo.
+   Torná-lo interno sem mais nada quebraria a tela.
 
 **Tarefas**
-1. Mover `WorkspaceDraft`, `Cargo`, `SourceMode`, `ImportStatus` de
-   `adapters/local/workspaces.ts` para `ports/workspaces.ts`, por recorte e
-   colagem. O adaptador local passa a importar.
-2. Declarar a interface de cada porta: os métodos que hoje o hook local expõe,
-   **com as assinaturas que eles já têm** — nada vira `Promise` nesta fase.
+1. Mover `SourceMode`, `ImportStatus`, `Cargo`, `WorkspaceDraft` e
+   `PendingWorkspaceImport` de `adapters/local/workspaces.ts` para
+   `ports/workspaces.ts`, por recorte e colagem. O adaptador local passa a
+   importar.
+2. Declarar a interface de cada uma das quatro portas: os métodos que o hook local
+   expõe hoje, **com as assinaturas que eles já têm** — nada vira `Promise` nesta
+   fase.
 3. Tirar `stageWorkspaceImport`, `getPendingWorkspaceImport` e
    `clearPendingWorkspaceImport` da porta e movê-los para `staging.ts`,
-   documentado como client-side por desenho.
-4. Tirar `migrateWorkspace` da porta; volta a ser interno do adaptador local.
-5. Remover do `PendingWorkspaceImport` qualquer tipo que só o local usa.
+   documentado como client-side por desenho. O **tipo**
+   `PendingWorkspaceImport` fica na porta; as três funções, não.
+4. Declarar `parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null` na porta,
+   implementada com **o corpo atual de `migrateWorkspace`, sem alterar uma linha**.
+   `EditalRevisar` passa a chamá-la. A migração de registro de `localStorage` fica
+   interna ao adaptador local.
+5. Remover os re-exports mortos de `migrateConcepts`, `migrateSyllabus` e
+   `migrateApprovalItem` — os três não têm nenhum consumidor (verificado por
+   varredura).
 6. Atualizar os imports dos consumidores.
 7. Rodar o portão.
 
@@ -378,6 +405,9 @@ padrão otimista é estabelecido para as quatro fases seguintes.
 ### Fase 6 — `source-blocks`
 `PUT /workspaces/{slug}/source-blocks` substitui o conjunto, com `If-Match` sobre
 `workspace.version`.
+**É aqui que a porta de `source-blocks` se separa** da de workspaces — no momento
+em que ganha endpoint próprio e segunda implementação, e não antes (ver achado 2
+da Fase 1A).
 *Risco próprio:* a hidratação do editor (mergeada em `65ec0bb`) lê
 `workspace.sourceBlocks` na abertura do modal. Com a fonte assíncrona, o dado pode
 não ter chegado quando o modal abre — e abrir vazio é exatamente o defeito que
@@ -478,18 +508,23 @@ honestamente o que não foi verificado.
 
 **Fase 1A — Extrair portas e tipos. Nada além disso.**
 
-**Escopo exato:**
-- Criar `artifacts/kalibra/src/domain/ports/` com os tipos e interfaces dos cinco
-  módulos a migrar, **com as assinaturas que eles já têm hoje**.
-- Mover `WorkspaceDraft`, `Cargo`, `SourceMode`, `ImportStatus` (e os equivalentes
-  de concepts, syllabus e approvals) do adaptador local para as portas.
+**Escopo exato** (detalhado em
+`docs/superpowers/plans/2026-09-15-kalibra-fase-1a-portas.md`):
+- Criar `artifacts/kalibra/src/domain/ports/` com as **quatro** portas —
+  workspaces, concepts, syllabus, approvals — **com as assinaturas de hoje**.
+  Não há porta de `source-blocks` nesta fase.
+- Mover os cinco tipos de `adapters/local/workspaces.ts` para a porta. As outras
+  três portas não movem tipo: já vêm de `@workspace/core`.
 - Criar `artifacts/kalibra/src/domain/staging.ts` e mover para lá
   `stageWorkspaceImport`, `getPendingWorkspaceImport` e
   `clearPendingWorkspaceImport`.
-- Devolver `migrateWorkspace` ao interior do adaptador local.
+- Declarar `parseWorkspaceDraft` na porta com o corpo atual de `migrateWorkspace`;
+  a migração de storage fica interna ao adaptador local.
+- Remover os três re-exports mortos (`migrateConcepts`, `migrateSyllabus`,
+  `migrateApprovalItem`).
 - Atualizar os imports dos consumidores.
 - Dois testes estruturais: `ports/` não importa de `adapters/`; nenhum tipo de
-  domínio é declarado em `adapters/local/`.
+  domínio é declarado nos quatro adaptadores dos módulos que migram.
 
 **Fora do escopo desta PR:**
 - **Tornar as portas assíncronas** — isso é a Fase 1B, PR seguinte.

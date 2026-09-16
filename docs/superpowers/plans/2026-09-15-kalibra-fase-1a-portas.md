@@ -44,6 +44,32 @@ Saem nesta fase.
 
 ---
 
+## Execução: inline em 7 lotes, com checkpoint
+
+Escolhido pelo Yuri em vez de subagentes, pela razão certa: esta fase é
+refatoração fina de imports e tipos, com risco de renomear a coisa errada. A
+revisão do diff e a sequência import → typecheck pedem contexto contínuo, não
+tarefas isoladas.
+
+**O typecheck fica vermelho DENTRO de alguns lotes, de propósito** (D1→D2 e
+E2→E3). O checkpoint é no fim do lote, não a cada tarefa. Um plano que exige
+verde a cada micro-passo em refatoração de import é plano artificial.
+
+| Lote | Tarefas | Checkpoint |
+|---|---|---|
+| 1 — Descoberta confirmatória + baseline | A1, A2, A3 | Portão verde no `HEAD` atual; contagens anotadas |
+| 2 — Porta de workspaces + mover tipos | B1, B2, C1, C2, C3 | `typecheck` + suíte do frontend verdes; nenhum tipo de domínio sobrou no adaptador |
+| 3 — Interfaces das outras portas | B3, B4, F1 | `typecheck` verde; hooks reexportam da porta |
+| 4 — Staging e `parseWorkspaceDraft` | D1, D2, D3, E1, E2, E3, E5 | Suíte do frontend verde; `EditalRevisar` passa pelos mesmos testes de antes |
+| 5 — Re-exports mortos e imports dos consumidores | E4, F2, F3, F4 | `grep` não acha mais import de tipo vindo de `@/domain/use*`; suíte verde |
+| 6 — Testes estruturais | G1, G2, G3, G4 | Os dois estruturais passam **e ficam vermelhos** com a violação plantada |
+| 7 — Portão final e auditoria do diff | H1, H2, H3, H4 | Critério de pronto inteiro satisfeito |
+
+As tarefas B5 (commit das portas) e as demais tarefas de commit ficam no fim do
+lote a que pertencem, não entre lotes.
+
+---
+
 # A. Descoberta inicial
 
 ### Tarefa A1 — Fixar a linha de base

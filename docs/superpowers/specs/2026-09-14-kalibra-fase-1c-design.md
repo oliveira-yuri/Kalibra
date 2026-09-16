@@ -1,16 +1,19 @@
 # Fase 1C — Backend do domínio existente
 
-> **DOCUMENTO EM CONSTRUÇÃO.** Duas de quatro seções aprovadas. Ver "Estado da
-> sessão" abaixo antes de continuar.
+> **SPEC COMPLETO.** §1, §2 e §3 aprovados; §4 absorvido no plano de
+> implementação. Ver "Estado da sessão" abaixo.
 
 ## Estado da sessão
 
-**Onde paramos:** §1 e §2 aprovados pelo Yuri, com emendas dele já incorporadas.
-Próximo passo é escrever o **§3 — API, contratos e a troca de adaptadores**, e
-depois o **§4 — Testes, verificação e riscos**. Quando as quatro seções
-estiverem aprovadas, este documento vira o spec final, passa pela auto-revisão
-(placeholders, contradições, ambiguidade, escopo), o Yuri revisa o arquivo, e só
-então se invoca `superpowers:writing-plans`.
+**Onde paramos:** §1, §2 e §3 aprovados pelo Yuri, com emendas dele incorporadas.
+O §4 (testes, verificação e riscos) foi absorvido no plano de implementação, a
+pedido dele: testes obrigatórios e riscos ficam fase a fase.
+
+**Documentos derivados deste spec:**
+
+- Roteiro da fase: `docs/superpowers/plans/2026-09-15-kalibra-fase-1c.md`
+- Plano executável da primeira sub-fase:
+  `docs/superpowers/plans/2026-09-15-kalibra-fase-1a-portas.md`
 
 **Processo em uso:** `superpowers:brainstorming`, caminho arquitetural. A skill
 exige aprovação seção a seção — não pular para implementação.
