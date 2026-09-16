@@ -47,11 +47,12 @@ Valem em todas as fases. Um revisor rejeita a fase que violar qualquer uma.
 
 ---
 
-# Fase 1 — Portas reais *(refatoração mecânica, sem backend)*
+# Fase 1A — Extrair portas e tipos *(refatoração mecânica, sem backend)*
 
 **Objetivo:** extrair o contrato do adaptador local para portas independentes, de
 modo que os dois adaptadores passem a implementar algo que nenhum dos dois
-define. Nenhuma mudança de comportamento.
+define. **Nenhuma mudança de comportamento e nenhuma mudança de assinatura
+síncrona/assíncrona.**
 
 **Arquivos**
 - Criar: `artifacts/kalibra/src/domain/ports/{workspaces,source-blocks,concepts,syllabus,approvals,index}.ts`
@@ -65,35 +66,84 @@ define. Nenhuma mudança de comportamento.
    `adapters/local/workspaces.ts` para `ports/workspaces.ts`, por recorte e
    colagem. O adaptador local passa a importar.
 2. Declarar a interface de cada porta: os métodos que hoje o hook local expõe,
-   com assinatura explícita.
+   **com as assinaturas que eles já têm** — nada vira `Promise` nesta fase.
 3. Tirar `stageWorkspaceImport`, `getPendingWorkspaceImport` e
    `clearPendingWorkspaceImport` da porta e movê-los para `staging.ts`,
    documentado como client-side por desenho.
 4. Tirar `migrateWorkspace` da porta; volta a ser interno do adaptador local.
 5. Remover do `PendingWorkspaceImport` qualquer tipo que só o local usa.
-6. Rodar o portão.
+6. Atualizar os imports dos consumidores.
+7. Rodar o portão.
 
 **Testes obrigatórios**
-- A suíte existente passa **idêntica**, nas mesmas contagens (570), antes e
-  depois. Esta fase não acrescenta teste de comportamento.
-- Teste estrutural: nenhum arquivo em `domain/ports/` importa de
-  `domain/adapters/`. A seta de dependência aponta num sentido só.
-- Teste estrutural: nenhum tipo de domínio é declarado em `adapters/local/`.
-- Nenhum snapshot muda.
+- Os **570 testes existentes continuam verdes**, sem alteração de snapshots.
+- Além deles, passam os testes estruturais novos:
+  - nenhum arquivo em `domain/ports/` importa de `domain/adapters/` — a seta de
+    dependência aponta num sentido só;
+  - nenhum tipo de domínio é declarado em `adapters/local/`.
+- A contagem total pode aumentar por causa dos testes estruturais. **Nenhum teste
+  existente pode ser removido ou reescrito** para mascarar mudança de
+  comportamento.
 
 **Critério de pronto**
-- Portão verde, 570 testes, `0 snapshots written`.
-- O diff contém movimentação e troca de import — **nenhuma alteração de lógica**.
-  Um revisor consegue ler o diff inteiro e afirmar isso.
+- Portão verde; os 570 existentes verdes; `0 snapshots written`.
+- O diff contém movimentação de código e troca de import — **nenhuma alteração de
+  lógica e nenhuma troca de assinatura**. Um revisor consegue ler o diff inteiro e
+  afirmar isso.
 
 **Riscos**
 - Refatoração "mecânica" que muda comportamento sem querer. A Fase 0 estabeleceu
   a regra que vale aqui: mover primeiro, verificar, só depois mudar. Se algum
-  teste mudar de resultado, a fase parou de ser mecânica e o defeito está no
-  movimento.
+  teste existente mudar de resultado, a fase parou de ser mecânica e o defeito
+  está no movimento.
 - Tipos com dependência circular entre portas (ex.: `syllabus` referenciando
   `Cargo`). Mitigação: `ports/index.ts` reexporta; portas importam de portas, não
   de hooks.
+
+---
+
+# Fase 1B — Tornar as portas assíncronas *(mudança de assinatura, sem backend)*
+
+**Objetivo:** as portas passam a devolver `Promise`, com o adaptador local
+resolvendo imediatamente. Prepara o harness da Fase 4 e o futuro adaptador de
+API — sem eles, introduzir latência na Fase 5 quebraria a suíte inteira de uma
+vez.
+
+**Ordem:** depois da Fase 1A e **antes da Fase 2**. Tecnicamente ela poderia
+esperar até antes da Fase 4, mas adiar significa escrever a fundação do banco e
+do servidor sobre uma porta que ainda vai mudar de forma.
+
+**Arquivos**
+- Modificar: `artifacts/kalibra/src/domain/ports/*.ts` (assinaturas)
+- Modificar: `artifacts/kalibra/src/domain/adapters/local/*.ts` (resolvem imediatamente)
+- Modificar: `artifacts/kalibra/src/domain/use*.ts`
+- Modificar: telas e componentes que chamam métodos da porta
+- Modificar: testes e mocks afetados
+
+**Tarefas**
+1. Trocar as assinaturas de escrita da porta para `Promise`.
+2. Adaptador local passa a resolver imediatamente, preservando a semântica atual.
+3. Atualizar hooks, chamadas nas telas, testes e mocks.
+4. Rodar o portão.
+
+**Testes obrigatórios**
+- Toda a suíte verde, incluindo os estruturais da Fase 1A.
+- Nenhum snapshot muda: assinatura assíncrona não pode alterar o que é
+  renderizado.
+- Teste de que uma escrita que ainda não resolveu **não** deixa a tela em estado
+  inconsistente — é o ensaio do padrão otimista que a Fase 5 estabelece.
+
+**Critério de pronto**
+- Portão verde; nenhuma regra de domínio alterada; nenhum snapshot reescrito.
+
+**Riscos**
+- **Esta fase não é mecânica** e é onde a Fase 1 original se contradizia. Tornar
+  assíncrono muda ordem de execução: um handler que hoje lê o estado logo após
+  escrever pode passar a ler o valor antigo.
+- Testes que hoje afirmam efeito síncrono logo após a chamada vão precisar de
+  `await`. Isso é ajuste legítimo — **desde que a asserção não seja enfraquecida**.
+  Trocar uma asserção de valor por uma de existência para "fazer passar" é
+  defeito, não adaptação.
 
 ---
 
@@ -152,8 +202,10 @@ nenhum endpoint.
 
 **Critério de pronto**
 - Portão verde; migrations aplicam do zero num banco vazio.
-- Os 17 testes acima passam, e cada um fica **vermelho** quando a constraint
-  correspondente é removida mecanicamente.
+- **Todos os testes listados nesta seção passam**, e cada constraint relevante
+  fica **vermelha** quando removida mecanicamente.
+- A lista pode ser expandida durante o plano executável, desde que cubra todos os
+  invariantes do §2. O que não pode é encolher.
 
 **Riscos**
 - PGlite pode divergir do Postgres real em detalhe de constraint. Mitigação:
@@ -249,10 +301,38 @@ migração inteira, e precisa ser real antes de ter algo a comparar.
   de storage. Mitigação: o teste estrutural acima, e escrever cada cenário em
   termos de *o que o usuário fez* e *o que o domínio deve dizer depois*, nunca de
   como foi guardado.
-- Cenário que assume escrita síncrona. A porta precisa ser assíncrona desde já,
-  mesmo para o adaptador local — senão a fase 5 quebra toda a suíte.
-  **Decisão: a porta é assíncrona desde a Fase 1**; o adaptador local resolve
-  imediatamente.
+- Cenário que assume escrita síncrona. A porta já é assíncrona desde a **Fase
+  1B**, e é por isso que aquela fase vem antes desta: um cenário escrito contra
+  porta síncrona quebraria inteiro na Fase 5.
+
+---
+
+# Política de concorrência: `If-Match` e `workspace.version`
+
+Regra global para as fases 5 a 9. A versão é **por workspace**, não por
+documento (§2, Fase 2): grosseira — qualquer escrita relevante a incrementa — mas
+simples e correta.
+
+**Endpoints destrutivos de documento inteiro** — hoje
+`PUT /workspaces/{slug}/source-blocks` e `PUT /workspaces/{slug}/syllabus`:
+
+- Sem cabeçalho `If-Match`: responde **`428`**, `code: precondition_required`.
+  Não existe "esqueci a versão, sobrescreve assim mesmo".
+- Com `If-Match` diferente de `workspace.version`: responde **`412`**,
+  `code: precondition_failed`.
+- Mutação aceita **incrementa `workspace.version` na mesma transação** da
+  escrita. Nunca em duas etapas — incrementar fora da transação reabre a janela
+  que o `If-Match` existe para fechar.
+- A resposta devolve a **nova `version`**, para o cliente seguir sem precisar de
+  outra leitura.
+
+**Mutações granulares** (`POST`/`PATCH`/`DELETE` de item, ligação, cargo, bloco)
+**não exigem `If-Match`**, mas **também incrementam `workspace.version`** — a
+versão é por workspace, então qualquer escrita relevante a altera. Sem isso, um
+`PUT` posterior passaria numa versão que já não descreve o estado.
+
+Os dois erros usam `application/problem+json` com `code` estável, e o texto
+mostrado ao usuário é escolhido pelo cliente a partir do `code` (§3.6).
 
 ---
 
@@ -312,13 +392,22 @@ banco recusa.
 limite conhecido — precisa de teste próprio, não de ajuste silencioso.
 
 ### Fase 8 — `syllabus`
-O módulo maior: `GET`, `PUT` de documento inteiro com `If-Match`, e os cinco
-granulares que mapeiam `addItem`, `renameItem`, `updateLink`, `linkToCargo`,
-`unlinkFromCargo`.
-*Risco próprio:* o confirmar da revisão é hoje uma sequência de escritas
-(conceitos → syllabus → aprovação → workspace) que a Fase 1B já viu rasgar no
-meio. Sobre HTTP, cada uma é uma chamada. **Esta sequência precisa virar uma
-transação do lado do servidor** — um endpoint que faz as quatro ou nenhuma.
+O módulo maior: `GET`, `PUT` de documento inteiro com `If-Match` (ver a política
+de concorrência acima), e os cinco granulares que mapeiam `addItem`,
+`renameItem`, `updateLink`, `linkToCargo`, `unlinkFromCargo`.
+
+**O confirmar da revisão é um endpoint transacional, não uma sequência de
+chamadas.** Hoje ele faz quatro escritas em ordem — conceitos → syllabus →
+aprovação → workspace — e a Fase 1B já viu essa sequência rasgar no meio com uma
+fonte de verdade só, deixando programa gravado, aprovação indecidida e status não
+avançado. Sobre HTTP cada escrita vira uma chamada de rede, e a janela cresce.
+O servidor expõe **um** endpoint que executa as quatro dentro de **uma
+transação**: ou todas, ou nenhuma. O incremento de `workspace.version` entra na
+mesma transação.
+
+*Risco próprio:* é o endpoint mais complexo da fase, e o único cujo teste precisa
+provar atomicidade — falhar no meio de propósito e verificar que **nada** foi
+gravado.
 
 ### Fase 9 — `approvals`
 Último porque referencia workspace e conceito. `GET`, `POST`, `PATCH` (decidir).
@@ -387,34 +476,36 @@ honestamente o que não foi verificado.
 
 # Primeira PR recomendada
 
-**Fase 1 — Portas reais. Nada além disso.**
+**Fase 1A — Extrair portas e tipos. Nada além disso.**
 
 **Escopo exato:**
 - Criar `artifacts/kalibra/src/domain/ports/` com os tipos e interfaces dos cinco
-  módulos a migrar.
+  módulos a migrar, **com as assinaturas que eles já têm hoje**.
 - Mover `WorkspaceDraft`, `Cargo`, `SourceMode`, `ImportStatus` (e os equivalentes
   de concepts, syllabus e approvals) do adaptador local para as portas.
 - Criar `artifacts/kalibra/src/domain/staging.ts` e mover para lá
   `stageWorkspaceImport`, `getPendingWorkspaceImport` e
   `clearPendingWorkspaceImport`.
 - Devolver `migrateWorkspace` ao interior do adaptador local.
-- Tornar a porta **assíncrona** (o adaptador local resolve imediatamente).
 - Atualizar os imports dos consumidores.
 - Dois testes estruturais: `ports/` não importa de `adapters/`; nenhum tipo de
   domínio é declarado em `adapters/local/`.
 
-**Fora do escopo desta PR:** qualquer linha de schema, de servidor, de OpenAPI ou
-de adaptador de API.
+**Fora do escopo desta PR:**
+- **Tornar as portas assíncronas** — isso é a Fase 1B, PR seguinte.
+- Qualquer linha de schema, de servidor, de OpenAPI ou de adaptador de API.
 
 **Por que ela primeiro:** sem contrato independente, o harness de contrato é uma
 tautologia e o adaptador de API teria de depender do local. É a única fase que
 não pode ser reordenada.
 
-**Como se prova que ficou certa:** a suíte passa idêntica — mesmas 570 —, nenhum
-snapshot muda, e o diff contém apenas movimentação de código e troca de import.
-Se algum teste mudar de resultado, a refatoração deixou de ser mecânica.
+**Como se prova que ficou certa:** os 570 testes existentes passam sem alteração,
+nenhum snapshot muda, e o diff contém apenas movimentação de código e troca de
+import — nenhuma mudança de lógica e nenhuma troca de assinatura. A contagem
+total sobe pelos testes estruturais novos; nenhum teste existente é removido ou
+reescrito. Se algum teste existente mudar de resultado, a refatoração deixou de
+ser mecânica.
 
-**Atenção:** tornar a porta assíncrona é a única parte desta PR que **não** é
-puramente mecânica, e é o ponto onde ela pode quebrar. Se o custo for alto, é
-defensável dividir em duas PRs — mover primeiro, tornar assíncrono depois — mas
-as duas precisam entrar antes da Fase 2.
+**A PR seguinte é a Fase 1B** (portas assíncronas), que entra **antes da Fase 2**.
+Separá-las é o ponto da correção: uma PR é mecânica e verificável por leitura do
+diff; a outra muda ordem de execução e precisa da sua própria revisão.
