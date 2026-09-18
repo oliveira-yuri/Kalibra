@@ -11,16 +11,13 @@ import {
   type ExtractionOutput,
   type CargoTextBlock,
 } from '@workspace/core';
+import type {
+  SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceImport,
+} from '../../ports/workspaces';
 
-export type SourceMode = 'file' | 'text' | 'none';
-export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
-
-export interface Cargo {
-  id: string;
-  name: string;
-  examDate: string;
-  period?: string;
-}
+// Os cinco tipos acima moravam NESTE arquivo ate a Fase 1A. Foram para a porta para
+// que o contrato deixe de ser definido pelo adaptador local — ver ports/workspaces.ts.
+export type { SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceImport };
 
 /**
  * Cargo sintético usado sempre que um workspace precisa existir sem nenhum cargo
@@ -32,31 +29,6 @@ export interface Cargo {
  */
 export function defaultCargo(examDate: string): Cargo {
   return { id: 'c1', name: 'Cargo único', examDate };
-}
-
-export interface WorkspaceDraft {
-  slug: string;
-  title: string;
-  institution: string;
-  type: string;
-  examDate: string; // default date
-  cargos: Cargo[];
-  selectedCargoId: string;
-  availability: WeeklyAvailability;
-  status: WorkspaceStatus;
-  sourceMode: SourceMode;
-  sourceFileName?: string;
-  sourceText?: string;
-  /**
-   * Blocos do edital por cargo (Fase 1B.5). `sourceText` continua no tipo porque
-   * registros antigos gravados no navegador do usuário ainda o têm — `migrateWorkspace`
-   * converte um em outro na leitura. Escrita nova sempre usa `sourceBlocks`.
-   */
-  sourceBlocks: CargoTextBlock[];
-  importStatus: ImportStatus;
-  progress: number;
-  nextAction: string;
-  active: boolean;
 }
 
 const STATUS_FROM_IMPORT: Record<ImportStatus, WorkspaceStatus> = {
@@ -194,27 +166,6 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
     nextAction: str(raw.nextAction, ''),
     active: typeof raw.active === 'boolean' ? raw.active : true,
   };
-}
-
-export interface PendingWorkspaceImport {
-  isNew: boolean;
-  workspace?: WorkspaceDraft;
-  updates?: Partial<WorkspaceDraft>;
-  /**
-   * A saída bruta da extração (Task 10), levada até a tela de revisão para que ela
-   * rode `dedupeEntries` (Task 11) — nunca aplicada aqui, só transportada. `undefined`
-   * enquanto a extração ainda não chegou a "pronto".
-   */
-  extractionOutput?: ExtractionOutput;
-  /**
-   * Marca que `dedupeEntries` já rodou sobre `extractionOutput` (Task 11) —
-   * sem isto, reabrir a mesma tela de revisão (mesmo import, sem confirmar
-   * nem descartar) rodaria a deduplicação de novo a cada montagem e
-   * duplicaria itens/conceitos/aprovações. `extractionOutput` continua
-   * presente mesmo depois de aplicado: é o único lugar que guarda as
-   * incertezas do PD-06 para o bloco "Não encontrado no edital".
-   */
-  extractionApplied?: boolean;
 }
 
 const STORAGE_KEY = 'kalibra_workspaces';
