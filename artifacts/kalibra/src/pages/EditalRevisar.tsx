@@ -70,7 +70,7 @@ function reviewFromPayload(payload: unknown): DedupResult | null {
 
 /**
  * As incertezas do PD-06 ("Não encontrado no edital") — fix round 2 (achado B): antes,
- * esta tela só as lia de `pending.extractionOutput.uncertainties`, que não sobrevive a
+ * esta tela só as lia de `extractionOutput.uncertainties`, que não sobrevive a
  * uma revisão retomada da fila (sem `pending`, a lista virava `[]` e o bloco inteiro
  * sumia). Gravadas no mesmo payload da proposta agora, para que retomar da fila mostre
  * exatamente o que a extração não conseguiu achar, o mesmo dado que o humano decidindo
@@ -203,7 +203,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   //      que está gravado). É o que permite decidir mesmo depois de fechar a aba,
   //      reiniciar o navegador, ou abrir "Revisar estrutura" da fila numa aba nova —
   //      nenhum desses casos tem o registro por aba de quando a extração terminou.
-  //   2. Senão, se a extração acabou de terminar nesta aba (`pending.extractionOutput`,
+  //   2. Senão, se a extração acabou de terminar nesta aba (`extractionOutput`,
   //      ainda não aplicada), a proposta nasce agora de `previewExtraction` — pura,
   //      não persiste nada — e É ENFILEIRADA agora, uma vez.
   //   3. Senão, não há proposta para revisar (`null`): edição normal de uma estrutura
@@ -257,13 +257,20 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
   useEffect(() => {
     if (reviewState || enqueuedRef.current) return;
     if (!(pending?.extractionOutput && !pending.extractionApplied)) return;
+    // Capturado ANTES da IIFE: a narrowing do `if` acima nao atravessa a closure,
+    // e `pending` e uma leitura que pode mudar entre um tick e outro.
+    const extractionOutput = pending.extractionOutput;
     enqueuedRef.current = true;
 
-    const freshReview = syllabusApi.previewExtraction(pending.extractionOutput);
+    // `enqueue` virou assincrono na Fase 1B. O `id` so existe depois que a escrita
+    // resolve, entao o corpo do efeito e aguardado numa IIFE — `void` marca que
+    // ninguem espera o efeito em si, so a ordem interna dele importa.
+    void (async () => {
+    const freshReview = syllabusApi.previewExtraction(extractionOutput);
     const mergedCount = freshReview.syllabus.items.filter((item) => isCommon(freshReview.syllabus, item.id)).length;
-    const uncertainties = pending.extractionOutput.uncertainties ?? [];
+    const uncertainties = extractionOutput.uncertainties ?? [];
     const workspaceDraft = pending?.isNew ? (pending.workspace ?? null) : null;
-    const id = approvalsApi.enqueue({
+    const id = await approvalsApi.enqueue({
       workspaceId: workspaceSlug,
       type: 'edital_structure',
       title: `Estrutura extraída do edital · versão ${version}`,
@@ -280,6 +287,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     }, new Date());
 
     setReviewState({ review: freshReview, approvalId: id, uncertainties, workspaceDraft });
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- roda uma vez por montagem; só precisa enfileirar quando nada foi retomado da fila (checado acima via ref + `reviewState`), nunca de novo a cada mudança de dependência.
   }, []);
 
@@ -359,7 +367,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     approvalsApi.items, workspaceSlug, Number.isInteger(versionNumber) ? versionNumber : null, hasSavedProgramme,
   );
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (confirmedRef.current) return;
 
     // Achado R5 da re-revisão: "Confirmar estrutura" não pode avançar o workspace
@@ -443,8 +451,11 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // provisórios novos entram na biblioteca global, o Syllabus proposto vira o
       // Syllabus do workspace, e cada `proposedLink` vira um item `concept_merge` na
       // fila. As três escritas ficam juntas porque descrevem UMA decisão do usuário.
-      review.newConcepts.forEach((concept) => conceptsApi.addConcept(concept));
-      syllabusApi.save(review.syllabus);
+      // `forEach` NAO aguarda promessa: com as escritas assincronas da Fase 1B, um
+      // `forEach` deixaria as gravacoes correndo soltas e o `catch` abaixo nunca veria
+      // a falha. Cada escrita e aguardada, em ordem.
+      for (const concept of review.newConcepts) await conceptsApi.addConcept(concept);
+      await syllabusApi.save(review.syllabus);
       // Fix round 1 da Task 14 (achado 2): o registro aprovado passa a ser exatamente
       // a árvore que acabou de ser gravada acima — `review` já reflete qualquer edição
       // feita nesta tela (renomear, excluir, separar, mudar peso/questões, adicionar).
@@ -462,7 +473,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
         // que a fila nunca poda (o mesmo `review.syllabus` continua inteiro aqui, de
         // propósito: é o que a Task 14/fix round 1 usa para provar que o registro
         // aprovado é a árvore que de fato foi gravada).
-        approvalsApi.approve(structureApprovalId, {
+        await approvalsApi.approve(structureApprovalId, {
           version,
           review: { ...review, newConcepts: [] },
           mergedCount,
@@ -490,9 +501,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
           .filter((item) => item.type === 'concept_merge' && item.workspaceId === workspaceSlug)
           .map((item) => mergeKey(item.targetConceptId, item.sourceRef)),
       );
-      review.proposedLinks.forEach((link) => {
-        if (alreadyEnqueued.has(mergeKey(link.conceptId, link.itemId))) return;
-        approvalsApi.enqueue({
+      for (const link of review.proposedLinks) {
+        if (alreadyEnqueued.has(mergeKey(link.conceptId, link.itemId))) continue;
+        await approvalsApi.enqueue({
           workspaceId: workspaceSlug,
           type: 'concept_merge',
           title: `Fundir item extraído com "${link.conceptId}"`,
@@ -508,7 +519,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
           payloadBefore: { status: 'provisional' },
           payloadAfter: { conceptId: link.conceptId, itemId: link.itemId, score: link.score },
         }, now);
-      });
+      }
 
       if (pending) stageWorkspaceImport(workspaceSlug, { ...pending, extractionApplied: true }, user?.id);
 
@@ -521,14 +532,14 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // criar e atualizar, não mais só `pending.isNew` — cobre o caso de a criação ainda
       // não ter acontecido, venha o rascunho de onde vier.
       if (workspaceDraft && !workspaceExists) {
-        addWorkspace({
+        await addWorkspace({
           ...workspaceDraft,
           importStatus: 'completed',
           status,
           nextAction: nextActionFor(status),
         });
       } else {
-        updateWorkspace(workspaceSlug, {
+        await updateWorkspace(workspaceSlug, {
           ...(pending?.updates || {}),
           importStatus: 'completed',
           status,
@@ -546,7 +557,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     }
   };
 
-  const handleDiscard = () => {
+  const handleDiscard = async () => {
     // Nada foi persistido por `review` — descartar é só esquecer a proposta em memória
     // e limpar a importação pendente. O Syllabus salvo nunca foi tocado. A decisão em
     // si, porém, fica registrada na fila (Task 14): rejeitar o item explicita que um
@@ -562,7 +573,9 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // Achado I5 da revisão final: mesma poda de `newConcepts` que `approve` faz — um
       // item rejeitado nunca vai gravar esses conceitos, então mantê-los aqui é só peso
       // morto que a fila nunca poda.
-      approvalsApi.reject(structureApprovalId, undefined, {
+      // Aguardado porque `setLocation` abaixo DESMONTA esta tela: sem o await, com um
+      // adaptador de rede a rejeicao sairia correndo e a navegacao a cancelaria.
+      await approvalsApi.reject(structureApprovalId, undefined, {
         version, review: { ...review, newConcepts: [] }, mergedCount, uncertainties: reviewState?.uncertainties ?? [], workspaceDraft: null,
       });
     }
@@ -817,10 +830,10 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       )}
 
       <div className="flex justify-end gap-3 pt-6">
-        <button className="k-button k-button-quiet text-[#c94f45] dark:text-[#ff907d]" onClick={handleDiscard}>
+        <button className="k-button k-button-quiet text-[#c94f45] dark:text-[#ff907d]" onClick={() => { void handleDiscard(); }}>
           Descartar
         </button>
-        <button className="k-button k-button-primary px-8" onClick={handleConfirm}>
+        <button className="k-button k-button-primary px-8" onClick={() => { void handleConfirm(); }}>
           Confirmar estrutura
         </button>
       </div>

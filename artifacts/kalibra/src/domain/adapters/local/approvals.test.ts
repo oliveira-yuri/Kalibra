@@ -374,22 +374,27 @@ describe('useApprovals — duas escritas síncronas no mesmo tick sobrevivem amb
     expect(getApprovals()).toHaveLength(2);
   });
 
-  it('enqueue seguido de approve no mesmo tick não perde a aprovação', () => {
+  it('enqueue seguido de approve no mesmo tick não perde a aprovação', async () => {
     const { result } = renderHook(() => useApprovals());
     let id = '';
 
-    act(() => {
-      id = result.current.enqueue(INPUT, new Date('2026-01-01T00:00:00.000Z'));
+    // `enqueue` devolve `Promise<string>` desde a Fase 1B: o id só existe quando a
+    // escrita resolve. O que NÃO mudou é a garantia que este bloco protege — o corpo
+    // do adaptador local roda síncrono, então duas escritas no mesmo tick continuam
+    // sobrevivendo ambas (ver o primeiro teste deste describe, que segue passando sem
+    // nenhum await).
+    await act(async () => {
+      id = await result.current.enqueue(INPUT, new Date('2026-01-01T00:00:00.000Z'));
     });
 
-    act(() => {
-      result.current.approve(id);
+    await act(async () => {
+      await result.current.approve(id);
     });
 
     expect(result.current.items.find((item) => item.id === id)?.status).toBe('aprovado');
   });
 
-  it('aprovar três itens dentro do mesmo act() (a forma de uma aprovação em lote) persiste os três, não só o último', () => {
+  it('aprovar três itens dentro do mesmo act() (a forma de uma aprovação em lote) persiste os três, não só o último', async () => {
     // Mesma forma exata de "Aprovar selecionados" em Aprovacoes.tsx: N chamadas de
     // `approve` síncronas, uma atrás da outra, dentro do mesmo handler de clique — o
     // handler de clique inteiro é um único `act()` aqui. Sem `itemsRef`, a segunda e a
@@ -399,14 +404,15 @@ describe('useApprovals — duas escritas síncronas no mesmo tick sobrevivem amb
     const { result } = renderHook(() => useApprovals());
     const ids: string[] = [];
 
-    act(() => {
-      ids.push(result.current.enqueue({ ...INPUT, title: 'Primeira' }, new Date('2026-01-01T00:00:00.000Z')));
-      ids.push(result.current.enqueue({ ...INPUT, title: 'Segunda' }, new Date('2026-01-01T00:00:00.000Z')));
-      ids.push(result.current.enqueue({ ...INPUT, title: 'Terceira' }, new Date('2026-01-01T00:00:00.000Z')));
+    await act(async () => {
+      ids.push(await result.current.enqueue({ ...INPUT, title: 'Primeira' }, new Date('2026-01-01T00:00:00.000Z')));
+      ids.push(await result.current.enqueue({ ...INPUT, title: 'Segunda' }, new Date('2026-01-01T00:00:00.000Z')));
+      ids.push(await result.current.enqueue({ ...INPUT, title: 'Terceira' }, new Date('2026-01-01T00:00:00.000Z')));
     });
 
-    act(() => {
-      ids.forEach((id) => result.current.approve(id));
+    // As três aprovações continuam no MESMO act(), como no handler de clique real.
+    await act(async () => {
+      for (const id of ids) await result.current.approve(id);
     });
 
     expect(result.current.items.every((item) => item.status === 'aprovado')).toBe(true);

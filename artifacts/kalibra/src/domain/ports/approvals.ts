@@ -11,11 +11,11 @@ export interface ApprovalsPort {
   useApprovals(userId?: string): {
     items: ApprovalItem[];
     pending: number;
-    approve(id: string, payloadAfter?: unknown): void;
-    reject(id: string, reason?: string, payloadAfter?: unknown): void;
+    approve(id: string, payloadAfter?: unknown): Promise<void>;
+    reject(id: string, reason?: string, payloadAfter?: unknown): Promise<void>;
     enqueue(
       item: Omit<ApprovalItem, 'id' | 'status' | 'createdAt' | 'decidedAt' | 'reason'>,
       now: Date,
-    ): string;
+    ): Promise<string>;
   };
 }

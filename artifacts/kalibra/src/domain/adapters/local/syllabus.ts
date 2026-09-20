@@ -187,7 +187,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const save = (next: Syllabus) => persist(next);
+  const save = async (next: Syllabus) => persist(next);
 
   /**
    * Renomear é o momento natural em que um rótulo anterior vira alias do conceito
@@ -197,7 +197,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
    * casar de volta com este conceito). O conceito é global (`concepts.ts`), então esta
    * renomeação já vale para qualquer outro workspace que o reutilize.
    */
-  const renameItem = (itemId: string, label: string) => {
+  const renameItem = async (itemId: string, label: string) => {
     const item = syllabusRef.current.items.find((candidate) => candidate.id === itemId);
     if (item) conceptsApi.renameConcept(item.conceptId, label);
     persist({
@@ -207,7 +207,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     });
   };
 
-  const removeItem = (itemId: string) => {
+  const removeItem = async (itemId: string) => {
     persist({
       items: syllabusRef.current.items
         .filter((item) => item.id !== itemId)
@@ -217,7 +217,7 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
   };
 
   /** Escreve o conceito na biblioteca global (`concepts.ts`) e o item/ligações no workspace. */
-  const addItem = (parentItemId: string | null, label: string, cargoIds: string[]) => {
+  const addItem = async (parentItemId: string | null, label: string, cargoIds: string[]) => {
     const itemId = makeId('item');
     const conceptId = makeId('concept');
 
@@ -257,12 +257,12 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
     });
   };
 
-  const splitFromCargo = (itemId: string, cargoId: string) => {
+  const splitFromCargo = async (itemId: string, cargoId: string) => {
     persist(splitItem(syllabusRef.current, itemId, cargoId, makeId));
   };
 
   /** Liga um item existente a mais um cargo — a direção contrária à de `splitFromCargo` (Fase 1B.5). */
-  const linkToCargo = (itemId: string, cargoId: string) => {
+  const linkToCargo = async (itemId: string, cargoId: string) => {
     persist(linkItemToCargo(syllabusRef.current, itemId, cargoId));
   };
 
@@ -272,12 +272,12 @@ export function useSyllabus(workspaceSlug: string, userId?: string) {
    * cargo só; `removeItem` (acima) continua sendo a exclusão de tudo. A regra de
    * subtópicos e a de "sem ligação nenhuma deixa de existir" vivem em `lib/core`.
    */
-  const unlinkFromCargo = (itemId: string, cargoId: string) => {
+  const unlinkFromCargo = async (itemId: string, cargoId: string) => {
     persist(unlinkItemFromCargo(syllabusRef.current, itemId, cargoId));
   };
 
   /** Peso e quantidade de questões vivem na ligação item-cargo (o mesmo tópico vale diferente para cargos diferentes) — nunca no item. */
-  const updateLink = (
+  const updateLink = async (
     itemId: string,
     cargoId: string,
     patch: Partial<Pick<SyllabusItemCargo, 'weight' | 'questionCount'>>,

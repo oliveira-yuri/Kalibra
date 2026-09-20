@@ -87,8 +87,8 @@ export interface PendingWorkspaceImport {
 export interface WorkspacesPort {
   useWorkspaces(userId?: string): {
     workspaces: WorkspaceDraft[];
-    addWorkspace(workspace: WorkspaceDraft): void;
-    updateWorkspace(slug: string, updates: Partial<WorkspaceDraft>): void;
+    addWorkspace(workspace: WorkspaceDraft): Promise<void>;
+    updateWorkspace(slug: string, updates: Partial<WorkspaceDraft>): Promise<void>;
   };
   /**
    * Valida e normaliza um registro de workspace de origem não confiável.

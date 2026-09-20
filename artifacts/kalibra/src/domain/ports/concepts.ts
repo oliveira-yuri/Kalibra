@@ -10,8 +10,8 @@ import type { Concept } from '@workspace/core';
 export interface ConceptsPort {
   useConcepts(userId?: string): {
     concepts: Concept[];
-    addConcept(concept: Concept): void;
-    confirmConcept(conceptId: string): void;
-    renameConcept(conceptId: string, newCanonicalName: string): void;
+    addConcept(concept: Concept): Promise<void>;
+    confirmConcept(conceptId: string): Promise<void>;
+    renameConcept(conceptId: string, newCanonicalName: string): Promise<void>;
   };
 }

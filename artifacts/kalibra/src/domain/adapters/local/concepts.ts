@@ -163,12 +163,12 @@ export function useConcepts(userId?: string) {
    * novo nasce sempre com id novo (`makeId`/`makeReviewId`), então "id já presente"
    * nunca é um conceito diferente: é exatamente a reapresentação do mesmo.
    */
-  const addConcept = (concept: Concept) => {
+  const addConcept = async (concept: Concept) => {
     if (conceptsRef.current.some((existing) => existing.id === concept.id)) return;
     persist([...conceptsRef.current, concept]);
   };
 
-  const confirm = (conceptId: string) => {
+  const confirm = async (conceptId: string) => {
     persist(conceptsRef.current.map((concept) =>
       (concept.id === conceptId ? { ...concept, status: 'confirmed' as const } : concept)));
   };
@@ -179,7 +179,7 @@ export function useConcepts(userId?: string) {
    * `useSyllabus.renameItem` quando um item CONFIRMADO é renomeado (achado C2 da
    * revisão final).
    */
-  const renameConcept = (conceptId: string, newCanonicalName: string) => {
+  const renameConcept = async (conceptId: string, newCanonicalName: string) => {
     persist(conceptsRef.current.map((concept) =>
       (concept.id === conceptId ? renameConceptPure(concept, newCanonicalName) : concept)));
   };

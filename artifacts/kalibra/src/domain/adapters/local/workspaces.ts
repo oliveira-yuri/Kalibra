@@ -357,11 +357,11 @@ export function useWorkspaces(userId?: string) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const addWorkspace = (workspace: WorkspaceDraft) => {
+  const addWorkspace = async (workspace: WorkspaceDraft) => {
     persist([...workspacesRef.current, workspace]);
   };
 
-  const updateWorkspace = (slug: string, updates: Partial<WorkspaceDraft>) => {
+  const updateWorkspace = async (slug: string, updates: Partial<WorkspaceDraft>) => {
     persist(workspacesRef.current.map(w => w.slug === slug ? { ...w, ...updates } : w));
   };
 

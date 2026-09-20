@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, screen, fireEvent, within } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, within, act } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 import { nextSyllabusVersionFor } from '@/domain/useWorkspaces';
@@ -11,6 +11,16 @@ vi.mock('@clerk/react/internal', () => ({
 }));
 vi.mock('@clerk/themes', () => ({ shadcn: {} }));
 vi.mock('@clerk/localizations', () => ({ ptBR: {} }));
+
+/**
+ * Fase 1B: o efeito que enfileira a proposta AGUARDA `enqueue`, que virou
+ * assincrono. `setReviewState` passa a cair num microtask depois do render — no
+ * navegador e impercetivel, aqui precisa de um flush antes de asserir.
+ *
+ * O que este flush NAO faz e enfraquecer asserção: o que se verifica depois dele e
+ * exatamente o que se verificava antes, no mesmo estado final.
+ */
+const flush = () => act(async () => {});
 
 const CONCEPTS_KEY = `kalibra_concepts:${TEST_USER.id}`;
 const APPROVALS_KEY = `kalibra_approvals:${TEST_USER.id}`;
@@ -150,12 +160,19 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     cleanup();
   });
 
-  const clickConfirm = () => fireEvent.click(screen.getByText('Confirmar estrutura'));
+  // `handleConfirm` virou `async` na Fase 1B: as escritas sao aguardadas em ordem,
+  // entao o efeito do clique so esta completo depois do flush.
+  const clickConfirm = async () => {
+    fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
+    await flush();
+  };
 
   it('computa a proposta ao montar (a árvore já mostra os dois itens), mas só persiste o Syllabus ao confirmar', async () => {
     seedPendingImport();
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     // A árvore já mostra a proposta — fix round 1 (Finding 2) não pode significar
     // "a tela não mostra nada até confirmar", só que MONTAR não pode GRAVAR.
@@ -163,7 +180,7 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     expect(container.innerHTML).toContain('Matemática financeira básica');
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
 
-    clickConfirm();
+    await clickConfirm();
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
       ['Crase', 'Matemática financeira básica'].sort(),
@@ -174,11 +191,12 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     // Antes de confirmar, a biblioteca global tem só os dois conceitos semeados.
     expect(JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!)).toHaveLength(2);
 
-    clickConfirm();
+    await clickConfirm();
     const concepts: Concept[] = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
     // Os dois conceitos semeados continuam lá, mais dois provisórios novos — um por
     // entrada, já que nenhuma das duas casou com um conceito CONFIRMED (Crase só bate
@@ -192,11 +210,12 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     // Task 14: montar já enfileirou o item `edital_structure` da proposta — só os
     // `concept_merge` (proveniência dos `proposedLinks`) esperam o confirmar.
     expect(readApprovals()).toHaveLength(1);
-    clickConfirm();
+    await clickConfirm();
 
     const approvals = readApprovals();
     const conceptMerges = approvals.filter((item) => item.type === 'concept_merge');
@@ -219,7 +238,8 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
-    clickConfirm();
+    await flush();
+    await clickConfirm();
 
     // Duas propostas nesta fixture: se os hooks não fossem ref-sincronizados, a
     // segunda chamada de `enqueue` no mesmo handler reconstruiria a partir do estado
@@ -234,10 +254,15 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const button = screen.getByText('Confirmar estrutura');
+    // Os dois cliques no MESMO tick, como um clique duplo de verdade. A guarda
+    // (`confirmedRef.current = true`) e marcada sincronamente na entrada de
+    // `handleConfirm`, antes de qualquer await — entao o segundo clique devolve cedo.
     fireEvent.click(button);
     fireEvent.click(button);
+    await flush();
 
     // 1 edital_structure (montagem, Task 14) + 2 concept_merge (confirmar, uma vez só).
     expect(readApprovals()).toHaveLength(3);
@@ -249,6 +274,7 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     seedPendingImport();
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     expect(container.innerHTML).toContain('Não encontrado no edital');
     expect(screen.getByText('peso das matérias')).toBeTruthy();
@@ -259,6 +285,7 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
     first.unmount();
 
@@ -267,8 +294,9 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
     // inofensivo (idempotente): só ao confirmar esta segunda montagem é que algo é
     // escrito, e uma única vez.
     render(<App />);
+    await flush();
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
-    clickConfirm();
+    await clickConfirm();
 
     // A remontagem reaproveita o MESMO item `edital_structure` da primeira montagem
     // (idempotência via `pending.approvalItemId`, Task 14) — não duplica.
@@ -282,6 +310,7 @@ describe('EditalRevisar — Task 11 (dedupeEntries finalmente tem um chamador em
   it('sem importação pendente, não roda dedup nenhum e a árvore reflete o Syllabus já persistido (vazio)', async () => {
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     expect(readApprovals()).toHaveLength(0);
     expect(container.innerHTML).toContain('0 itens mapeados');
@@ -330,6 +359,7 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
     seedReimport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     expect(JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!)).toEqual(EXISTING_SYLLABUS);
     // Nenhuma biblioteca de conceitos foi sequer criada — `previewExtraction` não
@@ -349,8 +379,10 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
     seedReimport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Descartar'));
+    await flush();
 
     expect(JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!)).toEqual(EXISTING_SYLLABUS);
     expect(window.localStorage.getItem(CONCEPTS_KEY)).toBeNull();
@@ -365,6 +397,7 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
     seedReimport();
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     // "Materia antiga preservada" ainda aparece na SEÇÃO DE DIFF (Task 13, "− 1
     // removido") — o que a árvore de EDIÇÃO não pode mostrar é o item antigo como se
@@ -379,8 +412,10 @@ describe('EditalRevisar — Finding 2 do fix round 1 (nada persiste antes de con
     seedReimport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(stored.items.map((item: { sourceLabel: string }) => item.sourceLabel)).toEqual(['Disciplina nova']);
@@ -424,6 +459,7 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
 
     const { default: App } = await import('../App');
     const { container, getByTestId } = render(<App />);
+    await flush();
 
     expect(container.innerHTML).toContain('unidos e aparecem uma vez só');
     // setec-campinas só tem 2 cargos (c1, c2) e o item está ligado aos dois — o chip
@@ -435,6 +471,7 @@ describe('EditalRevisar — Task 12 (deduplicação visível e reversível)', ()
     seedPendingImport(); // fixture desta suíte: dois itens distintos, no mesmo cargo.
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     expect(container.innerHTML).not.toContain('unidos e aparecem uma vez só');
   });
@@ -469,6 +506,7 @@ describe('EditalRevisar — Fase 1B.5, Task 7 (aplicar item a mais um cargo — 
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const row = screen.getByText('Direito Administrativo').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
     fireEvent.click(within(row).getByTestId(/^button-item-menu-/));
@@ -498,6 +536,7 @@ describe('EditalRevisar — Fase 1B.5, Task 7 (aplicar item a mais um cargo — 
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const row = () => screen.getByText('Direito Constitucional').closest('[data-testid^="row-syllabus-item-"]') as HTMLElement;
     fireEvent.click(within(row()).getByTestId(/^button-item-menu-/));
@@ -508,6 +547,7 @@ describe('EditalRevisar — Fase 1B.5, Task 7 (aplicar item a mais um cargo — 
     expect(window.localStorage.getItem(SYLLABUS_KEY)).toBeNull();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     const item = stored.items.find((entry: { sourceLabel: string }) => entry.sourceLabel === 'Direito Constitucional');
@@ -571,6 +611,7 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
 
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
 
     const diffSection = container.querySelector('[data-testid="syllabus-diff"]')!;
     expect(diffSection).toBeTruthy();
@@ -599,6 +640,7 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     expect(screen.getByText(/pode ter histórico de estudo/)).toBeTruthy();
     // `diffSyllabus` é só leitura, e (fix round 1, Finding 2) nada é persistido antes
@@ -612,6 +654,7 @@ describe('EditalRevisar — Task 13 (comparação entre versões, renomeado pres
     window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    await flush();
     expect(container.querySelector('[data-testid="syllabus-diff"]')).toBeNull();
   });
 });
@@ -645,6 +688,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const approvals = readApprovals();
     expect(approvals).toHaveLength(1);
@@ -663,6 +707,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const approvals = readApprovals();
     expect(approvals).toHaveLength(1);
@@ -684,6 +729,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const approvals = readApprovals();
     const payloadAfter = approvals[0].payloadAfter as { mergedCount: number };
@@ -695,10 +741,12 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     const idAfterFirstMount = readApprovals()[0].id;
     first.unmount();
 
     render(<App />);
+    await flush();
     const approvals = readApprovals();
     expect(approvals).toHaveLength(1);
     expect(approvals[0].id).toBe(idAfterFirstMount);
@@ -709,6 +757,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     const queuedId = readApprovals()[0].id;
     first.unmount();
 
@@ -719,6 +768,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     window.sessionStorage.clear();
 
     const { container } = render(<App />);
+    await flush();
     expect(container.innerHTML).toContain('Crase');
     expect(container.innerHTML).toContain('Matemática financeira básica');
 
@@ -727,6 +777,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     // tanto Confirmar quanto Descartar virariam no-op sobre o item — ele ficaria
     // pendente para sempre, com o "aguardando decisão" da fila permanentemente errado.
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
@@ -753,6 +804,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const queuedId = readApprovals()[0].id;
     const enqueuedPayload = readApprovals()[0].payloadAfter as { review: { syllabus: { items: unknown[] } } };
@@ -772,6 +824,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     fireEvent.click(within(row()).getByText(/Separar de Analista/));
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     // O split virou 2 itens (renomeados os dois, cópia herda o rótulo do momento do
@@ -816,13 +869,16 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     first.unmount();
     // Fecha a aba: sessionStorage some — o rascunho do workspace só sobrevive porque
     // viajou no payload do item da fila (achado A).
     window.sessionStorage.clear();
 
     render(<App />);
+    await flush();
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const workspacesStored: Array<{ slug: string; status: string }> = JSON.parse(window.localStorage.getItem(WORKSPACES_KEY) ?? '[]');
     const created = workspacesStored.find((w) => w.slug === NOVO_WORKSPACE_KEY);
@@ -844,11 +900,14 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     first.unmount();
     window.sessionStorage.clear();
 
     render(<App />);
+    await flush();
     fireEvent.click(screen.getByText('Descartar'));
+    await flush();
 
     expect(window.localStorage.getItem(WORKSPACES_KEY)).toBeNull();
     expect(window.localStorage.getItem(NOVO_SYLLABUS_KEY)).toBeNull();
@@ -865,10 +924,12 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     const { default: App } = await import('../App');
 
     const first = render(<App />);
+    await flush();
     first.unmount();
     window.sessionStorage.clear();
 
     const { container } = render(<App />);
+    await flush();
 
     // Achado B: sem carregar as incertezas do payload, este bloco (PD-06) sumia numa
     // retomada — exatamente o único dado que o humano decidindo precisa ver.
@@ -919,8 +980,10 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     // A propriedade continua "ou o workspace existe depois, ou nada foi escrito" — aqui
     // é o "nada foi escrito", porque não há como reconstruir o rascunho.
@@ -938,8 +1001,10 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     expect(window.localStorage.getItem(WORKSPACES_KEY)).toBeNull();
     expect(window.localStorage.getItem(NOVO_SYLLABUS_KEY)).toBeNull();
@@ -952,12 +1017,14 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     stageNovaImportacao();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const queuedId = readApprovals()[0].id;
     const beforeDiscard = readApprovals()[0].payloadAfter as { workspaceDraft: unknown };
     expect(beforeDiscard.workspaceDraft).not.toBeNull();
 
     fireEvent.click(screen.getByText('Descartar'));
+    await flush();
 
     const rejected = readApprovals().find((item) => item.id === queuedId)!;
     expect(rejected.status).toBe('rejeitado');
@@ -1011,8 +1078,10 @@ describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar 
       seedPendingImport();
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       expect(() => fireEvent.click(screen.getByText('Confirmar estrutura'))).not.toThrow();
+      await flush();
 
       // Tudo o que a proposta implica foi escrito — não uma escrita pela metade.
       const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
@@ -1043,8 +1112,10 @@ describe('EditalRevisar — fix round 2 (confirmar não pode crashar nem deixar 
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     expect(readWorkspaceStatus()).toBe('diagnostico_pendente');
     expect(readApprovals()).toHaveLength(3);
@@ -1084,6 +1155,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${primeiraVersao}`);
     const { default: App } = await import('../App');
     const abandonada = render(<App />);
+    await flush();
     // `getAllByText`: o workspace já tem programa salvo, então esta reimportação JÁ
     // mostra a comparação do PD-08 (achado R1) — o rótulo aparece na árvore e de novo
     // na lista de "adicionado".
@@ -1098,6 +1170,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     stageWorkspaceImport('setec-campinas', { isNew: false, updates: {}, extractionOutput: extractionWith('Importação real') }, TEST_USER.id);
     window.history.replaceState({}, '', `/workspace/setec-campinas/edital/revisar/${segundaVersao}`);
     render(<App />);
+    await flush();
 
     // `getAllByText`, não `getByText`: com `version !== '1'` a seção de diff também
     // lista o rótulo (como "adicionado") ao lado da árvore — duas ocorrências
@@ -1106,6 +1179,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     expect(screen.queryByText('Importação abandonada')).toBeNull();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     const labels = syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel);
@@ -1139,6 +1213,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     window.history.replaceState({}, '', `/workspace/${SLUG}/edital/revisar/${primeiraVersao}`);
     const { default: App } = await import('../App');
     const abandonada = render(<App />);
+    await flush();
     expect(screen.getByText('Rascunho abandonado')).toBeTruthy();
     abandonada.unmount();
 
@@ -1151,6 +1226,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     }, TEST_USER.id);
     window.history.replaceState({}, '', `/workspace/${SLUG}/edital/revisar/${segundaVersao}`);
     render(<App />);
+    await flush();
 
     // Mesma nota da jornada 1: a seção de diff também lista o rótulo, então duas
     // ocorrências legítimas — `getAllByText`, não `getByText`.
@@ -1158,6 +1234,7 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     expect(screen.queryByText('Rascunho abandonado')).toBeNull();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_NOVO_KEY)!);
     const labels = syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel);
@@ -1195,6 +1272,7 @@ describe('EditalRevisar — achados C2/I1 da revisão final (PD-08: renomear em 
     window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/1');
     const { default: App } = await import('../App');
     const primeira = render(<App />);
+    await flush();
 
     // Renomeia AINDA EM REVISÃO, antes de confirmar — o momento em que "Crase" deixa
     // de ser o rótulo atual do conceito recém-criado por esta mesma extração.
@@ -1205,6 +1283,7 @@ describe('EditalRevisar — achados C2/I1 da revisão final (PD-08: renomear em 
     expect(screen.getByText('Emprego do acento indicativo de crase')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
     primeira.unmount();
 
     const conceitos = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
@@ -1228,6 +1307,7 @@ describe('EditalRevisar — achados C2/I1 da revisão final (PD-08: renomear em 
     }, TEST_USER.id);
     window.history.replaceState({}, '', '/workspace/setec-campinas/edital/revisar/2');
     render(<App />);
+    await flush();
 
     const diffSection = screen.getByTestId('syllabus-diff');
     expect(diffSection.innerHTML).toContain('~ 1 renomeado');
@@ -1264,8 +1344,10 @@ describe('EditalRevisar — achado R5 da re-revisão (confirmar sem proposta rec
 
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     // A mensagem tem que ser a da recusa POR NÃO HAVER PROPOSTA — não a genérica de
     // "armazenamento indisponível" que o try/catch mostraria se a função tivesse
@@ -1293,7 +1375,9 @@ describe('critérios de aceite da Fase 1B.5', () => {
 
   const renderApp = async () => {
     const { default: App } = await import('../App');
-    return render(<App />);
+    const view = render(<App />);
+    await flush();
+    return view;
   };
 
   it('conteúdo específico de um cargo não aparece no outro cargo', async () => {
@@ -1369,6 +1453,7 @@ describe('critérios de aceite da Fase 1B.5', () => {
   it('confirmar grava a topologia revisada: um item comum com duas ligações, um item só do c2', async () => {
     await renderApp();
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     const idComum = syllabus.items.find((item: { sourceLabel: string }) => item.sourceLabel === 'LÍNGUA PORTUGUESA').id;
@@ -1425,14 +1510,17 @@ describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é id
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const stub = falharNaEscrita(3);
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
     // A falha é visível e o trinco foi desfeito (achado I5 do fix wave anterior).
     expect(screen.getByTestId('confirm-error')).toBeTruthy();
     stub.mockRestore();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const conceitos: Array<{ id: string }> = JSON.parse(window.localStorage.getItem(CONCEPTS_KEY)!);
     // 2 semeados + os 2 provisórios desta extração. Medido antes da correção: 5
@@ -1447,15 +1535,18 @@ describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é id
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     // A 6ª escrita cai já dentro do laço de `concept_merge` — o primeiro já foi
     // enfileirado e persistido quando o segundo falha.
     const stub = falharNaEscrita(6);
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
     expect(screen.getByTestId('confirm-error')).toBeTruthy();
     stub.mockRestore();
 
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const approvals = readApprovals();
     const merges = approvals.filter((item) => item.type === 'concept_merge');
@@ -1471,11 +1562,14 @@ describe('EditalRevisar — achado R3 da re-revisão (o retry do confirmar é id
     seedPendingImport();
     const { default: App } = await import('../App');
     render(<App />);
+    await flush();
 
     const stub = falharNaEscrita(3);
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
     stub.mockRestore();
     fireEvent.click(screen.getByText('Confirmar estrutura'));
+    await flush();
 
     const syllabus = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
     expect(syllabus.items.map((item: { sourceLabel: string }) => item.sourceLabel).sort()).toEqual(
@@ -1517,6 +1611,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       seedImportDoisCargos();
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       // LÍNGUA PORTUGUESA é comum a c1 e c2; INFORMÁTICA é só do c2.
       fireEvent.click(screen.getByTestId('cargo-filter-c1'));
@@ -1536,6 +1631,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       seedImportDoisCargos();
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       // O Técnico informa peso 30 e 7 questões para LÍNGUA PORTUGUESA.
       fireEvent.click(screen.getByTestId('cargo-filter-c2'));
@@ -1558,12 +1654,14 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       seedImportDoisCargos();
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       fireEvent.click(screen.getByTestId('cargo-filter-c1'));
       const id = abrirMenuDe('LÍNGUA PORTUGUESA');
       fireEvent.click(screen.getByTestId(`button-remove-${id}`));
       fireEvent.click(screen.getByTestId('cargo-filter-todos'));
       fireEvent.click(screen.getByText('Confirmar estrutura'));
+      await flush();
 
       const stored = JSON.parse(window.localStorage.getItem(SYLLABUS_KEY)!);
       const item = stored.items.find((candidate: { sourceLabel: string }) => candidate.sourceLabel === 'LÍNGUA PORTUGUESA');
@@ -1578,6 +1676,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       seedImportDoisCargos();
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       const id = abrirMenuDe('LÍNGUA PORTUGUESA');
       expect(screen.getByTestId(`button-remove-${id}`).textContent).toBe('Excluir de todos os cargos');
@@ -1611,6 +1710,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       fireEvent.click(screen.getByTestId('cargo-filter-c1'));
       fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
@@ -1629,6 +1729,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       fireEvent.click(screen.getByTestId('cargo-filter-c1'));
       fireEvent.click(screen.getByTestId('button-item-menu-i1a'));
@@ -1643,6 +1744,7 @@ describe('EditalRevisar — achado I-2 (excluir com filtro de cargo não contami
       window.localStorage.setItem(SYLLABUS_KEY, JSON.stringify(SALVO));
       const { default: App } = await import('../App');
       render(<App />);
+      await flush();
 
       fireEvent.click(screen.getByTestId('cargo-filter-c2'));
       fireEvent.click(screen.getByTestId('button-item-menu-i2a'));

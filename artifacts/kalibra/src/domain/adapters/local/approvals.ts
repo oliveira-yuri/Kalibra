@@ -226,7 +226,7 @@ export function useApprovals(userId?: string) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const approve = (id: string, payloadAfter?: unknown) => {
+  const approve = async (id: string, payloadAfter?: unknown) => {
     // Fix round 1 da Task 14 (achado 2): quando quem chama tem uma versão mais nova do
     // que decidir aprova de fato (ex.: `EditalRevisar` reaprovando a árvore depois de
     // renomear/separar/editar peso), o payload é substituído ANTES da decisão, na MESMA
@@ -242,7 +242,7 @@ export function useApprovals(userId?: string) {
     persist(next);
   };
 
-  const reject = (id: string, reason?: string, payloadAfter?: unknown) => {
+  const reject = async (id: string, reason?: string, payloadAfter?: unknown) => {
     // Fix round 3 (achado B): a mesma substituição de payload que `approve` já faz —
     // rejeitar é tão terminal quanto aprovar, e nada rio abaixo volta a ler o payload de
     // um item decidido. Sem isto, `payloadAfter.workspaceDraft` (que carrega o edital
@@ -254,10 +254,10 @@ export function useApprovals(userId?: string) {
     persist(applyDecision(withPayload, id, 'rejeitado', new Date(), reason ?? null));
   };
 
-  const enqueue = (
+  const enqueue = async (
     item: Omit<ApprovalItem, 'id' | 'status' | 'createdAt' | 'decidedAt' | 'reason'>,
     now: Date,
-  ): string => {
+  ): Promise<string> => {
     const full = buildApprovalItem(item, now);
     persist([...itemsRef.current, full]);
     return full.id;
