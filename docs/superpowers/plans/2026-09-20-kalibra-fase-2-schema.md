@@ -87,7 +87,9 @@ documento diz o que não foi feito, em vez de presumir.
 - **Nada no frontend muda.** `artifacts/kalibra` não é tocado; seus 341 testes
   devem terminar idênticos.
 - `timestamptz` **sempre**; nenhuma coluna `timestamp` sem fuso.
-- Nenhuma tabela preparatória é referenciada por endpoint, adaptador ou export.
+- Nenhuma tabela preparatória é referenciada por **código de aplicação**. Exportá-la
+  pelo barril do schema é esperado — o `drizzle-kit` precisa disso para gerar a
+  migration.
 - Nenhum segredo. `DATABASE_URL` não é necessária para `generate` nem para os
   testes.
 - Commits em português, `tipo: descrição`, corpo terminando com:
@@ -101,8 +103,17 @@ documento diz o que não foi feito, em vez de presumir.
 **Objetivo:** poder gerar migration sem banco vivo.
 **Arquivos:** `lib/db/drizzle.config.ts`
 **Ação exata:** hoje o config **lança** quando falta `DATABASE_URL`. Gerar SQL a
-partir do schema não conecta em nada. Tornar `dbCredentials` condicional: exigir a
-variável só quando a operação realmente precisar conectar (`push`, `studio`).
+partir do schema não conecta em nada — na descoberta, `generate` rodou com um
+config que **não tinha `dbCredentials` nenhum**.
+
+Nada de detectar comando. A regra é explícita e inofensiva: **incluir
+`dbCredentials` apenas quando `DATABASE_URL` existir, e omitir o campo quando não
+existir.** `generate` segue funcionando sem a variável; `push` e `studio`, que
+precisam conectar de verdade, falham com a mensagem do próprio Drizzle sobre
+credencial ausente.
+
+Isto não afrouxa segurança nem exige segredo para gerar SQL: nenhum valor passa a
+ser opcional em tempo de conexão, só deixa de ser exigido em tempo de geração.
 **Verificação:**
 ```bash
 pnpm run typecheck && pnpm run test
@@ -141,7 +152,22 @@ de teste for alto, reusar a instância e resetar por `truncate` em vez de recria
 
 ---
 
-# B. Schema — as oito tabelas
+# B. Schema — enums e as oito tabelas
+
+> **Os enums vêm primeiro.** As colunas de B2, B5 e B8 dependem deles: uma tabela
+> não pode declarar `status` no enum antes de o enum existir. A Tarefa C2
+> (anti-deriva) continua na seção C porque é verificação, não forma — mas a
+> **criação** dos cinco `pgEnum` é a Tarefa B0, abaixo.
+
+### Tarefa B0 — Os cinco `pgEnum`
+**Arquivos:** criar `lib/db/src/schema/enums.ts`; modificar `schema/index.ts`
+**Ação exata:** `pgEnum` para `workspace.status`, `concept.status`,
+`concept.kind`, `approval_item.type` e `approval_item.status`, com os valores
+vindos dos arrays de `lib/core` (os três novos da Tarefa A2 mais os dois que já
+existiam). **`workspace.type` continua texto livre** — guarda "Concurso Público",
+não é enumeração.
+**Verificação:** `npx drizzle-kit generate` emite os cinco `CREATE TYPE`.
+
 
 > Uma tabela por arquivo, como o comentário de `lib/db/src/schema/index.ts` já
 > orienta. A ordem abaixo respeita as dependências.
@@ -211,12 +237,7 @@ outro usuário é rejeitado; ambos nulos são aceitos.
 
 ---
 
-# C. Enums e forma
-
-### Tarefa C1 — Os cinco enums do Postgres
-**Ação exata:** `pgEnum` para `workspace.status`, `concept.status`,
-`concept.kind`, `approval_item.type` e `approval_item.status`. **`workspace.type`
-continua texto livre** — guarda "Concurso Público", não é enumeração.
+# C. Verificação de enums e forma
 
 ### Tarefa C2 — Teste anti-deriva
 **Objetivo:** impedir que `lib/core` e o banco divirjam em silêncio. Sem isto,
@@ -248,10 +269,13 @@ meses depois, como dado torto.
 negócio** — sem enum de tipo de questão, sem check de pontuação, sem unicidade
 específica: §4.5/§4.6 do spec do produto ainda pode mudar quando o diagnóstico for
 desenhado de verdade (decisão registrada no §2.10).
-**Testes obrigatórios:** teste estrutural afirmando que **nenhum endpoint,
-adaptador ou export referencia** as cinco. É a fronteira entre "schema
-preparatório é aceitável" e "código sem chamador não é" — a decisão explícita que
-o Yuri registrou.
+**Testes obrigatórios:** teste estrutural afirmando que **nenhum código de
+aplicação referencia** as cinco — endpoint, adaptador, hook, serviço ou tela.
+
+Exportá-las de `schema/index.ts` é **esperado e permitido**: o `drizzle-kit`
+precisa enxergá-las pelo barril para gerar a migration. A fronteira não é "não
+exportar", é "não usar": schema preparatório é aceitável, código sem chamador
+não.
 **Riscos:** a fase que as implementar provavelmente vai alterá-las. Migração
 aditiva é barata; a alternativa era descobrir só lá que a espinha não comportava o
 diagnóstico.
@@ -267,12 +291,28 @@ vazia, confirmando que a ordem das dependências está correta.
 ### Tarefa E2 — Provar que as constraints são load-bearing
 **Objetivo:** a verificação que importa. Um teste de constraint que passa com a
 constraint removida não vale nada.
-**Ação exata:** para **cada** constraint listada nas tarefas B1–B8, removê-la
-mecanicamente do schema, regenerar, rodar, e confirmar que o teste correspondente
-fica **vermelho** — e só ele. Restaurar entre uma e outra. Registrar a saída de
-cada uma.
-**Esta tarefa não é opcional e não pode ser resumida.** É o equivalente, nesta
-fase, à auditoria do diff da Fase 1A.
+**O universo, definido:** as constraints de **integridade crítica** de B1–B8 —
+as que protegem **escopo e posse**. Concretamente:
+
+- as **unicidades** (`clerk_user_id`; `user_id+slug` em workspace e em concept;
+  as chaves redundantes `user_id+id` / `workspace_id+id`; a PK tripla de
+  `syllabus_item_cargo`);
+- as **FKs compostas** (as cinco: parent de concept, parent de syllabus_item,
+  bloco, as duas de `syllabus_item_cargo`, as duas de `approval_item`);
+- as **cascatas** de B9, incluindo a que NÃO acontece — conceito sobrevive;
+- o **índice único parcial** do cargo selecionado;
+- os **`not null`** que sustentam o `MATCH SIMPLE` (`user_id` e `workspace_id`),
+  porque é deles que depende a FK composta ser verificada quando a coluna
+  opcional não é nula.
+
+**Não** entra nesta matriz cada detalhe incidental — tipo de coluna, default,
+comprimento. O ponto é provar que o que protege escopo e posse é load-bearing.
+
+**Ação exata:** para cada constraint do universo acima, removê-la mecanicamente do
+schema, regenerar, rodar, confirmar que o teste correspondente fica **vermelho** —
+e só ele —, restaurar, e registrar a saída.
+**Esta tarefa não é opcional.** É o equivalente, nesta fase, à auditoria do diff
+da Fase 1A.
 
 ### Tarefa E3 — Portão completo
 ```bash
@@ -301,7 +341,7 @@ PGlite — e por quê.
   constraint removida (Tarefa E2).
 - Os cinco enums batem com `lib/core`, e o teste anti-deriva foi provado vermelho.
 - Nenhuma coluna `timestamp` sem fuso.
-- Nenhuma tabela preparatória referenciada por código.
+- Nenhuma tabela preparatória referenciada por código de aplicação.
 - `minimumReleaseAge` **não** foi afrouxado; `minimumReleaseAgeExclude` intocado.
 - Documento de verificação escrito, com a seção do que não foi verificado.
 
