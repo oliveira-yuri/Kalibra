@@ -269,6 +269,28 @@ describe('cascatas — o que morre junto e o que sobrevive', () => {
     expect(ligacoes[0].cargoId).toBe(c2.id);
   });
 
+  it('apagar o usuário apaga seus workspaces, conceitos e aprovações', async () => {
+    // Achado da Tarefa E2: esta cascata existia no schema e NENHUM teste a
+    // defendia — removendo `onDelete: 'cascade'` de `workspace.user_id`, a suíte
+    // inteira continuava verde. Constraint sem rede é constraint que alguém
+    // remove numa refatoração futura sem nada reclamar.
+    const { a, b } = await doisUsuarios();
+    const w = await criarWorkspace(a.id, 'w1');
+    await criarConceito(a.id, 'crase');
+    await db.insert(approvalItem).values({
+      userId: a.id, workspaceId: w.id, type: 'edital_structure', status: 'pendente', title: 'T',
+    });
+    // O outro usuário não pode ser afetado.
+    await criarWorkspace(b.id, 'w-de-b');
+    await criarConceito(b.id, 'crase');
+
+    await db.delete(appUser).where(eq(appUser.id, a.id));
+
+    expect(await db.select().from(workspace)).toHaveLength(1);
+    expect(await db.select().from(concept)).toHaveLength(1);
+    expect(await db.select().from(approvalItem)).toHaveLength(0);
+  });
+
   it('apagar o cargo selecionado não deixa seleção pendurada', async () => {
     const { a } = await doisUsuarios();
     const w = await criarWorkspace(a.id, 'w1');
