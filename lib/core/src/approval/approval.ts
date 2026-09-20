@@ -11,6 +11,16 @@ export const APPROVAL_TYPES: readonly ApprovalType[] = ['edital_structure', 'con
 
 export type ApprovalStatus = 'pendente' | 'revisando' | 'aprovado' | 'rejeitado';
 
+/**
+ * Mesmo padrão de `CONCEPT_STATUSES` e `WORKSPACE_STATUSES`: derivado de um
+ * `Record` completo, para que a lista não possa ficar atrás do tipo. Existe porque
+ * o banco declara estes valores como `pgEnum` e um teste compara os dois conjuntos.
+ */
+const APPROVAL_STATUS_SET: Record<ApprovalStatus, true> = {
+  pendente: true, revisando: true, aprovado: true, rejeitado: true,
+};
+export const APPROVAL_STATUSES: readonly ApprovalStatus[] = Object.keys(APPROVAL_STATUS_SET) as ApprovalStatus[];
+
 export type ApprovalItem = {
   id: string;
   workspaceId: string | null;
