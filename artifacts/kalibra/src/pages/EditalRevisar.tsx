@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
+import { parseWorkspaceDraft, useWorkspaces } from '@/domain/useWorkspaces';
+import type { WorkspaceDraft } from '@/domain/ports';
 import {
-  clearPendingWorkspaceImport, getPendingWorkspaceImport, migrateWorkspace, stageWorkspaceImport, useWorkspaces,
-  type WorkspaceDraft,
-} from '@/domain/useWorkspaces';
+  clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport,
+} from '@/domain/staging';
 import { useSyllabus } from '@/domain/useSyllabus';
 import { useConcepts } from '@/domain/useConcepts';
 import { useApprovals } from '@/domain/useApprovals';
@@ -88,12 +89,12 @@ function uncertaintiesFromPayload(payload: unknown): string[] {
  * `pending` original (fechada/reiniciada) confirmava a estrutura — Syllabus, conceitos e
  * a própria aprovação — para um workspace que nunca chegava a existir: um `updateWorkspace`
  * sobre um slug ausente da lista é um `.map` que não casa nada, silenciosamente. Usa
- * `migrateWorkspace` (a mesma validação, já testada, de qualquer registro de workspace
+ * `parseWorkspaceDraft` (a mesma validação, já testada, de qualquer registro de workspace
  * salvo) em vez de confiar cegamente no formato do payload.
  */
 function workspaceDraftFromPayload(payload: unknown): WorkspaceDraft | null {
   if (!isRecord(payload)) return null;
-  return migrateWorkspace(payload.workspaceDraft);
+  return parseWorkspaceDraft(payload.workspaceDraft);
 }
 
 // As quatro transformações puras abaixo espelham `useSyllabus.{renameItem,removeItem,
@@ -383,7 +384,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // proposta para revisar mas o workspace nem existe de verdade (`workspaceExists`)
     // nem tem rascunho reconstruível (`workspaceDraft` — `null` para um item enfileirado
     // no formato anterior ao fix round 2, ou com um rascunho corrompido que
-    // `migrateWorkspace` rejeita), não há como completar sem inventar dado. Recusa ANTES
+    // `parseWorkspaceDraft` rejeita), não há como completar sem inventar dado. Recusa ANTES
     // de qualquer escrita: nada é gravado, o item continua pendente na fila (decidível
     // de novo caso o dado apareça por outro caminho), e a tela explica o motivo em vez
     // de cair, em silêncio, no `updateWorkspace` de um slug que não existe — exatamente

@@ -8,7 +8,8 @@ import { EditalUploadProgress } from '@/components/EditalUploadProgress';
 import { QuickPracticeRegistro } from '@/components/QuickPracticeRegistro';
 import { CargoFilter } from '@/components/CargoFilter';
 import { EditalSourceBlocks } from '@/components/EditalSourceBlocks';
-import { stageWorkspaceImport, useWorkspaces, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
+import { useWorkspaces, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport } from '@/domain/staging';
 import { useExtraction } from '@/domain/useExtraction';
 import { useSyllabus } from '@/domain/useSyllabus';
 import {

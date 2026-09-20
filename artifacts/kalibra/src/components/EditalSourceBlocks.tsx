@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import type { CargoTextBlock } from '@workspace/core';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 
 const ABA_ATIVA = 'bg-white dark:bg-[#202b20] text-[#16232b] dark:text-[#d5f35b] shadow-sm border border-[#d5dede] dark:border-[#35404e]';
 const ABA_INATIVA = 'text-[#6f7b85] dark:text-[#8e98a8] hover:text-[#16232b] dark:hover:text-[#f0f0e8]';

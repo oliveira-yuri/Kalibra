@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, fireEvent, screen } from '@testing-library/react';
 import type { Syllabus } from '@workspace/core';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 import { SyllabusTree } from './SyllabusTree';
 
 const SYLLABUS: Syllabus = {

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 
 /**
  * Linha de `k-chip` para filtrar por cargo — o mesmo padrão que `Erros` já usa para

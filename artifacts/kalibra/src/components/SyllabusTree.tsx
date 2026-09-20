@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { MoreHorizontal, Plus } from 'lucide-react';
 import { cargosFor, isCommon, type Syllabus, type SyllabusItem } from '@workspace/core';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 import { SourceExcerpt } from './SourceExcerpt';
 
 const UNCERTAIN_CHIP = 'k-chip border-[#db8f83] text-[#c94f45] dark:border-[#ff907d] dark:text-[#ff907d]';

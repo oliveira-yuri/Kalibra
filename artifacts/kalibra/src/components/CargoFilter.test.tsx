@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 import { CargoFilter } from './CargoFilter';
 
 const CARGOS: Cargo[] = [

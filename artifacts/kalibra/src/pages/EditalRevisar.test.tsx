@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, fireEvent, within } from '@testing-library/react';
 import type { Concept, RawSyllabusEntry, ExtractionOutput, WorkspaceStatus } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
-import { stageWorkspaceImport, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
+import { nextSyllabusVersionFor } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport } from '@/domain/staging';
 
 vi.mock('@clerk/react', () => clerkReactMock);
 vi.mock('@clerk/react/internal', () => ({
@@ -881,7 +882,7 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
 
   // Simula um item enfileirado ANTES do fix round 2 existir — `review` presente
   // (assim a tela reconstrói a proposta normalmente), mas sem `workspaceDraft` nenhum,
-  // ou com um que `migrateWorkspace` rejeita. Semeado direto na fila, sem nunca passar
+  // ou com um que `parseWorkspaceDraft` rejeita. Semeado direto na fila, sem nunca passar
   // por `stageWorkspaceImport` — não há `pending` nenhum em nenhum momento, a mesma
   // situação de uma retomada fria de um item assim.
   function seedLegacyStructureItem(payloadAfterOverrides: Record<string, unknown>) {
@@ -930,9 +931,9 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
     expect(screen.getByTestId('confirm-error')).toBeTruthy();
   });
 
-  it('fix round 3 (achado A residual): rascunho corrompido (rejeitado por migrateWorkspace) também recusa em vez de gravar', async () => {
+  it('fix round 3 (achado A residual): rascunho corrompido (rejeitado por parseWorkspaceDraft) também recusa em vez de gravar', async () => {
     window.history.replaceState({}, '', `/workspace/${NOVO_WORKSPACE_KEY}/edital/revisar/1`);
-    // Sem `slug`: `migrateWorkspace` devolve null para isto.
+    // Sem `slug`: `parseWorkspaceDraft` devolve null para isto.
     seedLegacyStructureItem({ workspaceDraft: { title: 'sem slug' } });
 
     const { default: App } = await import('../App');
