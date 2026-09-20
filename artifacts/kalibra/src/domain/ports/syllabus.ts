@@ -13,18 +13,18 @@ export interface SyllabusPort {
   useSyllabus(workspaceSlug: string, userId?: string): {
     syllabus: Syllabus;
     concepts: Concept[];
-    save(next: Syllabus): void;
-    renameItem(itemId: string, label: string): void;
-    removeItem(itemId: string): void;
-    addItem(parentItemId: string | null, label: string, cargoIds: string[]): void;
-    splitFromCargo(itemId: string, cargoId: string): void;
-    linkToCargo(itemId: string, cargoId: string): void;
-    unlinkFromCargo(itemId: string, cargoId: string): void;
+    save(next: Syllabus): Promise<void>;
+    renameItem(itemId: string, label: string): Promise<void>;
+    removeItem(itemId: string): Promise<void>;
+    addItem(parentItemId: string | null, label: string, cargoIds: string[]): Promise<void>;
+    splitFromCargo(itemId: string, cargoId: string): Promise<void>;
+    linkToCargo(itemId: string, cargoId: string): Promise<void>;
+    unlinkFromCargo(itemId: string, cargoId: string): Promise<void>;
     updateLink(
       itemId: string,
       cargoId: string,
       patch: Partial<Pick<SyllabusItemCargo, 'weight' | 'questionCount'>>,
-    ): void;
+    ): Promise<void>;
     previewExtraction(output: ExtractionOutput): DedupResult;
   };
 }

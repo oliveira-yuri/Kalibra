@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, cleanup, screen, fireEvent } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react';
 import type { Concept, ExtractionOutput, RawSyllabusEntry } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
 import { stageWorkspaceImport } from '@/domain/staging';
@@ -125,6 +125,10 @@ describe('EditalRevisar — achado R1 da re-revisão (a comparação do PD-08 n�
 
     const { default: App } = await import('../App');
     render(<App />);
+    // Fase 1B: o efeito que enfileira a proposta agora AGUARDA `enqueue`, entao
+    // `setReviewState` cai num microtask depois do render. No navegador e
+    // impercetivel; aqui precisa de um flush antes de asserir.
+    await act(async () => {});
 
     const diffSection = screen.getByTestId('syllabus-diff');
     expect(diffSection.innerHTML).toContain('+ 1 adicionado');
@@ -142,6 +146,10 @@ describe('EditalRevisar — achado R1 da re-revisão (a comparação do PD-08 n�
 
     const { default: App } = await import('../App');
     const { container } = render(<App />);
+    // Fase 1B: o efeito que enfileira a proposta agora AGUARDA `enqueue`, entao
+    // `setReviewState` cai num microtask depois do render. No navegador e
+    // impercetivel; aqui precisa de um flush antes de asserir.
+    await act(async () => {});
 
     expect(container.querySelector('[data-testid="syllabus-diff"]')).toBeNull();
   });
@@ -158,6 +166,7 @@ describe('EditalRevisar — achado R1 da re-revisão (a comparação do PD-08 n�
 
     const { default: App } = await import('../App');
     render(<App />);
+    await act(async () => {});
 
     const diffSection = screen.getByTestId('syllabus-diff');
     expect(diffSection.innerHTML).toContain('COMPARADO COM A VERSÃO 1');
@@ -186,6 +195,10 @@ describe('EditalRevisar — achado R4 da re-revisão (digitar um peso não pode 
     }, TEST_USER.id);
     const { default: App } = await import('../App');
     const view = render(<App />);
+    // Fase 1B: o efeito que enfileira a proposta agora AGUARDA `enqueue`, entao
+    // `setReviewState` cai num microtask depois do render. No navegador e
+    // impercetivel; aqui precisa de um flush antes de asserir.
+    await act(async () => {});
     // Sem cargo selecionado o campo de peso nasce `disabled` — digitar nele não dispara
     // nada, e um teste assim não provaria coisa alguma. O cargo é selecionado ANTES de
     // zerar o contador.

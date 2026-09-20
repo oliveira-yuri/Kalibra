@@ -88,7 +88,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !institution || !examDate) {
       setError('Preencha os campos obrigatórios (título, instituição, data).');
@@ -147,7 +147,9 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     };
 
     if (sourceMode === 'none') {
-      addWorkspace(newWorkspace);
+      // Aguardado antes de navegar: a tela de destino LE a lista de workspaces, e com
+      // um adaptador de rede ela renderizaria antes de o registro existir.
+      await addWorkspace(newWorkspace);
       setLocation(`/workspace/${slug}`);
       return;
     }
