@@ -10,3 +10,4 @@ export * from './concept';
 export * from './syllabus-item';
 export * from './syllabus-item-cargo';
 export * from './approval-item';
+export * from './prepared';
