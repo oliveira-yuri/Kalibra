@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  normalizeConceptName, matchConcept, shouldLinkDirectly, bestConceptCandidate,
-  withAlias, renameConcept,
-  CONCEPT_MATCH_THRESHOLD, type Concept,
-} from './concept';
+import { normalizeConceptName, matchConcept, shouldLinkDirectly, bestConceptCandidate, withAlias, renameConcept, CONCEPT_MATCH_THRESHOLD, type Concept, CONCEPT_STATUSES, CONCEPT_KINDS } from './concept';
 
 const conceito = (over: Partial<Concept> = {}): Concept => ({
   id: 'k1',
@@ -330,5 +326,15 @@ describe('renameConcept — o mecanismo do PD-08 ("renomeado ≠ removido + adic
     const second = renameConcept(first, 'Crase (uso do acento grave)');
     expect(second.canonicalName).toBe('Crase (uso do acento grave)');
     expect(second.aliases).toEqual(['Crase', 'Emprego do acento indicativo de crase']);
+  });
+});
+
+describe('valores de enum em runtime (Fase 2: o banco compara com estes)', () => {
+  it('CONCEPT_STATUSES tem exatamente os valores do tipo', () => {
+    expect([...CONCEPT_STATUSES].sort()).toEqual(['confirmed', 'provisional']);
+  });
+
+  it('CONCEPT_KINDS tem exatamente os valores do tipo', () => {
+    expect([...CONCEPT_KINDS].sort()).toEqual(['disciplina', 'subtopico', 'topico']);
   });
 });

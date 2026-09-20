@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canDecide, pendingCount, groupByType, APPROVAL_TYPES, type ApprovalItem } from './approval';
+import { canDecide, pendingCount, groupByType, APPROVAL_TYPES, type ApprovalItem, APPROVAL_STATUSES } from './approval';
 
 function makeItem(overrides: Partial<ApprovalItem> = {}): ApprovalItem {
   return {
@@ -76,5 +76,15 @@ describe('groupByType', () => {
     const rogue = makeItem({ type: 'plano_quinzenal' as unknown as 'edital_structure' });
     expect(() => groupByType([rogue])).not.toThrow();
     expect(groupByType([rogue])['plano_quinzenal' as unknown as 'edital_structure']).toEqual([rogue]);
+  });
+});
+
+describe('valores de enum em runtime (Fase 2: o banco compara com estes)', () => {
+  it('APPROVAL_STATUSES tem exatamente os valores do tipo', () => {
+    expect([...APPROVAL_STATUSES].sort()).toEqual(['aprovado', 'pendente', 'rejeitado', 'revisando']);
+  });
+
+  it('APPROVAL_TYPES tem exatamente os valores do tipo', () => {
+    expect([...APPROVAL_TYPES].sort()).toEqual(['concept_merge', 'edital_structure']);
   });
 });

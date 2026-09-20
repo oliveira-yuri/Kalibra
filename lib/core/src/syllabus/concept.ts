@@ -1,6 +1,24 @@
 export type ConceptStatus = 'confirmed' | 'provisional';
 export type ConceptKind = 'disciplina' | 'topico' | 'subtopico';
 
+/**
+ * Os valores em runtime, derivados de um `Record` COMPLETO sobre o tipo — o mesmo
+ * padrão de `WORKSPACE_STATUSES`. `Object.keys` sobre um `Record<Tipo, …>` nunca
+ * pode ficar atrás do tipo: acrescentar um valor à união quebra o compilador aqui,
+ * onde o `Record` fica incompleto.
+ *
+ * Uma lista literal mantida à mão aceitaria o valor novo no tipo e o rejeitaria em
+ * runtime — o defeito que `VALID_STATUSES` tinha antes de `WORKSPACE_STATUSES`.
+ *
+ * Existem porque o banco declara estes valores como `pgEnum` e um teste compara os
+ * dois conjuntos: comparar com um TIPO é impossível, tipos não existem em runtime.
+ */
+const CONCEPT_STATUS_SET: Record<ConceptStatus, true> = { confirmed: true, provisional: true };
+export const CONCEPT_STATUSES: readonly ConceptStatus[] = Object.keys(CONCEPT_STATUS_SET) as ConceptStatus[];
+
+const CONCEPT_KIND_SET: Record<ConceptKind, true> = { disciplina: true, topico: true, subtopico: true };
+export const CONCEPT_KINDS: readonly ConceptKind[] = Object.keys(CONCEPT_KIND_SET) as ConceptKind[];
+
 export type Concept = {
   id: string;
   canonicalName: string;
