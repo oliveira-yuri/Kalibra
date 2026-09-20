@@ -44,7 +44,7 @@ export interface WorkspaceDraft {
   sourceText?: string;
   /**
    * Blocos do edital por cargo (Fase 1B.5). `sourceText` continua no tipo porque
-   * registros antigos gravados no navegador do usuário ainda o têm — `migrateWorkspace`
+   * registros antigos gravados no navegador do usuário ainda o têm — `parseWorkspaceDraft`
    * converte um em outro na leitura. Escrita nova sempre usa `sourceBlocks`.
    */
   sourceBlocks: CargoTextBlock[];

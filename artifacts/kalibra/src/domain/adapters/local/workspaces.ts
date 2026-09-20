@@ -24,7 +24,7 @@ export type { SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceI
  * nomeado — seja migrando um registro antigo sem `cargos`, seja criando um workspace
  * novo em que ninguém preencheu a seção Cargos. `WorkspaceDraft.cargos` é obrigatório
  * (não-opcional) e não pode ficar vazio: um array vazio deixaria `selectedCargoId`
- * apontando para nada. Centralizado aqui para que `migrateWorkspace` e `NovoWorkspace`
+ * apontando para nada. Centralizado aqui para que `parseWorkspaceDraft` e `NovoWorkspace`
  * nunca possam divergir sobre o que "sem cargo" significa (ver regressão I3).
  */
 export function defaultCargo(examDate: string): Cargo {
@@ -128,7 +128,7 @@ function blocksFrom(raw: Record<string, unknown>): CargoTextBlock[] {
  * `isValidAvailability`, `isValidStatus` etc.), então um item malformado dentro de um
  * array (ex.: `cargos: [null]`) é descartado, não desreferenciado.
  */
-export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
+export function parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.slug !== 'string' || !raw.slug) return null;
   if (typeof raw.title !== 'string' || !raw.title) return null;
@@ -170,7 +170,6 @@ export function migrateWorkspace(raw: unknown): WorkspaceDraft | null {
 
 const STORAGE_KEY = 'kalibra_workspaces';
 const storageKeyFor = (userId?: string) => `${STORAGE_KEY}:${userId || 'anonymous'}`;
-const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital:${userId || 'anonymous'}:${slug}`;
 /**
  * A próxima versão de edital deste workspace, lida da REALIDADE durável — a fila de
  * aprovação (quais versões já foram encenadas como proposta) e o programa salvo (que
@@ -183,19 +182,6 @@ const pendingKeyFor = (slug: string, userId?: string) => `kalibra_pending_edital
  */
 export function nextSyllabusVersionFor(slug: string, userId?: string): number {
   return nextSyllabusVersion(getApprovals(userId), slug, getSyllabus(slug, userId).items.length > 0);
-}
-
-export function stageWorkspaceImport(slug: string, pending: PendingWorkspaceImport, userId?: string) {
-  sessionStorage.setItem(pendingKeyFor(slug, userId), JSON.stringify(pending));
-}
-
-export function getPendingWorkspaceImport(slug: string, userId?: string): PendingWorkspaceImport | null {
-  const saved = sessionStorage.getItem(pendingKeyFor(slug, userId));
-  return saved ? JSON.parse(saved) : null;
-}
-
-export function clearPendingWorkspaceImport(slug: string, userId?: string) {
-  sessionStorage.removeItem(pendingKeyFor(slug, userId));
 }
 
 const defaultPrograms: WorkspaceDraft[] = [
@@ -273,11 +259,11 @@ export function getWorkspaces(userId?: string): WorkspaceDraft[] {
     }
     return parsed
       .map((item) => {
-        // Defesa em profundidade: migrateWorkspace já valida cada campo e não deveria
+        // Defesa em profundidade: parseWorkspaceDraft já valida cada campo e não deveria
         // lançar, mas um registro futuro/desconhecido não pode derrubar o array inteiro
         // — isolamos cada item para que só ELE seja descartado se algo inesperado ocorrer.
         try {
-          return migrateWorkspace(item);
+          return parseWorkspaceDraft(item);
         } catch (error) {
           console.error('Registro de workspace corrompido, descartado.', error);
           return null;

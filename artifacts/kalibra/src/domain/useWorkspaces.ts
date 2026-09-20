@@ -20,10 +20,4 @@ export const useWorkspaces: WorkspacesPort['useWorkspaces'] = local.useWorkspace
 export const defaultCargo: WorkspacesPort['defaultCargo'] = local.defaultCargo;
 export const nextSyllabusVersionFor: WorkspacesPort['nextSyllabusVersionFor'] = local.nextSyllabusVersionFor;
 
-// As quatro abaixo saem daqui no Lote 4: as três de staging vão para
-// `domain/staging.ts` (continuidade de interface por aba, fora da porta), e
-// `migrateWorkspace` vira `parseWorkspaceDraft` na porta, com o mesmo corpo.
-export const stageWorkspaceImport = local.stageWorkspaceImport;
-export const getPendingWorkspaceImport = local.getPendingWorkspaceImport;
-export const clearPendingWorkspaceImport = local.clearPendingWorkspaceImport;
-export const migrateWorkspace = local.migrateWorkspace;
+export const parseWorkspaceDraft: WorkspacesPort['parseWorkspaceDraft'] = local.parseWorkspaceDraft;

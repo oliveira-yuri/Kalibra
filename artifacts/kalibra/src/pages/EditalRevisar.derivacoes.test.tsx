@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, screen, fireEvent } from '@testing-library/react';
 import type { Concept, ExtractionOutput, RawSyllabusEntry } from '@workspace/core';
 import { clerkReactMock, TEST_USER } from '../test/clerk-mock';
-import { stageWorkspaceImport } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport } from '@/domain/staging';
 
 vi.mock('@clerk/react', () => clerkReactMock);
 vi.mock('@clerk/react/internal', () => ({

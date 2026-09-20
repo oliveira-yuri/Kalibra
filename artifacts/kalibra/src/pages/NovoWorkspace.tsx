@@ -3,8 +3,9 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import {
-  stageWorkspaceImport, useWorkspaces, defaultCargo, nextSyllabusVersionFor, WorkspaceDraft, type Cargo,
+  useWorkspaces, defaultCargo, nextSyllabusVersionFor, WorkspaceDraft, type Cargo,
 } from '@/domain/useWorkspaces';
+import { stageWorkspaceImport } from '@/domain/staging';
 import { useExtraction } from '@/domain/useExtraction';
 import {
   emptyAvailability, validateAvailability, nextActionFor, uniqueSlug, assertTransition,
@@ -119,7 +120,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     // único cargo em branco, e nada exige que o campo Nome seja preenchido — então
     // "ignorar a seção Cargos" é o caminho mais comum, não uma exceção. Sem o
     // fallback, `cargos` ficava vazio e `selectedCargoId` apontava para um id
-    // inexistente, quebrando o invariante que `migrateWorkspace` garante (ao menos um
+    // inexistente, quebrando o invariante que `parseWorkspaceDraft` garante (ao menos um
     // cargo sempre) — ver regressão I3 (fix round anterior).
     // Com edital, o workspace nasce em "aguardando_upload" — não direto em
     // "aguardando_revisao_edital" — porque agora a extração é real (Task 10):
