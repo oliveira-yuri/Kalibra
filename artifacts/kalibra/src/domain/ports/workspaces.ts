@@ -74,3 +74,30 @@ export interface PendingWorkspaceImport {
    */
   extractionApplied?: boolean;
 }
+
+/**
+ * O que qualquer adaptador de workspaces oferece. As assinaturas são **as de hoje**,
+ * síncronas — torná-las `Promise` é a Fase 1B, deliberadamente separada porque
+ * mudar ordem de execução não é refatoração mecânica.
+ *
+ * `stageWorkspaceImport` e companhia NÃO entram aqui: guardam uma importação em
+ * andamento entre duas telas, por aba, efêmera e nunca compartilhada. Vivem em
+ * `domain/staging.ts` — um adaptador de API não as implementaria.
+ */
+export interface WorkspacesPort {
+  useWorkspaces(userId?: string): {
+    workspaces: WorkspaceDraft[];
+    addWorkspace(workspace: WorkspaceDraft): void;
+    updateWorkspace(slug: string, updates: Partial<WorkspaceDraft>): void;
+  };
+  /**
+   * Valida e normaliza um registro de workspace de origem não confiável.
+   * `EditalRevisar` o usa sobre o `workspaceDraft` de um item da fila de aprovação,
+   * que pode estar corrompido ou num formato anterior.
+   */
+  parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null;
+  /** O cargo sintético de um workspace sem cargo nomeado. */
+  defaultCargo(examDate: string): Cargo;
+  /** A próxima versão de edital, apurada da fila de aprovação e do programa salvo. */
+  nextSyllabusVersionFor(slug: string, userId?: string): number;
+}
