@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import { parseWorkspaceDraft, useWorkspaces, type WorkspaceDraft } from '@/domain/useWorkspaces';
+import { parseWorkspaceDraft, useWorkspaces } from '@/domain/useWorkspaces';
+import type { WorkspaceDraft } from '@/domain/ports';
 import {
   clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport,
 } from '@/domain/staging';

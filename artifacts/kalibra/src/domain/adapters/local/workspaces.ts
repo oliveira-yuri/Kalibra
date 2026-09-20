@@ -15,9 +15,6 @@ import type {
   SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceImport,
 } from '../../ports/workspaces';
 
-// Os cinco tipos acima moravam NESTE arquivo ate a Fase 1A. Foram para a porta para
-// que o contrato deixe de ser definido pelo adaptador local — ver ports/workspaces.ts.
-export type { SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceImport };
 
 /**
  * Cargo sintético usado sempre que um workspace precisa existir sem nenhum cargo

@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
-import {
-  useWorkspaces, defaultCargo, nextSyllabusVersionFor, WorkspaceDraft, type Cargo,
-} from '@/domain/useWorkspaces';
+import { useWorkspaces, defaultCargo, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
+import type { WorkspaceDraft, Cargo } from '@/domain/ports';
 import { stageWorkspaceImport } from '@/domain/staging';
 import { useExtraction } from '@/domain/useExtraction';
 import {

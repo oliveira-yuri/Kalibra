@@ -1,5 +1,5 @@
 import { Plus, X } from 'lucide-react';
-import type { Cargo } from '@/domain/useWorkspaces';
+import type { Cargo } from '@/domain/ports';
 
 export function CargoFields({ cargos, onChange }: { cargos: Cargo[]; onChange: (cargos: Cargo[]) => void }) {
   const update = (index: number, patch: Partial<Cargo>) =>
