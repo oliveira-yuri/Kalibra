@@ -110,6 +110,25 @@ middlewares não muda** — em especial, o proxy do Clerk continua montado antes
 `express.json()`, como o comentário daquele arquivo exige.
 **Testes obrigatórios:** a fábrica monta com dependências falsas e responde no
 `/api/healthz` existente.
+**A injeção NÃO pode virar porta dos fundos.** É o risco central desta tarefa: um
+parâmetro criado para teste que acaba permitindo, em produção, autenticar sem
+Clerk. Três guardas, todas verificadas:
+
+1. **O extrator padrão é o do Clerk.** `criarApp` sem injeção usa
+   `getAuth(req)` — não um extrator permissivo, não `undefined` tratado como
+   "qualquer um".
+2. **Teste do caminho padrão:** montar o app **sem injetar nada**, mandar
+   requisição **sem sessão**, e exigir **401**. Se o padrão fosse permissivo, este
+   teste ficaria verde com a porta aberta — por isso ele assere a recusa, não o
+   sucesso.
+3. **Teste estrutural:** nenhum arquivo fora de `src/test/` importa de
+   `src/test/`. É o que impede o dublê de teste de vazar para o wiring de
+   produção — a forma como esse defeito entra de verdade não é alguém escolhendo,
+   é um import descuidado.
+
+`app.ts` continua sendo o wiring de produção com `clerkMiddleware` + `getAuth(req)`,
+e um teste confirma que ele os referencia.
+
 **Riscos:** reordenar middleware sem querer. O diff desta tarefa deve ser
 movimentação, não reescrita.
 
@@ -154,16 +173,28 @@ autenticada que precise persistir algo.
 ### Tarefa B3 — Isolamento entre usuários
 **Objetivo:** os três invariantes do §1.5, no nível de HTTP.
 **Ação exata:** um endpoint privado mínimo é necessário para exercitá-los. Usar
-`GET /api/me`, que devolve o `app_user` da sessão — ele tem chamador nos testes
-desta fase e **é removido na Tarefa D2 se a Fase 5 não o consumir**.
+`GET /api/me`, que devolve o `app_user` da sessão.
+
+**`/api/me` é endpoint TÉCNICO de fundação/auth, não recurso de produto.** Fica
+marcado como tal no próprio arquivo de rota, com a razão: existe para que auth,
+posse e formato de erro tenham o que exercitar antes de existir qualquer recurso
+de domínio. Não entra no OpenAPI, não ganha hook gerado, não é consumido por tela.
+A Tarefa D2 decide explicitamente se fica ou sai — com justificativa escrita, não
+por inércia.
 **Testes obrigatórios (os três do §1.5):**
 - usuário A não lê recurso de B;
 - usuário A não atualiza recurso de B;
 - trocar id na URL não contorna a posse.
-**Riscos:** com só `app_user` no ar, os três testes ficam rasos. Devem ser
-**reescritos como testes de recurso de verdade na Fase 5**, quando houver
-workspace. Registrar isso no documento de verificação em vez de fingir que a
-cobertura está completa.
+**Riscos, e o que o documento final PRECISA dizer:** com só `app_user` no ar,
+estes três testes provam que a fronteira de posse existe — não que ela protege
+conteúdo. Um usuário não conseguir ler o `app_user` de outro é bem menos do que
+não conseguir ler o *edital* de outro.
+
+O documento de verificação registra, com estas palavras: **"isolamento de recurso
+de domínio ainda não verificado; será refeito na Fase 5"**. Os três testes são
+reescritos contra workspace, syllabus e aprovação quando esses recursos existirem.
+Declarar a lacuna é o que impede alguém de ler "3 testes de isolamento ✓" e
+concluir que o isolamento está coberto.
 
 ---
 
@@ -234,6 +265,8 @@ injetada; e **nada contra Postgres real**, só PGlite.
 - `userId` de `body`/`query`/`path` ignorado — provado nos três lugares.
 - `ensureAppUser` idempotente, inclusive concorrente.
 - Nenhum segredo em corpo ou cabeçalho de resposta de erro, provado por varredura.
+- **A injeção de sessão não é bypass:** app sem injeção recusa requisição sem
+  sessão com 401, e nenhum arquivo de produção importa de `src/test/`.
 - Cada guarda provada vermelha quando removida (D3).
 - Documento de verificação com a seção do que não foi verificado.
 
