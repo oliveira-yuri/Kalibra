@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, request as requisicaoHttp, type Server } from 'node:http';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
@@ -41,6 +41,18 @@ export type Sessao = { clerkUserId: string } | null;
 
 export type Harness = {
   pedir(caminho: string, init?: RequestInit): Promise<Response>;
+  /**
+   * GET **com corpo**, falado direto por `node:http`.
+   *
+   * `fetch` recusa corpo em GET, então um teste que usasse `fetch` mandaria um
+   * GET vazio e provaria nada: a rota poderia ler `req.body.clerkUserId` e o
+   * teste continuaria verde. Isso foi medido — a reversão que faz `/me` confiar
+   * no corpo deixava a suíte inteira passando.
+   *
+   * O protocolo permite corpo em GET, e `express.json()` o analisa. Esta função
+   * existe para que o vetor seja exercitado de verdade.
+   */
+  pedirComCorpoNoGet(caminho: string, corpo: unknown): Promise<{ status: number; texto: string }>;
   /**
    * Faz a requisição e devolve o corpo já tipado. `Response.json()` devolve
    * `unknown`, e espalhar cast por cada asserção esconderia erro de forma no meio
@@ -104,6 +116,28 @@ export async function criarHarness({ injetarSessao = true } = {}): Promise<Harne
 
   return {
     pedir: (caminho, init) => fetch(`${base}${caminho}`, init),
+    pedirComCorpoNoGet(caminho: string, corpo: unknown) {
+      const carga = Buffer.from(JSON.stringify(corpo));
+      return new Promise<{ status: number; texto: string }>((resolve, reject) => {
+        const req = requisicaoHttp(
+          {
+            host: '127.0.0.1',
+            port: porta,
+            path: caminho,
+            method: 'GET',
+            headers: { 'content-type': 'application/json', 'content-length': carga.length },
+          },
+          (res) => {
+            let texto = '';
+            res.setEncoding('utf8');
+            res.on('data', (pedaco: string) => { texto += pedaco; });
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, texto }));
+          },
+        );
+        req.on('error', reject);
+        req.end(carga);
+      });
+    },
     async pedirJson<T>(caminho: string, init?: RequestInit) {
       const r = await fetch(`${base}${caminho}`, init);
       return { status: r.status, corpo: (await r.json()) as T };

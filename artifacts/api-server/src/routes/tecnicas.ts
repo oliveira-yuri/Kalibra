@@ -12,9 +12,28 @@ import { responderProblema } from '../lib/problem';
  * antes de qualquer recurso de domínio existir. Não entram no OpenAPI, não geram
  * hook, não são consumidas por tela nenhuma.
  *
- * A Tarefa D2 decide explicitamente se ficam ou saem quando a Fase 5 trouxer
- * workspaces — a regra registrada é "tabela sem endpoint é aceitável; código sem
- * chamador não é", e um endpoint cujo único chamador é teste está na fronteira.
+ * **DECISÃO DA TAREFA D2: as duas FICAM, com prazo de validade escrito.**
+ *
+ * A regra registrada é "tabela sem endpoint é aceitável; código sem chamador não
+ * é", e um endpoint cujo único chamador é teste está na fronteira. Ficam porque
+ * cada uma é o instrumento de uma guarda que, sem ela, não teria como ser
+ * exercitada:
+ *
+ * - `/me` é a única rota cuja resposta correta é definida **só pela sessão**. É
+ *   por isso que ela serve para provar que o cliente não declara quem é: se o
+ *   servidor passasse a confiar no corpo ou na query, a resposta mudaria de forma
+ *   visível. Contra uma rota que ignorasse o usuário, o teste não veria nada.
+ * - `/users/:id` é a única que recebe do cliente o identificador de um recurso.
+ *   Sem ela não há vetor de path, não há prova de 404-em-vez-de-403, e a posse na
+ *   cláusula `where` fica sem nada que a defenda.
+ *
+ * **Saem na Fase 5**, no mesmo commit em que `GET /api/workspaces/:id` entrar: aí
+ * a guarda de posse passa a ter recurso de domínio de verdade para defender, e os
+ * testes de isolamento são reescritos contra ele. Manter as duas depois disso
+ * seria a inércia que esta decisão existe para evitar.
+ *
+ * Que elas fiquem fora do produto não é promessa de comentário: `tecnicas.test.ts`
+ * varre o frontend inteiro e falha se alguma tela as chamar.
  */
 const router: IRouter = Router();
 

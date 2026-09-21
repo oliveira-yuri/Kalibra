@@ -55,11 +55,18 @@ describe('o cliente NÃO declara quem é — provado nos três lugares', () => {
 
   it('userId no BODY é ignorado', async () => {
     const idDeB = await idDe('clerk_b');
-    const r = await h.pedir('/api/me', {
-      method: 'GET',
-      headers: { 'content-type': 'application/json' },
+
+    // O corpo vai de verdade, por `node:http`. A versão anterior deste teste usava
+    // `fetch`, que recusa corpo em GET — ela mandava um GET VAZIO e não provava
+    // nada. Medido na Tarefa D3: com a rota lendo `req.body.clerkUserId`, a suíte
+    // inteira continuava verde. Agora a reversão fica vermelha aqui.
+    const r = await h.pedirComCorpoNoGet('/api/me', {
+      clerkUserId: 'clerk_b',
+      userId: idDeB,
     });
-    const corpo = (await r.json()) as Usuario;
+
+    expect(r.status).toBe(200);
+    const corpo = JSON.parse(r.texto) as Usuario;
     expect(corpo.clerkUserId).toBe('clerk_a');
     expect(corpo.id).not.toBe(idDeB);
   });
