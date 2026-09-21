@@ -7,6 +7,7 @@ import type { Db } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { erroFinal } from "./middlewares/erro-final";
+import { naoEncontrado } from "./middlewares/nao-encontrado";
 import {
   CLERK_PROXY_PATH,
   clerkProxyMiddleware,
@@ -90,6 +91,10 @@ export function criarApp({ db, extrairUserId = extrairClerkUserId }: Dependencia
   app.set("extrairUserId", extrairUserId);
 
   app.use("/api", router);
+
+  // Nenhuma rota casou. Vem ANTES do `erroFinal` porque não há erro nenhum a
+  // tratar aqui — sem isto o Express devolveria HTML.
+  app.use(naoEncontrado);
 
   // ÚLTIMO da cadeia, de propósito: só chega aqui o que ninguém tratou. Sem ele o
   // Express responde com a página padrão, que inclui mensagem e stack completa.

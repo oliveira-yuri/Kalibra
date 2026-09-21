@@ -64,6 +64,29 @@ describe('problem+json é uniforme', () => {
     expect(corpo).toMatchObject({ status: 404, code: 'recurso_nao_encontrado' });
   });
 
+  it('404 — rota que não existe', async () => {
+    // Esta é a que faltava. Antes do middleware `naoEncontrado`, o Express tratava
+    // "nenhuma rota casou" pelo caminho padrão e devolvia HTML — a varredura de
+    // segredos passava, porque `Cannot GET /x` não contém nenhum, e mesmo assim a
+    // uniformidade estava furada.
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/api/rota-que-nao-existe');
+
+    expect(r.status).toBe(404);
+    expect(r.headers.get('content-type')).toContain('application/problem+json');
+    const corpo = (await r.json()) as Record<string, unknown>;
+    expect(corpo).toMatchObject({ status: 404, code: 'rota_nao_encontrada' });
+    // O corpo não ecoa o caminho pedido.
+    expect(JSON.stringify(corpo)).not.toMatch(/rota-que-nao-existe/);
+  });
+
+  it('404 — fora do prefixo /api também', async () => {
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/fora-da-api');
+    expect(r.status).toBe(404);
+    expect(r.headers.get('content-type')).toContain('application/problem+json');
+  });
+
   it('500 — erro interno PROVOCADO DE VERDADE, não simulado', async () => {
     h.entrarComo({ clerkUserId: 'clerk_a' });
     // `id` não é um UUID: o Postgres lança "invalid input syntax for type uuid",
