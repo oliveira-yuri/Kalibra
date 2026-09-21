@@ -1,0 +1,163 @@
+import { createServer, request as requisicaoHttp, type Server } from 'node:http';
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
+import { sql } from 'drizzle-orm';
+import * as schema from '@workspace/db';
+import { criarApp, type ExtratorDeUsuario } from '../criar-app';
+import type { Db } from '@workspace/db';
+
+/**
+ * Sobe o app REAL numa porta efêmera e fala HTTP com ele.
+ *
+ * Por que HTTP de verdade e não chamar o handler direto: o que esta fase precisa
+ * provar mora nos middlewares — ordem de montagem, 401 antes de qualquer rota,
+ * cabeçalho de resposta de erro. Chamar o handler por dentro pularia exatamente a
+ * parte que interessa.
+ *
+ * Sem `supertest`: `fetch` contra uma porta efêmera resolve, e evita uma
+ * dependência nova num repositório que trata dependência como superfície de
+ * ataque.
+ */
+
+const MIGRATIONS = new URL('../../../../lib/db/migrations', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+
+/**
+ * `clerkMiddleware()` CONSTRÓI sem segredo, mas LANÇA ao atender a primeira
+ * requisição — "Missing Clerk Secret Key" — e toda resposta vira 500.
+ *
+ * Esta constante existe para destravar isso e **não é um segredo**: é um
+ * marcador sintático que permite ao middleware inicializar. Com ela, o Clerk
+ * trata toda requisição sem token como "sem sessão", que é justamente o caso que
+ * o 401 precisa exercitar. Nenhuma credencial real entra aqui, e nenhuma é
+ * necessária: esta fase não valida token de verdade contra o Clerk.
+ *
+ * Registrado no documento de verificação: **nada foi exercitado contra o Clerk
+ * real.**
+ */
+const CHAVE_FALSA_DE_TESTE = 'sk_test_marcador_sintatico_nao_e_segredo';
+
+export type Sessao = { clerkUserId: string } | null;
+
+export type Harness = {
+  pedir(caminho: string, init?: RequestInit): Promise<Response>;
+  /**
+   * GET **com corpo**, falado direto por `node:http`.
+   *
+   * `fetch` recusa corpo em GET, então um teste que usasse `fetch` mandaria um
+   * GET vazio e provaria nada: a rota poderia ler `req.body.clerkUserId` e o
+   * teste continuaria verde. Isso foi medido — a reversão que faz `/me` confiar
+   * no corpo deixava a suíte inteira passando.
+   *
+   * O protocolo permite corpo em GET, e `express.json()` o analisa. Esta função
+   * existe para que o vetor seja exercitado de verdade.
+   */
+  pedirComCorpoNoGet(caminho: string, corpo: unknown): Promise<{ status: number; texto: string }>;
+  /**
+   * Faz a requisição e devolve o corpo já tipado. `Response.json()` devolve
+   * `unknown`, e espalhar cast por cada asserção esconderia erro de forma no meio
+   * do ruído — o tipo declarado aqui é o contrato que o teste está afirmando.
+   */
+  pedirJson<T>(caminho: string, init?: RequestInit): Promise<{ status: number; corpo: T }>;
+  /**
+   * Quantas vezes a aplicação chamou o banco. Existe para provar por EXECUÇÃO —
+   * não por leitura de código — que uma requisição sem sessão é recusada antes de
+   * o servidor trabalhar.
+   */
+  acessosAoBanco(): number;
+  zerarContador(): void;
+  /** Quem está autenticado. `null` = ninguém, que é o caso que o 401 defende. */
+  entrarComo(sessao: Sessao): void;
+  db: Db;
+  limpar(): Promise<void>;
+  encerrar(): Promise<void>;
+};
+
+/**
+ * @param injetarSessao quando `false`, monta o app SEM extrator injetado — ou
+ * seja, no caminho de produção, com `getAuth(req)` do Clerk. É assim que se prova
+ * que o padrão da fábrica não é permissivo.
+ */
+export async function criarHarness({ injetarSessao = true } = {}): Promise<Harness> {
+  process.env.CLERK_SECRET_KEY ??= CHAVE_FALSA_DE_TESTE;
+  const client = new PGlite();
+  // Duas visões do MESMO banco. `dbPglite` mantém os tipos do driver, para as
+  // operações internas do harness; `db` é o mesmo objeto visto como `Db`, que é o
+  // que a aplicação espera. O elenco fica confinado aqui — nenhuma rota o vê.
+  const dbPglite = drizzle(client, { schema });
+  const db = dbPglite as unknown as Db;
+  await migrate(dbPglite, { migrationsFolder: MIGRATIONS });
+
+  let sessao: Sessao = null;
+  const extrairUserId: ExtratorDeUsuario = () => sessao?.clerkUserId ?? null;
+
+  // Conta os acessos que a APLICAÇÃO faz. O harness usa `dbPglite` para suas
+  // próprias operações (migrar, limpar, montar fixtures), então o contador reflete
+  // só o que as rotas fizeram.
+  let acessos = 0;
+  const dbContado = new Proxy(db as object, {
+    get(alvo, prop, receptor) {
+      const valor = Reflect.get(alvo, prop, receptor);
+      if (typeof valor === 'function' && ['select', 'insert', 'update', 'delete', 'execute'].includes(String(prop))) {
+        return (...args: unknown[]) => {
+          acessos += 1;
+          return (valor as (...a: unknown[]) => unknown).apply(alvo, args);
+        };
+      }
+      return valor;
+    },
+  }) as Db;
+
+  const app = criarApp(injetarSessao ? { db: dbContado, extrairUserId } : { db: dbContado });
+  const server: Server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const porta = (server.address() as { port: number }).port;
+  const base = `http://127.0.0.1:${porta}`;
+
+  return {
+    pedir: (caminho, init) => fetch(`${base}${caminho}`, init),
+    pedirComCorpoNoGet(caminho: string, corpo: unknown) {
+      const carga = Buffer.from(JSON.stringify(corpo));
+      return new Promise<{ status: number; texto: string }>((resolve, reject) => {
+        const req = requisicaoHttp(
+          {
+            host: '127.0.0.1',
+            port: porta,
+            path: caminho,
+            method: 'GET',
+            headers: { 'content-type': 'application/json', 'content-length': carga.length },
+          },
+          (res) => {
+            let texto = '';
+            res.setEncoding('utf8');
+            res.on('data', (pedaco: string) => { texto += pedaco; });
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, texto }));
+          },
+        );
+        req.on('error', reject);
+        req.end(carga);
+      });
+    },
+    async pedirJson<T>(caminho: string, init?: RequestInit) {
+      const r = await fetch(`${base}${caminho}`, init);
+      return { status: r.status, corpo: (await r.json()) as T };
+    },
+    acessosAoBanco: () => acessos,
+    zerarContador: () => { acessos = 0; },
+    entrarComo: (nova) => { sessao = nova; },
+    db,
+    async limpar() {
+      const { rows } = await dbPglite.execute<{ tabela: string }>(sql`
+        select quote_ident(tablename) as tabela from pg_tables
+        where schemaname = 'public' and tablename <> '__drizzle_migrations'
+      `);
+      if (rows.length === 0) return;
+      const lista = rows.map((l) => `public.${l.tabela}`).join(', ');
+      await dbPglite.execute(sql.raw(`truncate table ${lista} restart identity cascade`));
+    },
+    async encerrar() {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await client.close();
+    },
+  };
+}
