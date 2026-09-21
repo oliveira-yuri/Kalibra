@@ -55,8 +55,19 @@ describe('tabelas preparatórias: existem no schema, sem chamador na aplicação
     expect(arquivos.length).toBeGreaterThan(50);
   });
 
-  it('nenhum arquivo de aplicação importa de @workspace/db', () => {
-    const importadores = arquivos.filter((caminho) =>
+  it('o FRONTEND não importa @workspace/db — código de servidor não vaza para o bundle', () => {
+    // Refinado na Fase 3. A versão anterior proibia QUALQUER arquivo em
+    // `artifacts/` de importar `@workspace/db` — bom proxy enquanto nada usava o
+    // banco, e errado assim que o `api-server` passou a existir: importar o schema
+    // e a conexão é literalmente a função dele.
+    //
+    // O que continua proibido é o que de fato importa: o frontend tocar no banco.
+    // Isso levaria driver de Postgres e credencial para dentro do bundle que roda
+    // no navegador do usuário.
+    const doFrontend = arquivos.filter((c) => c.includes(join('artifacts', 'kalibra')));
+    expect(doFrontend.length).toBeGreaterThan(50);
+
+    const importadores = doFrontend.filter((caminho) =>
       /from\s+['"]@workspace\/db['"]/.test(readFileSync(caminho, 'utf8')));
     expect(importadores.map((c) => relative(RAIZ, c))).toEqual([]);
   });
