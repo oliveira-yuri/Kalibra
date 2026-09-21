@@ -41,6 +41,19 @@ export type Sessao = { clerkUserId: string } | null;
 
 export type Harness = {
   pedir(caminho: string, init?: RequestInit): Promise<Response>;
+  /**
+   * Faz a requisição e devolve o corpo já tipado. `Response.json()` devolve
+   * `unknown`, e espalhar cast por cada asserção esconderia erro de forma no meio
+   * do ruído — o tipo declarado aqui é o contrato que o teste está afirmando.
+   */
+  pedirJson<T>(caminho: string, init?: RequestInit): Promise<{ status: number; corpo: T }>;
+  /**
+   * Quantas vezes a aplicação chamou o banco. Existe para provar por EXECUÇÃO —
+   * não por leitura de código — que uma requisição sem sessão é recusada antes de
+   * o servidor trabalhar.
+   */
+  acessosAoBanco(): number;
+  zerarContador(): void;
   /** Quem está autenticado. `null` = ninguém, que é o caso que o 401 defende. */
   entrarComo(sessao: Sessao): void;
   db: Db;
@@ -66,7 +79,24 @@ export async function criarHarness({ injetarSessao = true } = {}): Promise<Harne
   let sessao: Sessao = null;
   const extrairUserId: ExtratorDeUsuario = () => sessao?.clerkUserId ?? null;
 
-  const app = criarApp(injetarSessao ? { db, extrairUserId } : { db });
+  // Conta os acessos que a APLICAÇÃO faz. O harness usa `dbPglite` para suas
+  // próprias operações (migrar, limpar, montar fixtures), então o contador reflete
+  // só o que as rotas fizeram.
+  let acessos = 0;
+  const dbContado = new Proxy(db as object, {
+    get(alvo, prop, receptor) {
+      const valor = Reflect.get(alvo, prop, receptor);
+      if (typeof valor === 'function' && ['select', 'insert', 'update', 'delete', 'execute'].includes(String(prop))) {
+        return (...args: unknown[]) => {
+          acessos += 1;
+          return (valor as (...a: unknown[]) => unknown).apply(alvo, args);
+        };
+      }
+      return valor;
+    },
+  }) as Db;
+
+  const app = criarApp(injetarSessao ? { db: dbContado, extrairUserId } : { db: dbContado });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const porta = (server.address() as { port: number }).port;
@@ -74,6 +104,12 @@ export async function criarHarness({ injetarSessao = true } = {}): Promise<Harne
 
   return {
     pedir: (caminho, init) => fetch(`${base}${caminho}`, init),
+    async pedirJson<T>(caminho: string, init?: RequestInit) {
+      const r = await fetch(`${base}${caminho}`, init);
+      return { status: r.status, corpo: (await r.json()) as T };
+    },
+    acessosAoBanco: () => acessos,
+    zerarContador: () => { acessos = 0; },
     entrarComo: (nova) => { sessao = nova; },
     db,
     async limpar() {
