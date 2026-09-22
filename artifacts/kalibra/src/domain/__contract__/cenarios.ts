@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 import { emptyAvailability } from '@workspace/core';
-import type { ExtractionOutput, Syllabus } from '@workspace/core';
+import type { ApprovalItem, ExtractionOutput, Syllabus } from '@workspace/core';
 import type { WorkspaceDraft } from '../ports';
 import type { Driver } from './driver';
 import { unico, ids, idsDeItens } from './auxiliares';
@@ -76,6 +76,26 @@ export function umaExtracao(p: Partial<ExtractionOutput> = {}): ExtractionOutput
     examFormat: null,
     examDurationMinutes: null,
     uncertainties: [],
+    ...p,
+  };
+}
+
+/** O que `enfileirar` recebe: a proposta, antes de a fila lhe dar id e status. */
+type Proposta = Omit<ApprovalItem, 'id' | 'status' | 'createdAt' | 'decidedAt' | 'reason'>;
+
+export function umaProposta(p: Partial<Proposta> = {}): Proposta {
+  return {
+    workspaceId: null,
+    type: 'edital_structure',
+    title: 'Incluir tópico X',
+    rationale: 'Apareceu no edital',
+    // Proveniência: de ONDE a proposta veio. Nunca o que a decisão muta — isso é
+    // `targetConceptId`, e trocar os dois falha em silêncio.
+    sourceRef: 'linha 12',
+    targetConceptId: null,
+    confidence: 0.8,
+    payloadBefore: null,
+    payloadAfter: null,
     ...p,
   };
 }
@@ -367,6 +387,167 @@ export const CENARIOS: Cenario[] = [
       );
       expect(deC2.weight).toBeNull();
       expect(deC2.questionCount).toBeNull();
+    },
+  },
+
+  // ------------------------------------------------------------------
+  // Conceitos
+  // ------------------------------------------------------------------
+  {
+    nome: 'a biblioteca de conceitos é do USUÁRIO, não de um workspace',
+    async roda(d) {
+      // Dois workspaces, um item em cada. Cada item cria um conceito.
+      await d.criarWorkspace(umWorkspace({ slug: 'w-lib-a' }));
+      await d.criarWorkspace(umWorkspace({ slug: 'w-lib-b' }));
+      await d.adicionarItem('w-lib-a', null, 'Direito Constitucional', ['c1']);
+      await d.adicionarItem('w-lib-b', null, 'Raciocínio Lógico', ['c1']);
+      await d.recarregar();
+
+      // Os DOIS conceitos estão na MESMA biblioteca. Se ela fosse partida por
+      // workspace, cada leitura traria só o seu — e esse é exatamente o erro que
+      // um adaptador de API cometeria ao pendurar `concept` em `workspace_id`
+      // (§4.2 do spec: a biblioteca é global por usuário, para que um conceito seja
+      // reusado entre concursos).
+      const nomes = new Set((await d.lerConceitos()).map((c) => c.canonicalName));
+      expect(nomes.has('Direito Constitucional')).toBe(true);
+      expect(nomes.has('Raciocínio Lógico')).toBe(true);
+    },
+  },
+  {
+    nome: 'confirmar um conceito provisório muda seu status',
+    async roda(d) {
+      await d.criarWorkspace(umWorkspace({ slug: 'w-conf' }));
+      await d.adicionarItem('w-conf', null, 'Concordância', ['c1']);
+      await d.recarregar();
+
+      const antes = unico(
+        (await d.lerConceitos()).filter((c) => c.canonicalName === 'Concordância'),
+        'conceito Concordância',
+      );
+      // Nasce provisório: é a decisão humana que promove, e sem esta asserção o
+      // cenário passaria mesmo se tudo já nascesse confirmado.
+      expect(antes.status).toBe('provisional');
+
+      await d.confirmarConceito(antes.id);
+      await d.recarregar();
+
+      const depois = unico(
+        (await d.lerConceitos()).filter((c) => c.id === antes.id),
+        `conceito ${antes.id}`,
+      );
+      expect(depois.status).toBe('confirmed');
+    },
+  },
+  {
+    nome: 'renomear um conceito preserva o nome antigo como alias',
+    async roda(d) {
+      await d.criarWorkspace(umWorkspace({ slug: 'w-ren' }));
+      await d.adicionarItem('w-ren', null, 'Nome antigo', ['c1']);
+      await d.recarregar();
+
+      const antes = unico(
+        (await d.lerConceitos()).filter((c) => c.canonicalName === 'Nome antigo'),
+        'conceito Nome antigo',
+      );
+      await d.renomearConceito(antes.id, 'Nome novo');
+      await d.recarregar();
+
+      const depois = unico(
+        (await d.lerConceitos()).filter((c) => c.id === antes.id),
+        `conceito ${antes.id}`,
+      );
+      expect(depois.canonicalName).toBe('Nome novo');
+      // Rastreabilidade: o edital dizia o nome antigo. Perder essa equivalência
+      // quebra a reconciliação numa reimportação — o rótulo antigo voltaria como
+      // conceito novo, duplicado, sem caminho de volta. É o único momento em que a
+      // equivalência é conhecida.
+      expect(depois.aliases).toContain('Nome antigo');
+    },
+  },
+
+  // ------------------------------------------------------------------
+  // Aprovações
+  // ------------------------------------------------------------------
+  {
+    nome: 'enfileirar deixa um item pendente',
+    async roda(d) {
+      const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
+      await d.recarregar();
+
+      const item = unico(
+        (await d.lerAprovacoes()).filter((i) => i.id === id),
+        `aprovação ${id}`,
+      );
+      expect(item.status).toBe('pendente');
+      expect(item.decidedAt).toBeNull();
+    },
+  },
+  {
+    nome: 'aprovar decide o item e registra QUANDO, sem dizer qual instante',
+    async roda(d) {
+      const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
+      await d.aprovar(id);
+      await d.recarregar();
+
+      const item = unico(
+        (await d.lerAprovacoes()).filter((i) => i.id === id),
+        `aprovação ${id}`,
+      );
+      expect(item.status).toBe('aprovado');
+      // Afirma que EXISTE, não qual valor: o relógio é de quem chama, e congelar um
+      // instante aqui acoplaria o contrato ao fuso da máquina que roda o teste.
+      expect(item.decidedAt).toBeTruthy();
+    },
+  },
+  {
+    nome: 'rejeitar preserva o motivo',
+    async roda(d) {
+      const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
+      await d.rejeitar(id, 'fora do edital');
+      await d.recarregar();
+
+      const item = unico(
+        (await d.lerAprovacoes()).filter((i) => i.id === id),
+        `aprovação ${id}`,
+      );
+      expect(item.status).toBe('rejeitado');
+      expect(item.reason).toBe('fora do edital');
+    },
+  },
+  {
+    nome: 'aprovar uma fusão de conceito confirma o conceito alvo',
+    async roda(d) {
+      await d.criarWorkspace(umWorkspace({ slug: 'w-fusao' }));
+      await d.adicionarItem('w-fusao', null, 'Crase', ['c1']);
+      await d.recarregar();
+
+      const alvo = unico(
+        (await d.lerConceitos()).filter((c) => c.canonicalName === 'Crase'),
+        'conceito Crase',
+      );
+      expect(alvo.status).toBe('provisional');
+
+      const id = await d.enfileirar(
+        umaProposta({
+          type: 'concept_merge',
+          workspaceId: 'w-fusao',
+          targetConceptId: alvo.id,
+          title: 'Fundir com conceito existente',
+        }),
+        new Date('2026-03-01T12:00:00Z'),
+      );
+      await d.aprovar(id);
+      await d.recarregar();
+
+      // O EFEITO é contrato; o MECANISMO não. O adaptador local faz isso alcançando
+      // três módulos por evento de janela; um adaptador de API fará numa transação.
+      // O cenário afirma só o que o usuário observa: decidi a fusão, o conceito
+      // deixou de ser provisório.
+      const depois = unico(
+        (await d.lerConceitos()).filter((c) => c.id === alvo.id),
+        `conceito ${alvo.id}`,
+      );
+      expect(depois.status).toBe('confirmed');
     },
   },
 ];
