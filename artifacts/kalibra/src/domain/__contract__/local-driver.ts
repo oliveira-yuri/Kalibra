@@ -68,7 +68,18 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
     });
   };
 
-  /** O `useSyllabus` daquele workspace, montando-o na primeira visita. */
+  /**
+   * O `useSyllabus` daquele workspace, montando-o na primeira visita.
+   *
+   * **Precisa ser chamado FORA de `act`.** Montar por dentro faz o `renderHook`
+   * ser batelado junto com a mutação, e `result.current` ainda é `null` quando a
+   * operação tenta lê-lo. Foi assim que os quatro primeiros cenários de syllabus
+   * falharam — com `Cannot read properties of null`, que parece defeito do
+   * cenário e é mecânica de React.
+   *
+   * Por isso toda operação de syllabus resolve `syl(slug)` antes de entrar no
+   * `act`, e só lê `.current` lá dentro.
+   */
   const syl = (slug: string) => {
     let r = m.syllabus.get(slug);
     if (!r) {
@@ -76,6 +87,15 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
       m.syllabus.set(slug, r);
     }
     return r.result;
+  };
+
+  /** Monta o hook do workspace, depois executa a mutação dentro de `act`. */
+  const agirNoSyllabus = <T>(
+    slug: string,
+    f: (api: ReturnType<typeof useSyllabus>) => Promise<T> | T,
+  ): Promise<T> => {
+    const alvo = syl(slug);
+    return agir(() => f(alvo.current));
   };
 
   /**
@@ -103,20 +123,20 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
 
     // ---- syllabus ----
     lerSyllabus: async (slug) => syl(slug).current.syllabus,
-    salvarSyllabus: (slug, next) => agir(() => syl(slug).current.save(next)),
+    salvarSyllabus: (slug, next) => agirNoSyllabus(slug, (api) => api.save(next)),
     adicionarItem: (slug, parentItemId, label, cargoIds) =>
-      agir(() => syl(slug).current.addItem(parentItemId, label, cargoIds)),
+      agirNoSyllabus(slug, (api) => api.addItem(parentItemId, label, cargoIds)),
     renomearItem: (slug, itemId, label) =>
-      agir(() => syl(slug).current.renameItem(itemId, label)),
-    removerItem: (slug, itemId) => agir(() => syl(slug).current.removeItem(itemId)),
+      agirNoSyllabus(slug, (api) => api.renameItem(itemId, label)),
+    removerItem: (slug, itemId) => agirNoSyllabus(slug, (api) => api.removeItem(itemId)),
     ligarACargo: (slug, itemId, cargoId) =>
-      agir(() => syl(slug).current.linkToCargo(itemId, cargoId)),
+      agirNoSyllabus(slug, (api) => api.linkToCargo(itemId, cargoId)),
     desligarDeCargo: (slug, itemId, cargoId) =>
-      agir(() => syl(slug).current.unlinkFromCargo(itemId, cargoId)),
+      agirNoSyllabus(slug, (api) => api.unlinkFromCargo(itemId, cargoId)),
     separarDeCargo: (slug, itemId, cargoId) =>
-      agir(() => syl(slug).current.splitFromCargo(itemId, cargoId)),
+      agirNoSyllabus(slug, (api) => api.splitFromCargo(itemId, cargoId)),
     atualizarLigacao: (slug, itemId, cargoId, patch) =>
-      agir(() => syl(slug).current.updateLink(itemId, cargoId, patch)),
+      agirNoSyllabus(slug, (api) => api.updateLink(itemId, cargoId, patch)),
     preverExtracao: async (slug, output) => syl(slug).current.previewExtraction(output),
 
     // ---- conceitos ----
