@@ -78,6 +78,35 @@ as duas coisas é o assunto da Tarefa 8.
 
 ---
 
+## Ajustes do revisor, antes da implementação
+
+Sete, todos aceitos. Os dois primeiros são defeitos do plano; o terceiro e o
+quarto são guardas mais fracas do que a regra que diziam fiscalizar.
+
+1. **`localStorage.clear()` sai do driver local.** Contradizia o isolamento por
+   `userId` que o próprio plano defende, e com `local.test.ts` e
+   `lentidao.test.ts` no mesmo pacote um arquivo apagaria o mundo do outro. O
+   isolamento é o `userId`; se for preciso limpar, limpa-se só as chaves daquele
+   usuário.
+2. **`Math.random()` sai.** Identificador determinístico por mundo — `w-syl-1`,
+   `w-syl-2`. Teste de contrato que não reproduz não serve para depurar a Fase 5.
+3. **A guarda de indexação era fraca.** Pegava `.items[0]`, mas não `portugues[0]`
+   nem `deC2[0]` — que os próprios cenários usavam. Entra o auxiliar
+   `unico(array, contexto)`, que exige `length === 1`, e a proibição passa a ser
+   `[<número>]` em qualquer lugar de `cenarios.ts`.
+4. **"Nenhuma contagem total" valia também para o cenário de não-mutação.** Ele
+   usava `toHaveLength(antes.length)`, que é contagem. Passa a comparar
+   **conjuntos de ids** antes e depois. Sem exceção: a regra fica inteira.
+5. **Nada de `as Driver` no código final.** `const d: Driver = { ... }`, para o
+   `tsc` cobrar cada operação que faltar.
+6. **A correspondência `driver.ts` ↔ portas é guarda estrutural, não prova
+   semântica.** Ela impede o driver de ganhar vocabulário próprio; não prova que
+   as operações significam a mesma coisa. **A prova semântica são os cenários** —
+   registrar assim no documento final.
+7. **Checkpoints por bloco:** T1–T3, T4–T6, T7–T9, T10.
+
+---
+
 ## Restrições globais desta fase
 
 Um revisor rejeita a tarefa que violar qualquer uma.
@@ -86,6 +115,10 @@ Um revisor rejeita a tarefa que violar qualquer uma.
 - **Nenhum cenário menciona `localStorage`, `window`, `dispatchEvent`,
   `renderHook`, `act`, nem chave de armazenamento.**
 - **Nenhum cenário afirma ordem de array** a menos que o domínio defina a ordem.
+  Isso inclui indexar por posição: `[0]` é proibido em `cenarios.ts`, mesmo sobre
+  um array já filtrado. Use `unico(array, contexto)`.
+- **Nenhum identificador aleatório.** Contador determinístico por mundo — uma
+  falha de contrato tem de reproduzir para ser depurável na Fase 5.
 - **Nenhum cenário assume escrita síncrona.** Tudo é `await`.
 - **Nenhum cenário afirma contagem total** de workspace, conceito ou aprovação —
   só sobre o que ele próprio criou.
@@ -246,6 +279,12 @@ describe('o Driver é derivado das portas, não do adaptador', () => {
   it('cada operação do Driver corresponde a uma operação de porta', () => {
     // A tautologia que este teste impede: o Driver ganhar um método que nenhuma
     // porta tem, e o "contrato" passar a descrever o harness em vez do domínio.
+    //
+    // **É guarda ESTRUTURAL, não prova semântica.** Ela garante que o Driver não
+    // ganha vocabulário próprio; não garante que `renomearItem` signifique a
+    // mesma coisa dos dois lados. Uma correspondência textual não tem como saber
+    // isso. A prova semântica são os cenários, e só quando rodarem contra os dois
+    // adaptadores — o que só acontece na Fase 5.
     const driver = readFileSync(join(AQUI, 'driver.ts'), 'utf8');
     const portas = ['workspaces', 'concepts', 'syllabus', 'approvals']
       .map((n) => readFileSync(join(PORTAS, `${n}.ts`), 'utf8')).join('\n');
@@ -321,15 +360,19 @@ import type { Driver, MundoDeTeste } from './driver';
  * `Driver` sobre o adaptador local. **O único arquivo do harness que sabe que o
  * local é React** — nenhum cenário importa daqui.
  *
- * Cada mundo usa um `userId` próprio, e não uma limpeza global: os hooks são
- * indexados por usuário, então um id novo é um mundo vazio de verdade, sem
- * depender de ordem de execução entre arquivos de teste.
+ * **O isolamento é o `userId`, não uma limpeza de armazenamento.** Os hooks são
+ * indexados por usuário, então um id novo já é um mundo vazio. `localStorage.clear()`
+ * seria pior que redundante: `local.test.ts` e `lentidao.test.ts` rodam no mesmo
+ * pacote, e um limparia o mundo do outro no meio da execução — falha intermitente,
+ * dependente de ordem, do tipo mais caro de diagnosticar.
+ *
+ * O contador é deterministico de propósito: uma falha de contrato precisa
+ * reproduzir para ser depurável quando o driver de API chegar.
  */
 let proximoUsuario = 0;
 
 export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
-  const userId = `contrato-${proximoUsuario++}`;
-  localStorage.clear();
+  const userId = `contrato-${++proximoUsuario}`;
 
   // Um render por hook. `recarregar` desmonta tudo e monta de novo — que é
   // exatamente "parei de olhar e voltei a olhar".
@@ -349,9 +392,8 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
       montado = montar(userId);
     },
     // (restante das operações omitido aqui por brevidade do plano — o
-    //  implementador escreve todas as declaradas em `driver.ts`; a Tarefa 3
-    //  falha imediatamente se alguma faltar)
-  } as Driver;
+    //  implementador escreve todas as declaradas em `driver.ts`)
+  };
 
   return { driver: d, async encerrar() { cleanup(); } };
 };
@@ -359,10 +401,12 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
 
 > **Nota ao implementador.** Este é o único lugar do plano com código abreviado, e
 > é deliberado: as operações restantes são mecânicas e a assinatura de cada uma já
-> está fixada em `driver.ts`. Escreva **todas**; `as Driver` sai assim que o
-> objeto estiver completo, e o `tsc` passa a cobrar o que faltar. **Não deixe o
-> `as Driver` no código final** — ele existe só para o arquivo compilar enquanto
-> você preenche.
+> está fixada em `driver.ts`.
+>
+> **`const d: Driver = { ... }`, nunca `as Driver`.** A anotação faz o `tsc`
+> cobrar cada operação que faltar; o cast faria o oposto — silenciaria exatamente
+> o erro que se quer ouvir. Enquanto o objeto está incompleto o arquivo não
+> compila, e isso é o comportamento desejado.
 
 - [ ] **Passo 2: teste de fumaça**
 
@@ -407,6 +451,31 @@ import type { Driver } from './driver';
 
 /** Um cenário: o que o usuário fez, e o que o domínio deve dizer depois. */
 export type Cenario = { nome: string; roda(d: Driver): Promise<void> };
+
+/**
+ * O único elemento de um array que deveria ter exatamente um.
+ *
+ * Existe para que nenhum cenário escreva `portugues[0]`. Indexar por posição
+ * afirma ordem sem dizer que afirma — e ordem é a primeira coisa que muda quando
+ * a leitura passa a vir de um `select` sem `order by`. Aqui a intenção fica
+ * explícita, e um array com zero ou dois elementos falha com o contexto no texto,
+ * em vez de afirmar silenciosamente sobre `undefined`.
+ */
+export function unico<T>(itens: readonly T[], contexto: string): T {
+  if (itens.length !== 1) {
+    throw new Error(`esperava exatamente 1 em "${contexto}", veio ${itens.length}`);
+  }
+  return itens[0];
+}
+
+/** Ids ordenados — a forma de comparar duas leituras sem afirmar ordem. */
+export function ids(itens: readonly { id: string }[]): string[] {
+  return itens.map((i) => i.id).sort();
+}
+
+export function idsDeItens(s: { items: readonly { id: string }[] }): string[] {
+  return ids(s.items);
+}
 
 export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
   return {
@@ -579,10 +648,15 @@ Acrescentar a `CENARIOS`. Cada um: agir, `recarregar`, afirmar.
     // ...e nada foi gravado. `recarregar` é o que torna isto uma afirmação sobre
     // o SISTEMA e não sobre memória: se `preverExtracao` tivesse gravado, o
     // estado voltaria diferente.
+    //
+    // Compara CONJUNTOS DE IDS, não contagens. Contagem seria a mesma regra que
+    // este plano proíbe em toda parte, e mais fraca por dois motivos: passaria se
+    // um item fosse trocado por outro, e no caso dos conceitos ainda herdaria o
+    // problema da Descoberta 2 — o "antes" já não é vazio.
     await d.recarregar();
-    expect((await d.lerSyllabus('w-prev')).items).toHaveLength(antesSyllabus.items.length);
-    expect(await d.lerConceitos()).toHaveLength(antesConceitos.length);
-    expect(await d.lerAprovacoes()).toHaveLength(antesAprovacoes.length);
+    expect(ids(await d.lerConceitos())).toEqual(ids(antesConceitos));
+    expect(ids(await d.lerAprovacoes())).toEqual(ids(antesAprovacoes));
+    expect(idsDeItens(await d.lerSyllabus('w-prev'))).toEqual(idsDeItens(antesSyllabus));
   },
 },
 {
@@ -692,12 +766,15 @@ Sem este passo o cenário mais importante da fase poderia estar afirmando o que 
     await d.recarregar();
 
     const s = await d.lerSyllabus('w-dedup');
-    const portugues = s.items.filter((i) => i.sourceLabel === 'Português');
-    expect(portugues).toHaveLength(1);
+    // `unico` afirma "exatamente um" e devolve esse um — a deduplicação é a
+    // afirmação, não um passo intermediário.
+    const portugues = unico(
+      s.items.filter((i) => i.sourceLabel === 'Português'),
+      'itens rotulados Português',
+    );
     // A deduplicação vive na CARDINALIDADE das ligações — é a espinha do §2.3
     // do spec, e vale para os dois adaptadores.
-    const ligacoes = s.links.filter((l) => l.syllabusItemId === portugues[0].id);
-    expect(new Set(ligacoes.map((l) => l.cargoId))).toEqual(new Set(['c1', 'c2']));
+    expect(new Set(cargosDe(s, portugues.id))).toEqual(new Set(['c1', 'c2']));
   },
 },
 {
@@ -743,9 +820,11 @@ Sem este passo o cenário mais importante da fase poderia estar afirmando o que 
     // O item original continua ligado a c1...
     expect(cargosDe(s, itemId)).toEqual(['c1']);
     // ...e c2 continua tendo o tópico, por outro item.
-    const deC2 = s.links.filter((l) => l.cargoId === 'c2').map((l) => l.syllabusItemId);
-    expect(deC2).toHaveLength(1);
-    expect(deC2[0]).not.toBe(itemId);
+    const deC2 = unico(
+      s.links.filter((l) => l.cargoId === 'c2').map((l) => l.syllabusItemId),
+      'itens ligados a c2 depois da separação',
+    );
+    expect(deC2).not.toBe(itemId);
   },
 },
 {
@@ -771,11 +850,22 @@ function cargosDe(s: Syllabus, itemId: string): string[] {
   return s.links.filter((l) => l.syllabusItemId === itemId).map((l) => l.cargoId).sort();
 }
 
-/** Monta o arranjo mínimo e devolve o que o cenário precisa nomear. */
+/**
+ * Monta o arranjo mínimo e devolve o que o cenário precisa nomear.
+ *
+ * O contador é deterministico: `Math.random()` daria um slug diferente a cada
+ * execução, e uma falha de contrato que não reproduz é exatamente a que vai
+ * custar caro de depurar quando o driver de API existir.
+ *
+ * Ele pode ser um contador de módulo porque cada cenário roda num mundo próprio
+ * — não há como dois cenários disputarem o mesmo slug.
+ */
+let proximoArranjo = 0;
+
 async function umSyllabusComUmItem(
   d: Driver, cargoIds: string[] = ['c1'],
 ): Promise<{ slug: string; itemId: string }> {
-  const slug = `w-${Math.random().toString(36).slice(2, 8)}`;
+  const slug = `w-syl-${++proximoArranjo}`;
   await d.criarWorkspace(umWorkspace({
     slug,
     cargos: [
@@ -996,11 +1086,26 @@ describe('nenhum cenário conhece o adaptador', () => {
   });
 
   it('nenhum cenário indexa array por posição', () => {
-    // `items[0]` afirma ordem, e ordem é a primeira coisa que muda quando a
-    // leitura passa a vir de um `select` sem `order by`.
-    // Exceção: destructuring nomeado e `.find(...)` — estes não são indexação.
-    const indexacoes = [...FONTE.matchAll(/\.(items|links|concepts|cargos|sourceBlocks)\[\d+\]/g)];
-    expect(indexacoes.map((m) => m[0])).toEqual([]);
+    // Indexar por posição afirma ordem sem dizer que afirma, e ordem é a primeira
+    // coisa que muda quando a leitura passa a vir de um `select` sem `order by`.
+    //
+    // A primeira versão desta guarda era fraca: casava `.items[0]` mas não
+    // `portugues[0]` nem `deC2[0]` — que eram justamente as formas que os
+    // cenários usavam. Filtrar antes não salva: um array de tamanho 1 hoje é um
+    // array de tamanho 2 amanhã, e `[0]` continuaria verde afirmando sobre o
+    // primeiro de dois.
+    //
+    // Agora a proibição é qualquer `[<número>]`, e o caminho autorizado é
+    // `unico(...)`, que falha alto quando o array não tem exatamente um.
+    const indexacoes = [...FONTE.matchAll(/\[\s*\d+\s*\]/g)].map((m) => m[0]);
+    expect(indexacoes).toEqual([]);
+  });
+
+  it('os cenários usam o caminho autorizado no lugar da indexação', () => {
+    // Sem isto, a proibição acima ficaria verde num arquivo que simplesmente
+    // parou de verificar unicidade — proibir sem oferecer saída empurra para a
+    // asserção mais fraca, não para a mais forte.
+    expect(FONTE).toMatch(/\bunico\(/);
   });
 });
 ```
@@ -1010,6 +1115,14 @@ describe('nenhum cenário conhece o adaptador', () => {
 Para cada agulha, inserir temporariamente a string em `cenarios.ts` (dentro de um
 comentário basta — a varredura é textual), confirmar o teste correspondente
 **vermelho**, remover. Registrar os 7 nomes no relatório.
+
+Para a guarda de indexação, a reversão é diferente e precisa ser feita **em código
+real, não em comentário**: trocar um `unico(xs, '...')` por `xs[0]` num cenário e
+confirmar que `nenhum cenário indexa array por posição` fica vermelho. Depois
+remover o `unico` de `cenarios.ts` inteiro e confirmar que `os cenários usam o
+caminho autorizado` fica vermelho. São duas reversões, não uma: a primeira prova
+que a proibição pega, a segunda prova que ela não empurra para a asserção mais
+fraca.
 
 - [ ] **Passo 3: o driver lento**
 
@@ -1119,6 +1232,21 @@ Seções obrigatórias:
      adaptador de API o implementaria).
 
 - [ ] **Passo 3: commit** — `docs: documento de verificacao da Fase 4`
+
+---
+
+# Checkpoints
+
+Quatro paradas, para que um defeito de forma não atravesse a fase inteira antes
+de aparecer. Em cada uma: portão do pacote verde e relato do que as reversões
+mediram.
+
+| Bloco | Tarefas | O que está pronto ao parar |
+|---|---|---|
+| 1 | T1–T3 | `Driver`, driver local e o primeiro cenário rodando de ponta a ponta. **É aqui que a forma da fase se confirma ou se refaz** — se o driver sobre hooks não funcionar, o barato é descobrir com um cenário, não com vinte. |
+| 2 | T4–T6 | Workspace, cargos, edital e syllabus — 13 cenários. |
+| 3 | T7–T9 | Conceitos, aprovações e as guardas do harness — 20 cenários, contra dois drivers. |
+| 4 | T10 | Portão nos três fusos e documento de verificação. |
 
 ---
 
