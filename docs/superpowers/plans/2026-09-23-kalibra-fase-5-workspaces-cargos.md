@@ -84,6 +84,37 @@ omissão.
 
 ---
 
+## Ajustes do revisor, antes da implementação
+
+Doze, todos aceitos. Os quatro abaixo mudam tarefa concreta; os outros confirmam
+o que o plano já dizia e viram critério cobrável.
+
+1. **`progress` (§3 do revisor).** Se algum teste ou tela antiga esperar
+   `progress`, **o ajuste é no contrato ou no adaptador local — nunca o backend
+   inventando o campo**. Um valor de progresso sem dado de estudo é exatamente a
+   segunda representação que a Fase 2 eliminou.
+2. **Guarda de codegen (§5).** A ideia do diretório temporário é frágil: o Orval
+   escreve em caminhos fixos do `orval.config.ts`. **Trocada por `git diff
+   --exit-code` sobre os dois diretórios gerados**, depois de rodar o codegen —
+   mais simples, e falha exatamente quando alguém edita o gerado à mão.
+3. **Segunda guarda do subconjunto (§6).** Provar que ninguém marcou um cenário
+   com módulo extra para escapar é difícil por análise textual. **Se ficar frágil,
+   parar e trazer em vez de fingir garantia** — o precedente é o driver lento da
+   Fase 4, que foi rebaixado em vez de inflado.
+4. **Postgres real (§12).** No documento final, **"verificado manualmente" ou
+   "não verificado", sem meio-termo.** A fase não depende dele para codar nem
+   testar.
+
+**Ressalva de escopo do revisor, registrada:** o **Bloco D é o mais arriscado** —
+mistura adaptador, React Query, testes de tela, servidor real por arquivo e proxy.
+Se a medição do D3 mostrar quebra grande, **não terminar em silêncio**: parar e
+trazer o custo real.
+
+**Primeiro checkpoint: fim do Bloco A** — `SourceMode` em `lib/core`,
+`source_mode` como enum, OpenAPI gerado e guarda de codegen funcionando.
+
+---
+
 ## Restrições globais desta fase
 
 - **`userId` vem só da sessão validada.** Nunca de `body`, `query` ou `path`.
@@ -223,6 +254,13 @@ Workspace:
 estudo para computá-lo, e inventá-lo aqui recriaria a segunda representação que
 aquela fase eliminou. Volta quando houver diagnóstico.
 
+**Se um teste ou tela antiga esperar `progress`, o ajuste é no contrato ou no
+adaptador local — nunca o backend inventando o campo.** O caminho fácil seria
+devolver `0` e seguir, e é exatamente assim que um número inventado chega à
+interface parecendo medição. O adaptador de API devolve o que a API devolve; se a
+tela precisa de um valor para renderizar, quem decide o valor de ausência é a
+tela, e isso fica visível no diff dela.
+
 - [ ] **Passo 2: caminhos.** Os quatro de workspace e os três de cargo, com
   `operationId` em camelCase (`listWorkspaces`, `createWorkspace`,
   `getWorkspace`, `patchWorkspace`, `createCargo`, `patchCargo`, `deleteCargo`).
@@ -233,10 +271,28 @@ aquela fase eliminou. Volta quando houver diagnóstico.
 - [ ] **Passo 5:** conferir que `lib/api-zod/src/generated` e
   `lib/api-client-react/src/generated` ganharam os schemas e hooks, e que o
   `git diff` deles é **só** gerado — nenhuma edição à mão.
-- [ ] **Passo 6: teste de não-divergência.** Um teste que falha se
-  `src/generated` estiver fora de data em relação ao YAML: roda o codegen num
-  diretório temporário e compara. Sem ele, alguém edita o gerado à mão e o "fonte
-  única" vira duas cópias.
+- [ ] **Passo 6: guarda de "o gerado está atualizado".**
+
+O plano original propunha rodar o codegen num diretório temporário e comparar. **O
+revisor apontou a fragilidade, e ela é real:** o Orval escreve nos caminhos fixos
+do `orval.config.ts` (`lib/api-zod/src`, `lib/api-client-react/src`), então
+redirecioná-lo exigiria montar um workspace espelho — muita máquina para pouca
+garantia, e máquina que quebra por conta própria.
+
+**Trocado por:** rodar o codegen e exigir que a árvore fique limpa.
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+git diff --exit-code -- lib/api-zod/src/generated lib/api-client-react/src/generated
+```
+
+Falha exatamente quando o gerado não corresponde ao YAML — seja porque alguém
+editou à mão, seja porque esqueceu de regenerar. É o mesmo padrão que a Fase 2 já
+usa com `drizzle-kit generate` reportando "No schema changes".
+
+Entra como passo do portão (Tarefa E3), **não** como teste do `vitest`: o vitest
+não tem por que invocar um gerador de código, e um teste que roda `orval` seria
+lento e frágil em toda execução da suíte.
 - [ ] **Passo 7: commit** — `feat: openapi de workspaces e cargos, com Orval regenerado`
 
 ---
@@ -384,16 +440,34 @@ it('a API roda exatamente os cenários dos módulos migrados — nem um a menos'
 });
 ```
 
-- [ ] **Passo 4:** e a guarda contra o caminho inverso — marcar um cenário com
-  módulo que ele não usa, para se livrar dele:
+- [ ] **Passo 4: a guarda do caminho inverso — marcar um cenário com módulo que
+  ele não usa, para se livrar dele.**
+
+Um cenário marcado `'syllabus'` sem tocar syllabus ficaria fora da API para
+sempre, sem ninguém notar. A guarda tem de conferir a **declaração** contra as
+operações que o corpo do cenário de fato chama.
+
+**Abordagem, em ordem de preferência.** A primeira é estrutural e não textual:
+envolver o `Driver` entregue ao cenário num `Proxy` que **registra quais
+operações foram chamadas**, e comparar o conjunto de módulos daí derivado com o
+declarado. É execução, não leitura — o mesmo mecanismo do contador de acessos ao
+banco da Fase 3.
 
 ```ts
-it('nenhum cenário declara módulo que não exercita', () => {
-  // Um cenário marcado 'syllabus' sem tocar syllabus ficaria fora da API para
-  // sempre, sem ninguém notar. Confere a declaração contra as operações que o
-  // corpo do cenário de fato chama.
+// Mapa operação → módulo, uma linha por método do Driver.
+const MODULO_DA_OPERACAO: Record<string, Modulo> = { criarWorkspace: 'workspaces', /* … */ };
+
+it('a declaração de módulos bate com as operações realmente chamadas', async () => {
+  // roda cada cenário contra o driver local com o Proxy espião,
+  // e compara `new Set(modulosObservados)` com `new Set(cenario.modulos)`
 });
 ```
+
+> **Parada, se necessário.** O revisor pediu explicitamente: *"se ficar frágil
+> demais, para e traz antes de fingir garantia"*. O precedente é o driver lento da
+> Fase 4 — rebaixado no documento em vez de inflado. Se o espião não discriminar
+> de verdade, a saída é registrar a guarda como não provada, **não** ajustá-la até
+> ficar verde.
 
 - [ ] **Passo 5: rodar** — 5 cenários contra a API, 20 contra o local, 20 contra
   o lento.
@@ -503,8 +577,11 @@ it('nenhum cenário declara módulo que não exercita', () => {
 - [ ] **Passo 4: provar load-bearing.** Acrescentar temporariamente
   `VITE_SEGREDO_DE_TESTE` com um dos valores plantados e usá-lo num componente:
   a varredura fica **vermelha**. Reverter.
-- [ ] **Passo 5:** teste estrutural — nenhuma variável `VITE_` além da chave
-  publicável e do `VITE_CLERK_PROXY_URL` é referenciada no frontend.
+- [ ] **Passo 5:** teste estrutural — **as únicas variáveis `VITE_` referenciadas
+  no frontend são `VITE_CLERK_PUBLISHABLE_KEY` e `VITE_CLERK_PROXY_URL`**, esta
+  segunda só enquanto o proxy do Clerk herdado do Replit ainda for necessário.
+  Qualquer terceira reprova o teste, que é o ponto: o prefixo `VITE_` é o que faz
+  o Vite embutir o valor no bundle, e ninguém decide isso de propósito.
 - [ ] **Passo 6: commit**
 
 ### Tarefa E2 — Remover `/api/me` e `/api/users/:id`
@@ -580,6 +657,20 @@ automatizada**. Nenhum teste desta fase depende disso.
 **verificação manual de fumaça** ao final — criar um workspace pelo app, conferir
 que a linha existe, e registrar como conferido à mão. Montar CI contra Postgres é
 outra fase, e depende de decisões de deploy que estão fora de escopo.
+
+**A fase não depende disso para codar nem testar.** Se o `.env` não existir
+quando o Bloco E chegar, a fase fecha mesmo assim.
+
+**Sem meio-termo no documento final.** O documento escreve uma das duas frases,
+literalmente:
+
+- **"Postgres real: verificado manualmente"** — com o que foi feito e o que foi
+  observado; ou
+- **"Postgres real: não verificado"**.
+
+Nada entre as duas. "Parcialmente", "deve funcionar" ou "não houve motivo para
+suspeitar" são as formas de uma lacuna virar garantia sem que ninguém decida por
+isso.
 
 ---
 
