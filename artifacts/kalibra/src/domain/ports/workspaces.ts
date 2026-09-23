@@ -1,8 +1,9 @@
-import type {
+import type {
   WeeklyAvailability,
-  WorkspaceStatus,
-  ExtractionOutput,
-  CargoTextBlock,
+  SourceMode,
+  WorkspaceStatus,
+  ExtractionOutput,
+  CargoTextBlock,
 } from '@workspace/core';
 
 /**
@@ -19,7 +20,12 @@ import type {
  * As assinaturas aqui são **as de hoje**. Torná-las assíncronas é a Fase 1B.
  */
 
-export type SourceMode = 'file' | 'text' | 'none';
+/**
+ * `SourceMode` vive em `@workspace/core` desde a Fase 5. A porta continua
+ * exportando o nome — o que mudou é a origem: `lib/db` também precisa dele para
+ * declarar o `pgEnum`, e o banco não pode importar da aplicação.
+ */
+export type { SourceMode } from '@workspace/core';
 export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
 
 export interface Cargo {

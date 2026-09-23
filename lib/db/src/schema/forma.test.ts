@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from 'drizzle-orm';
 import {
   WORKSPACE_STATUSES, CONCEPT_STATUSES, CONCEPT_KINDS,
-  APPROVAL_TYPES, APPROVAL_STATUSES,
+  APPROVAL_TYPES, APPROVAL_STATUSES, SOURCE_MODES,
 } from '@workspace/core';
 import { createTestDb, type TestDb } from '../test/pglite';
 
@@ -32,16 +32,14 @@ async function valoresDoEnum(nome: string): Promise<string[]> {
 
 describe('anti-deriva: os enums do banco batem com lib/core', () => {
   /**
-   * Os cinco enums que pertencem ao contrato compartilhado — os que `lib/core`
+   * Os seis enums que pertencem ao contrato compartilhado — os que `lib/core`
    * declara e o banco materializa.
    *
-   * `source_mode` NÃO está aqui, de propósito: é `text` no banco, e seus valores
-   * vivem hoje em `artifacts/kalibra/src/domain/ports`. `lib/db` não pode importar
-   * da aplicação — seria inverter a dependência, uma lib passando a depender de um
-   * app. Promover `SourceMode` para `lib/core` e transformá-lo em `pgEnum` é
-   * trabalho da fase que migra o módulo de workspaces, onde o contrato da API
-   * precisa desses valores de qualquer forma. Registrado no documento de
-   * verificação.
+   * `source_mode` entrou na Fase 5. Até então ficava de fora com uma nota
+   * explicando que era `text` porque `SourceMode` morava em `domain/ports` e
+   * `lib/db` não pode importar da aplicação. Com o tipo promovido a `lib/core`, a
+   * exceção deixou de existir — e a nota saiu junto, para não restar dívida
+   * fantasma descrevendo um estado que não é mais o do código.
    */
   const CASOS: ReadonlyArray<[string, readonly string[]]> = [
     ['workspace_status', WORKSPACE_STATUSES],
@@ -49,6 +47,7 @@ describe('anti-deriva: os enums do banco batem com lib/core', () => {
     ['concept_kind', CONCEPT_KINDS],
     ['approval_type', APPROVAL_TYPES],
     ['approval_status', APPROVAL_STATUSES],
+    ['source_mode', SOURCE_MODES],
   ];
 
   it.each(CASOS)('%s tem exatamente os valores de lib/core', async (nomeNoBanco, deLibCore) => {
@@ -57,7 +56,7 @@ describe('anti-deriva: os enums do banco batem com lib/core', () => {
     expect([...noBanco].sort()).toEqual([...deLibCore].sort());
   });
 
-  it('os cinco enums existem no banco — a lista de casos não pode silenciosamente encolher', async () => {
+  it('os seis enums existem no banco — a lista de casos não pode silenciosamente encolher', async () => {
     const { rows } = await db.execute<{ n: number }>(sql`
       select count(distinct t.typname)::int as n
       from pg_type t join pg_enum e on e.enumtypid = t.oid

@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, boolean, integer, date, jsonb, timestamp, unique } from 'drizzle-orm/pg-core';
 import type { WeeklyAvailability } from '@workspace/core';
 import { appUser } from './app-user';
-import { workspaceStatusEnum } from './enums';
+import { workspaceStatusEnum, sourceModeEnum } from './enums';
 
 /**
  * Um concurso, prova ou objetivo de estudo.
@@ -31,14 +31,7 @@ export const workspace = pgTable('workspace', {
   /** `{days:[{weekday,minutes}], maxSessionMinutes}` — sem FK, sempre lida inteira, já validada por `lib/core`. */
   availability: jsonb('availability').$type<WeeklyAvailability>().notNull(),
   status: workspaceStatusEnum('status').notNull(),
-  /**
-   * Texto e não enum: os valores de `SourceMode` vivem hoje em
-   * `artifacts/kalibra/src/domain/ports`, e `lib/db` não pode importar da aplicação
-   * — seria inverter a dependência. Movê-los para `lib/core` é o conserto certo e
-   * pertence à fase que migra o módulo de workspaces, onde o contrato da API
-   * precisa deles de qualquer forma.
-   */
-  sourceMode: text('source_mode').notNull().default('text'),
+  sourceMode: sourceModeEnum('source_mode').notNull().default('text'),
   sourceFileName: text('source_file_name'),
   active: boolean('active').notNull().default(true),
   /** `If-Match` das operações destrutivas de documento inteiro. Por workspace, não por documento. */
