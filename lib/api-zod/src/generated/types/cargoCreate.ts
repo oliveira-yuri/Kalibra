@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface CargoCreate {
+  /** @minLength 1 */
+  name: string;
+  examDate?: Date | null;
+  period?: string | null;
 }
