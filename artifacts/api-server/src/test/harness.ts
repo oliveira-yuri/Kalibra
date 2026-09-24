@@ -1,4 +1,7 @@
 import { createServer, request as requisicaoHttp, type Server } from 'node:http';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
@@ -20,7 +23,28 @@ import type { Db } from '@workspace/db';
  * ataque.
  */
 
-const MIGRATIONS = new URL('../../../../lib/db/migrations', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+/**
+ * Sobe a árvore procurando `lib/db/migrations`.
+ *
+ * Era um caminho relativo fixo, e quebrou assim que o harness passou a ser
+ * importado de FORA deste pacote: o driver de contrato o alcança por
+ * `@workspace/api-server`, que o pnpm resolve por link simbólico, e aí subir
+ * quatro níveis chega a `node_modules/@workspace/` em vez da raiz. Procurar é
+ * imune a como o módulo foi alcançado.
+ */
+function acharMigrations(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 12; i += 1) {
+    const candidato = join(dir, 'lib', 'db', 'migrations');
+    if (existsSync(join(candidato, 'meta', '_journal.json'))) return candidato;
+    const acima = dirname(dir);
+    if (acima === dir) break;
+    dir = acima;
+  }
+  throw new Error('não encontrei lib/db/migrations subindo a partir do harness');
+}
+
+const MIGRATIONS = acharMigrations();
 
 /**
  * `clerkMiddleware()` CONSTRÓI sem segredo, mas LANÇA ao atender a primeira

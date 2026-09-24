@@ -5,8 +5,14 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
 }
 
+// O setup roda para TODO arquivo do pacote, inclusive os poucos marcados
+// `@vitest-environment node` — o contrato contra a API sobe um servidor de
+// verdade e PGlite não funciona sob jsdom. Sem esta guarda, aqueles arquivos
+// morriam em `window is not defined` antes de rodar qualquer teste.
+const temDom = typeof window !== 'undefined';
+
 // Radix e o hook use-mobile leem matchMedia; jsdom não implementa.
-if (!window.matchMedia) {
+if (temDom && !window.matchMedia) {
   window.matchMedia = (query: string) => ({
     matches: false,
     media: query,

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { CENARIOS, type Modulo } from './cenarios';
+import { cenariosPara } from './runner';
+import { MODULOS_MIGRADOS } from './api-driver';
 import { join } from 'node:path';
 
 const AQUI = __dirname;
@@ -137,5 +140,60 @@ describe('nenhum cenário conhece o adaptador', () => {
     // comparar conjuntos de ids, que ainda pega troca de registro — coisa que
     // tamanho igual deixaria passar.
     expect(FONTE).not.toMatch(/toHaveLength/);
+  });
+});
+
+/**
+ * O subconjunto de cenários que roda contra a API.
+ *
+ * O mecanismo é necessário — na Fase 5 a API tem dois módulos — e é perigoso pelo
+ * mesmo motivo: "rodar um subconjunto" é exatamente como um cenário some sem
+ * ninguém notar. Estas duas guardas fecham os dois caminhos.
+ */
+describe('o subconjunto rodado contra a API não é uma omissão', () => {
+  /**
+   * Os cinco que a Fase 5 espera ver rodando contra a API, escritos à mão.
+   *
+   * Uma lista literal é melhor que derivar de novo das etiquetas: derivar
+   * compararia o filtro contra ele mesmo. Escrita assim, TIRAR um cenário da API
+   * exige editar esta lista — uma linha visível no diff, em vez de uma etiqueta
+   * discretamente alterada lá em cima.
+   */
+  const ESPERADOS_NA_API = [
+    'workspace criado sobrevive a recarregar',
+    'atualizar um workspace não cria outro',
+    'atualizar um workspace não afeta outro',
+    'trocar o cargo selecionado persiste, e os dois cargos continuam existindo',
+    'o cargo padrão tem a data da prova pedida',
+  ];
+
+  it('os módulos migrados derivam EXATAMENTE os cenários esperados', () => {
+    const derivados = cenariosPara(MODULOS_MIGRADOS).map((c) => c.nome);
+    expect(derivados.length).toBeGreaterThan(0);
+    expect(new Set(derivados)).toEqual(new Set(ESPERADOS_NA_API));
+  });
+
+  it('api.test.ts limita por módulo; local.test.ts NÃO limita', () => {
+    // A verificação de que o runner é chamado do jeito certo. Cada arquivo do
+    // vitest tem seu próprio grafo de módulos, então um registro preenchido em
+    // `api.test.ts` não é visível daqui — a conferência do que de fato rodou vive
+    // lá dentro, onde o registro é real.
+    const api = readFileSync(join(AQUI, 'api.test.ts'), 'utf8');
+    const local = readFileSync(join(AQUI, 'local.test.ts'), 'utf8');
+
+    expect(api).toMatch(/rodarContrato\([^)]*MODULOS_MIGRADOS/s);
+    // Sem terceiro argumento: o local roda todos, e um dia que alguém o limitasse
+    // perderíamos o lado que ainda enxerga os vinte.
+    expect(local).not.toMatch(/MODULOS_MIGRADOS|modulos/);
+  });
+
+  it('todo módulo declarado existe, e todo cenário declara pelo menos um', () => {
+    const conhecidos = new Set<Modulo>([
+      'workspaces', 'cargos', 'edital', 'syllabus', 'concepts', 'approvals',
+    ]);
+    for (const cenario of CENARIOS) {
+      expect(cenario.modulos.length).toBeGreaterThan(0);
+      for (const modulo of cenario.modulos) expect(conhecidos.has(modulo)).toBe(true);
+    }
   });
 });
