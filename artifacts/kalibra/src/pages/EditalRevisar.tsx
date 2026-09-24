@@ -532,19 +532,13 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
       // criar e atualizar, não mais só `pending.isNew` — cobre o caso de a criação ainda
       // não ter acontecido, venha o rascunho de onde vier.
       if (workspaceDraft && !workspaceExists) {
-        await addWorkspace({
-          ...workspaceDraft,
-          importStatus: 'completed',
-          status,
-          nextAction: nextActionFor(status),
-        });
+        // `importStatus` e `nextAction` saíram daqui na Fase 5: são computados na
+        // leitura a partir do `status`, e escrevê-los criaria a segunda
+        // representação que o §2.8 eliminou. Gravar o status é o suficiente — os
+        // dois derivam dele.
+        await addWorkspace({ ...workspaceDraft, status });
       } else {
-        await updateWorkspace(workspaceSlug, {
-          ...(pending?.updates || {}),
-          importStatus: 'completed',
-          status,
-          nextAction: nextActionFor(status),
-        });
+        await updateWorkspace(workspaceSlug, { ...(pending?.updates || {}), status });
       }
       clearPendingWorkspaceImport(workspaceSlug, user?.id);
       setLocation('/edital');

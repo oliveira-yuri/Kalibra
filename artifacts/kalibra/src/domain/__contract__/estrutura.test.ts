@@ -49,7 +49,7 @@ describe('o Driver é derivado das portas, não do adaptador', () => {
       criarWorkspace: 'addWorkspace',
       atualizarWorkspace: 'updateWorkspace',
       lerWorkspace: 'workspaces',
-      cargoPadrao: 'defaultCargo',
+      selecionarCargo: 'selectCargo',
       proximaVersaoDeEdital: 'nextSyllabusVersionFor',
       lerSyllabus: 'syllabus',
       salvarSyllabus: 'save',
@@ -164,7 +164,11 @@ describe('o subconjunto rodado contra a API não é uma omissão', () => {
     'atualizar um workspace não cria outro',
     'atualizar um workspace não afeta outro',
     'trocar o cargo selecionado persiste, e os dois cargos continuam existindo',
-    'o cargo padrão tem a data da prova pedida',
+    // "o cargo padrão tem a data da prova pedida" saiu do harness na Fase 5.
+    // **Não foi cenário pulado — foi cenário REMOVIDO do contrato**, porque
+    // `defaultCargo` não pertence à porta: é regra pura, sem I/O, sessão, posse
+    // nem estado, e uma porta existe para o que tem duas implementações. A
+    // cobertura virou teste de `lib/core`.
   ];
 
   it('os módulos migrados derivam EXATAMENTE os cenários esperados', () => {

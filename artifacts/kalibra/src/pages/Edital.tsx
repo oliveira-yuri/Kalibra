@@ -118,7 +118,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   useEffect(() => {
     if (workspace?.status === 'extraindo_edital' && !isProcessing) {
       workspaceStatusRef.current = 'erro';
-      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+      updateWorkspace(workspaceSlug, { status: 'erro' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só reage a uma troca de status externa (herdada ou de outra aba), não a cada render.
   }, [workspace?.status, isProcessing]);
@@ -168,7 +168,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     // tela (Portal, WorkspaceStatusChip) enquanto a extração roda (Task 10).
     assertTransition(current, 'aguardando_upload');
     workspaceStatusRef.current = 'aguardando_upload';
-    updateWorkspace(workspaceSlug, { status: 'aguardando_upload', nextAction: nextActionFor('aguardando_upload') });
+    updateWorkspace(workspaceSlug, { status: 'aguardando_upload' });
 
     // Apurado AGORA — no início desta reimportação — para que a URL de revisão já
     // exista mesmo que a extração seja abandonada no meio.
@@ -190,7 +190,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     if (nextStatus === workspaceStatusRef.current) return;
     assertTransition(workspaceStatusRef.current, nextStatus);
     workspaceStatusRef.current = nextStatus;
-    updateWorkspace(workspaceSlug, { status: nextStatus, nextAction: nextActionFor(nextStatus) });
+    updateWorkspace(workspaceSlug, { status: nextStatus });
   }, [extraction.progress.stage, isProcessing, workspaceSlug]);
 
   // `extraindo_edital` só tem duas saídas válidas no grafo de `lib/core`:
@@ -203,7 +203,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
   // (erro -> aguardando_upload, aresta válida) volta a funcionar.
   useEffect(() => () => {
     if (workspaceStatusRef.current === 'extraindo_edital') {
-      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+      updateWorkspace(workspaceSlug, { status: 'erro' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só o cleanup de desmontagem importa; lê o ref mais recente, não o que a montagem capturou.
   }, []);
@@ -255,7 +255,7 @@ export function Edital({ workspaceSlug }: { workspaceSlug: string }) {
     extraction.cancel();
     if (workspaceStatusRef.current === 'extraindo_edital') {
       workspaceStatusRef.current = 'erro';
-      updateWorkspace(workspaceSlug, { status: 'erro', nextAction: nextActionFor('erro') });
+      updateWorkspace(workspaceSlug, { status: 'erro' });
     }
     setIsProcessing(false);
   };

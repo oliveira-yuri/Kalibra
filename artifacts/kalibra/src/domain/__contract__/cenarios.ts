@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import { emptyAvailability } from '@workspace/core';
 import type { ApprovalItem, ExtractionOutput, Syllabus } from '@workspace/core';
-import type { WorkspaceDraft } from '../ports';
+import type { WorkspaceEscrita } from '../ports';
 import type { Driver } from './driver';
 import { unico, ids, idsDeItens } from './auxiliares';
 
@@ -52,7 +52,7 @@ export type Cenario = {
   roda(d: Driver): Promise<void>;
 };
 
-export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
+export function umWorkspace(p: Partial<WorkspaceEscrita> = {}): WorkspaceEscrita {
   return {
     slug: 'w1',
     title: 'Concurso de teste',
@@ -60,7 +60,6 @@ export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
     type: 'Concurso Público',
     examDate: '2027-03-01',
     cargos: [{ id: 'c1', name: 'Cargo A', examDate: '2027-03-01' }],
-    selectedCargoId: 'c1',
     availability: emptyAvailability(),
     // O estado inicial de um workspace sem edital importado. `WorkspaceStatus`
     // vive em `lib/core` e é exaustivo por construção — inventar um valor aqui
@@ -68,9 +67,9 @@ export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
     status: 'sem_edital',
     sourceMode: 'none',
     sourceBlocks: [],
-    importStatus: 'pending',
-    progress: 0,
-    nextAction: '',
+    // `importStatus`, `progress`, `nextAction` e `selectedCargoId` NÃO entram: são
+    // computados na leitura, e mandá-los é o que a API recusa com 400. Foi a
+    // primeira divergência que este harness encontrou.
     active: true,
     ...p,
   };
@@ -147,7 +146,7 @@ async function umSyllabusComUmItem(
   cargoIds: string[] = ['c1'],
 ): Promise<{ slug: string; itemId: string }> {
   const slug = `w-syl-${++proximoArranjo}`;
-  await d.criarWorkspace(umWorkspace({ slug, cargos: doisCargos(), selectedCargoId: 'c1' }));
+  await d.criarWorkspace(umWorkspace({ slug, cargos: doisCargos() }));
   await d.adicionarItem(slug, null, 'Tópico base', cargoIds);
   await d.recarregar();
 
@@ -211,29 +210,27 @@ export const CENARIOS: Cenario[] = [
     nome: 'trocar o cargo selecionado persiste, e os dois cargos continuam existindo',
     modulos: ['workspaces', 'cargos'],
     async roda(d) {
-      await d.criarWorkspace(umWorkspace({
-        slug: 'w-cargo', cargos: doisCargos(), selectedCargoId: 'c1',
-      }));
-      await d.atualizarWorkspace('w-cargo', { selectedCargoId: 'c2' });
+      await d.criarWorkspace(umWorkspace({ slug: 'w-cargo', cargos: doisCargos() }));
+      await d.recarregar();
+
+      // Acha o cargo pelo NOME, não pelo id do fixture. Quem atribui id é cada
+      // adaptador — o local aceita o que o cliente mandou, a API gera o seu — e um
+      // cenário que afirmasse sobre 'c2' estaria afirmando sobre a implementação.
+      const antes = await d.lerWorkspace('w-cargo');
+      const cargoB = unico(
+        (antes?.cargos ?? []).filter((c) => c.name === 'Cargo B'),
+        'cargos chamados Cargo B',
+      );
+
+      await d.selecionarCargo('w-cargo', cargoB.id);
       await d.recarregar();
 
       const w = await d.lerWorkspace('w-cargo');
-      expect(w?.selectedCargoId).toBe('c2');
-      // Selecionar não é apagar. Conjunto, não posição: a ordem de `cargos` não é
-      // contrato, e afirmá-la quebraria contra uma leitura sem ordenação explícita.
-      expect(new Set((w?.cargos ?? []).map((c) => c.id))).toEqual(new Set(['c1', 'c2']));
-    },
-  },
-  {
-    nome: 'o cargo padrão tem a data da prova pedida',
-    modulos: ['cargos'],
-    async roda(d) {
-      const padrao = await d.cargoPadrao('2027-09-09');
-      expect(padrao.examDate).toBe('2027-09-09');
-      // Afirma FORMA, não o texto: "Cargo único" é escolha de produto do adaptador
-      // local, e outro adaptador poderia nomear diferente sem quebrar contrato.
-      expect(padrao.id).toBeTruthy();
-      expect(padrao.name).toBeTruthy();
+      expect(w?.selectedCargoId).toBe(cargoB.id);
+      // Selecionar não é apagar, e a seleção é EXCLUSIVA: os dois cargos continuam
+      // lá, e só um está escolhido.
+      expect(new Set((w?.cargos ?? []).map((c) => c.name)))
+        .toEqual(new Set(['Cargo A', 'Cargo B']));
     },
   },
 
@@ -291,7 +288,6 @@ export const CENARIOS: Cenario[] = [
       await d.criarWorkspace(umWorkspace({
         slug: 'w-blocos',
         cargos: doisCargos(),
-        selectedCargoId: 'c1',
         sourceMode: 'text',
         sourceBlocks: [
           { cargoId: null, text: 'Conteúdo comum a todos os cargos' },
@@ -316,7 +312,7 @@ export const CENARIOS: Cenario[] = [
     modulos: ['workspaces', 'cargos', 'edital', 'syllabus'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({
-        slug: 'w-dedup', cargos: doisCargos(), selectedCargoId: 'c1',
+        slug: 'w-dedup', cargos: doisCargos(),
       }));
       const proposta = await d.preverExtracao('w-dedup', umaExtracao({
         entries: [

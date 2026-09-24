@@ -89,8 +89,16 @@ const router: IRouter = Router();
 
 router.use(requireAuth);
 
-/** Os campos que o servidor computa. Recebê-los do cliente é erro, não ruído. */
-const DERIVADOS = ['nextAction', 'selectedCargoId', 'importStatus', 'version'] as const;
+/**
+ * Os campos que o servidor computa. Recebê-los do cliente é erro, não ruído.
+ *
+ * `progress` entrou na lista depois de o harness de contrato mostrar que ele
+ * passava DESPERCEBIDO: não estando no schema de escrita, o Zod o descartava em
+ * silêncio como chave desconhecida. Descartar e recusar parecem iguais do lado do
+ * servidor e são opostos do lado do cliente — um deixa quem chamou acreditando
+ * que escreveu.
+ */
+const DERIVADOS = ['nextAction', 'selectedCargoId', 'importStatus', 'version', 'progress'] as const;
 
 /**
  * Recusa campo derivado **antes** de validar a forma.

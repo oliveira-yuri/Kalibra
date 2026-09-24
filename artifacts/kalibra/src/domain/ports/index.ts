@@ -15,6 +15,7 @@ export type {
   ImportStatus,
   Cargo,
   WorkspaceDraft,
+  WorkspaceEscrita,
   PendingWorkspaceImport,
 } from './workspaces';
 

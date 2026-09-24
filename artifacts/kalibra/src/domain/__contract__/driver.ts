@@ -6,7 +6,7 @@ import type {
   Syllabus,
   SyllabusItemCargo,
 } from '@workspace/core';
-import type { Cargo, WorkspaceDraft } from '../ports';
+import type { WorkspaceDraft, WorkspaceEscrita } from '../ports';
 
 /**
  * A porta como um CENÁRIO a enxerga.
@@ -24,8 +24,9 @@ import type { Cargo, WorkspaceDraft } from '../ports';
  */
 export interface Driver {
   // ---- workspaces + cargos ----
-  criarWorkspace(w: WorkspaceDraft): Promise<void>;
-  atualizarWorkspace(slug: string, updates: Partial<WorkspaceDraft>): Promise<void>;
+  /** Escreve o que É escrevível — derivados ficam de fora (ver `WorkspaceEscrita`). */
+  criarWorkspace(w: WorkspaceEscrita): Promise<void>;
+  atualizarWorkspace(slug: string, updates: Partial<WorkspaceEscrita>): Promise<void>;
   /**
    * O workspace de `slug`, ou `null`. **Nunca a lista inteira**, de propósito:
    * o adaptador local devolve dois workspaces fictícios de demonstração quando a
@@ -33,7 +34,11 @@ export interface Driver {
    * cenário que pudesse pedir a lista acabaria afirmando sobre ela.
    */
   lerWorkspace(slug: string): Promise<WorkspaceDraft | null>;
-  cargoPadrao(examDate: string): Promise<Cargo>;
+  /**
+   * Escolhe o cargo ativo. **Operação, não escrita de campo** — `selectedCargoId`
+   * é derivado, e a Fase 5 descobriu que a tela o gravava como se fosse dado.
+   */
+  selecionarCargo(slug: string, cargoId: string): Promise<void>;
   proximaVersaoDeEdital(slug: string): Promise<number>;
 
   // ---- syllabus ----

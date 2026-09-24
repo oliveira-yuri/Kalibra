@@ -143,6 +143,16 @@ describe('POST /workspaces', () => {
     expect(corpo.selectedCargoId).toBe(corpo.cargos[0].id);
   });
 
+  it('progress também é recusado — descartar em silêncio não é recusar', async () => {
+    // Achado do harness de contrato: `progress` não estava na lista, e o Zod o
+    // descartava por ser chave desconhecida. Do lado do servidor descartar e
+    // recusar parecem iguais; do lado do cliente são opostos.
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/api/workspaces', json({ title: 'X', progress: 42 }));
+    expect(r.status).toBe(400);
+    expect(((await r.json()) as Problema).code).toBe('campo_derivado');
+  });
+
   it('campo derivado enviado pelo cliente é RECUSADO, não ignorado', async () => {
     h.entrarComo({ clerkUserId: 'clerk_a' });
     const r = await h.pedir('/api/workspaces', json({ title: 'X', version: 7 }));

@@ -87,7 +87,17 @@ export const criarDriverApi = async (): Promise<MundoDeTeste> => {
       );
     },
     lerWorkspace: async (slug) => (await lerBruto(slug)) as never,
-    cargoPadrao: aindaNao('cargoPadrao'),
+    async selecionarCargo(slug, cargoId) {
+      const atual = await lerBruto(slug);
+      if (!atual) throw new Error(`selecionar cargo: "${slug}" não existe`);
+      exigirOk(
+        await pedirJson(
+          `/api/workspaces/${slug}/cargos/${cargoId}`,
+          comCorpo('PATCH', { isSelected: true }),
+        ),
+        'selecionar cargo',
+      );
+    },
     proximaVersaoDeEdital: aindaNao('proximaVersaoDeEdital'),
 
     // ---- syllabus (Fase 8) ----

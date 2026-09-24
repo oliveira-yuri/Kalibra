@@ -9,13 +9,16 @@ import {
   IMPORT_STATUSES,
   SOURCE_MODES,
   statusFromImport,
+  defaultCargo,
+  nextActionFor,
+  importStatusFor,
   type WeeklyAvailability,
   type WorkspaceStatus,
   type ExtractionOutput,
   type CargoTextBlock,
 } from '@workspace/core';
 import type {
-  SourceMode, ImportStatus, Cargo, WorkspaceDraft, PendingWorkspaceImport,
+  SourceMode, ImportStatus, Cargo, WorkspaceDraft, WorkspaceEscrita, PendingWorkspaceImport,
 } from '../../ports/workspaces';
 
 
@@ -27,9 +30,12 @@ import type {
  * apontando para nada. Centralizado aqui para que `parseWorkspaceDraft` e `NovoWorkspace`
  * nunca possam divergir sobre o que "sem cargo" significa (ver regressão I3).
  */
-export function defaultCargo(examDate: string): Cargo {
-  return { id: 'c1', name: 'Cargo único', examDate };
-}
+/**
+ * Reexportado de `@workspace/core`, onde a função passou a viver na Fase 5. Os
+ * chamadores existentes continuam importando daqui; o que mudou é que a API lê a
+ * mesma função, em vez de um endpoint inventado para uma regra pura.
+ */
+export { defaultCargo } from '@workspace/core';
 
 // O mapa importStatus → status vive em `@workspace/core` desde a Fase 5: a API o
 // computa também, e duas cópias divergiriam sem ninguém notar. As listas de
@@ -155,9 +161,16 @@ export function parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null {
     sourceFileName: str(raw.sourceFileName, undefined),
     sourceText: str(raw.sourceText, undefined),
     sourceBlocks: blocksFrom(raw),
-    importStatus,
+    // **Derivados, computados aqui e nunca lidos do registro.**
+    //
+    // Até a Fase 5 estes três eram campos gravados, e as telas os escreviam junto
+    // com o status. O harness de contrato mostrou a divergência: a API os computa
+    // e recusa recebê-los. O spec sustenta a API (§2.8), então quem mudou foi este
+    // lado — um registro antigo que os traga é ignorado, e passa a valer o que o
+    // status implica.
+    importStatus: importStatusFor(status),
     progress: typeof raw.progress === 'number' ? raw.progress : 0,
-    nextAction: str(raw.nextAction, ''),
+    nextAction: nextActionFor(status),
     active: typeof raw.active === 'boolean' ? raw.active : true,
   };
 }
@@ -354,13 +367,42 @@ export function useWorkspaces(userId?: string) {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const addWorkspace = async (workspace: WorkspaceDraft) => {
-    persist([...workspacesRef.current, workspace]);
+  /**
+   * Completa o registro com o que é DERIVADO antes de guardar.
+   *
+   * O armazenamento local guarda a forma inteira — é o "estado local equivalente"
+   * que a leitura recomputa de qualquer jeito. O que mudou na Fase 5 é que esses
+   * campos deixaram de ser ACEITOS de quem chama: `WorkspaceEscrita` não os tem, e
+   * quem os fornecia eram as telas.
+   */
+  const completar = (w: WorkspaceEscrita): WorkspaceDraft => ({
+    ...w,
+    selectedCargoId: w.cargos[0].id,
+    importStatus: importStatusFor(w.status),
+    progress: 0,
+    nextAction: nextActionFor(w.status),
+  });
+
+  const addWorkspace = async (workspace: WorkspaceEscrita) => {
+    persist([...workspacesRef.current, completar(workspace)]);
   };
 
-  const updateWorkspace = async (slug: string, updates: Partial<WorkspaceDraft>) => {
+  const updateWorkspace = async (slug: string, updates: Partial<WorkspaceEscrita>) => {
     persist(workspacesRef.current.map(w => w.slug === slug ? { ...w, ...updates } : w));
   };
 
-  return { workspaces, addWorkspace, updateWorkspace };
+  /**
+   * Escolher o cargo ativo é OPERAÇÃO, não escrita de campo.
+   *
+   * No armazenamento local a seleção continua sendo um valor no registro — é o
+   * "estado local equivalente". O que mudou é que ninguém de fora a escreve
+   * diretamente: quem quiser trocar o cargo pede a troca, e cada adaptador sabe
+   * como o seu lado a materializa. A API marca `is_selected` no cargo e desmarca
+   * os outros na mesma transação.
+   */
+  const selectCargo = async (slug: string, cargoId: string) => {
+    persist(workspacesRef.current.map((w) => (w.slug === slug ? { ...w, selectedCargoId: cargoId } : w)));
+  };
+
+  return { workspaces, addWorkspace, updateWorkspace, selectCargo };
 }

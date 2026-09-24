@@ -17,7 +17,10 @@ if (domainConfig.workspaces !== 'local') {
 // compilador PROVA que o adaptador local a satisfaz. Sem isso a interface seria
 // decorativa — declarada e verificada por ninguém.
 export const useWorkspaces: WorkspacesPort['useWorkspaces'] = local.useWorkspaces;
-export const defaultCargo: WorkspacesPort['defaultCargo'] = local.defaultCargo;
+// `defaultCargo` saiu da PORTA na Fase 5 — é regra pura, sem I/O, sessão nem
+// estado, e uma porta existe para o que tem duas implementações. Continua sendo
+// reexportado daqui para os chamadores existentes, mas já vem de `lib/core`.
+export { defaultCargo } from '@workspace/core';
 export const nextSyllabusVersionFor: WorkspacesPort['nextSyllabusVersionFor'] = local.nextSyllabusVersionFor;
 
 export const parseWorkspaceDraft: WorkspacesPort['parseWorkspaceDraft'] = local.parseWorkspaceDraft;
