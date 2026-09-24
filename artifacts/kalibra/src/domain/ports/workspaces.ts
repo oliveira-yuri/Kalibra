@@ -1,6 +1,7 @@
 import type {
   WeeklyAvailability,
-  SourceMode,
+  SourceMode,
+  ImportStatus,
   WorkspaceStatus,
   ExtractionOutput,
   CargoTextBlock,
@@ -26,7 +27,12 @@ import type {
  * declarar o `pgEnum`, e o banco não pode importar da aplicação.
  */
 export type { SourceMode } from '@workspace/core';
-export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
+/**
+ * `ImportStatus` também vive em `@workspace/core` desde a Fase 5, pela mesma razão
+ * que `SourceMode`: a API o computa a partir do `status`, e duas cópias do mapa
+ * fariam a mesma tela mostrar coisas diferentes conforme o adaptador.
+ */
+export type { ImportStatus } from '@workspace/core';
 
 export interface Cargo {
   id: string;

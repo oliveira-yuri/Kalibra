@@ -6,6 +6,9 @@ import {
   emptyAvailability,
   hasEdital,
   WORKSPACE_STATUSES,
+  IMPORT_STATUSES,
+  SOURCE_MODES,
+  statusFromImport,
   type WeeklyAvailability,
   type WorkspaceStatus,
   type ExtractionOutput,
@@ -28,18 +31,12 @@ export function defaultCargo(examDate: string): Cargo {
   return { id: 'c1', name: 'Cargo único', examDate };
 }
 
-const STATUS_FROM_IMPORT: Record<ImportStatus, WorkspaceStatus> = {
-  pending: 'aguardando_revisao_edital',
-  parsing: 'extraindo_edital',
-  // 'completed' aqui significa apenas "a extração do edital terminou" — o diagnóstico
-  // inicial ainda não rodou, então o próximo estado é diagnostico_pendente, nunca
-  // estudando (que só é alcançável depois do fluxo de diagnóstico + plano quinzenal).
-  completed: 'diagnostico_pendente',
-  error: 'erro',
-};
-
-const VALID_IMPORT_STATUSES: readonly ImportStatus[] = ['pending', 'parsing', 'completed', 'error'];
-const VALID_SOURCE_MODES: readonly SourceMode[] = ['file', 'text', 'none'];
+// O mapa importStatus → status vive em `@workspace/core` desde a Fase 5: a API o
+// computa também, e duas cópias divergiriam sem ninguém notar. As listas de
+// validação abaixo também vêm de lá, exaustivas por construção — uma lista à mão
+// aceita o valor novo no type-checker e o rejeita em runtime (regressão I4).
+const VALID_IMPORT_STATUSES: readonly ImportStatus[] = IMPORT_STATUSES;
+const VALID_SOURCE_MODES: readonly SourceMode[] = SOURCE_MODES;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -136,7 +133,7 @@ export function parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null {
     ? validCargos
     : [defaultCargo(str(raw.examDate, ''))];
 
-  const derivedStatus = isValidStatus(raw.status) ? raw.status : (STATUS_FROM_IMPORT[importStatus] ?? 'sem_edital');
+  const derivedStatus = isValidStatus(raw.status) ? raw.status : (statusFromImport(importStatus) ?? 'sem_edital');
   // Registros antigos guardavam `hasEdital` como campo à parte de `status`, e os dois
   // podiam divergir. O campo não existe mais no formato atual, mas um `hasEdital: false`
   // explícito herdado de um registro antigo não é descartado em silêncio: se o status
