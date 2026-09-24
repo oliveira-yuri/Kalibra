@@ -17,6 +17,31 @@ if (Number.isNaN(port) || port <= 0) {
 
 const basePath = process.env.BASE_PATH ?? '/';
 
+/**
+ * Para onde o `/api` do dev server aponta. O `api-server` sobe em 3000 por padrão.
+ */
+const apiUrl = process.env.API_URL ?? 'http://localhost:3000';
+
+/**
+ * Proxy de `/api`, e não CORS.
+ *
+ * Sem isto o frontend serve em :5173 e o servidor em :3000 — **origens
+ * diferentes**. O padrão do `fetch` é `same-origin`, e `custom-fetch.ts` nunca
+ * define `credentials`, então o cookie de sessão do Clerk não viajaria e toda
+ * requisição privada responderia 401. Pareceria defeito de autenticação sendo
+ * defeito de origem.
+ *
+ * A alternativa era `credentials: 'include'` mais CORS afinado. O proxy é melhor
+ * por dois motivos: mesma origem é o que produção terá, onde o servidor serve o
+ * frontend; e não depende de o CORS estar certo para funcionar.
+ */
+const proxyDaApi = {
+  '/api': {
+    target: apiUrl,
+    changeOrigin: false,
+  },
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -59,6 +84,7 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: proxyDaApi,
     fs: {
       strict: true,
     },
@@ -67,5 +93,6 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    proxy: proxyDaApi,
   },
 });

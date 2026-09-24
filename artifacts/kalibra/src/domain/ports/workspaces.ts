@@ -81,6 +81,18 @@ export interface WorkspaceDraft {
   progress: number;
   nextAction: string;
   active: boolean;
+  /**
+   * A versão que a fonte usa para concorrência otimista, quando ela tem uma.
+   *
+   * **Opcional porque a assimetria é real, e escondê-la seria pior.** A API mantém
+   * `workspace.version` e recusa uma escrita que parta de versão velha; o
+   * armazenamento local não tem nada equivalente — duas abas do navegador
+   * sobrescrevem uma à outra e sempre foi assim.
+   *
+   * Deixar o campo fora do tipo obrigaria o adaptador de API a guardá-lo por fora,
+   * e aí a diferença entre os dois sumiria da vista de quem lê o contrato.
+   */
+  version?: number;
 }
 
 export interface PendingWorkspaceImport {
