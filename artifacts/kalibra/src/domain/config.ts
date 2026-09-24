@@ -13,4 +13,4 @@ export const domainConfig = {
   syllabus: 'local',
   approvals: 'local',
   concepts: 'local',
-} satisfies Record<string, ModuleSource>;
+} satisfies Record<string, ModuleSource> as Record<string, ModuleSource>;
