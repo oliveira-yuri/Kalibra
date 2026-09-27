@@ -144,3 +144,86 @@ describe('DELETE cargo', () => {
     expect(r.status).toBe(404);
   });
 });
+
+describe('o id do cargo é identidade de domínio, local ao workspace', () => {
+  /**
+   * Aceito na criação porque `syllabus_item_cargo` o referencia, e o módulo de
+   * syllabus só migra na Fase 8. Enquanto ele for local, trocar o id por um valor
+   * do servidor quebraria uma referência real entre módulos — foi o que o Bloco D
+   * da Fase 5 descobriu.
+   */
+  it('o id enviado pelo cliente é HONRADO, não substituído', async () => {
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/api/workspaces', corpoJson('POST', {
+      title: 'Com ids escolhidos',
+      cargos: [{ id: 'c1', name: 'Cargo A' }, { id: 'c2', name: 'Cargo B' }],
+    }));
+    const w = (await r.json()) as Workspace;
+    expect(w.cargos.map((c) => c.id)).toEqual(['c1', 'c2']);
+  });
+
+  it('sem id, o servidor gera — o campo é opcional', async () => {
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/api/workspaces', corpoJson('POST', {
+      title: 'Sem ids', cargos: [{ name: 'Cargo A' }],
+    }));
+    const w = (await r.json()) as Workspace;
+    expect(w.cargos).toHaveLength(1);
+    expect(w.cargos[0].id).toBeTruthy();
+  });
+
+  it('o MESMO id em OUTRO workspace é permitido', async () => {
+    // É o caso normal, não a exceção: `c1` é o rótulo do primeiro cargo de
+    // qualquer edital. Uma unicidade global tornaria o segundo concurso
+    // impossível de criar.
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const a = await h.pedir('/api/workspaces', corpoJson('POST', {
+      title: 'Primeiro concurso', cargos: [{ id: 'c1', name: 'X' }],
+    }));
+    const b = await h.pedir('/api/workspaces', corpoJson('POST', {
+      title: 'Segundo concurso', cargos: [{ id: 'c1', name: 'Y' }],
+    }));
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+    expect(((await b.json()) as Workspace).cargos[0].id).toBe('c1');
+  });
+
+  it('duplicar o id DENTRO do mesmo workspace responde 409', async () => {
+    const w = await comDoisCargos();
+    const primeiro = w.cargos[0];
+    const r = await h.pedir(
+      `/api/workspaces/${w.slug}/cargos`,
+      corpoJson('POST', { id: primeiro.id, name: 'Repetido' }),
+    );
+    expect(r.status).toBe(409);
+    expect(((await r.json()) as Problema).code).toBe('cargo_id_em_uso');
+  });
+
+  it('id com formato inseguro é recusado', async () => {
+    // O id viaja em URL de rota e em chave de armazenamento. Barra, ponto e espaço
+    // abririam caminho para confusão de rota — por isso o contrato restringe a
+    // letras, números, hífen e sublinhado, e o Zod gerado o cobra.
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    for (const idRuim of ['../outro', 'com espaco', 'a/b', '']) {
+      const r = await h.pedir('/api/workspaces', corpoJson('POST', {
+        title: `Teste ${idRuim}`, cargos: [{ id: idRuim, name: 'X' }],
+      }));
+      expect(r.status).toBe(400);
+    }
+  });
+
+  it('o id é IMUTÁVEL depois de criado — PATCH não o altera', async () => {
+    const w = await comDoisCargos();
+    const antes = w.cargos[0].id;
+    await h.pedir(
+      `/api/workspaces/${w.slug}/cargos/${antes}`,
+      corpoJson('PATCH', { id: 'outro-id', name: 'Renomeado' }),
+    );
+    const depois = await ler(w.slug);
+    // O nome mudou; o id não. `CargoPatch` sequer declara `id`, então o Zod o
+    // descarta — e o teste existe para que essa ausência seja uma decisão
+    // verificada, não um esquecimento que alguém "corrige" depois.
+    expect(depois.cargos.map((c) => c.id)).toContain(antes);
+    expect(depois.cargos.map((c) => c.id)).not.toContain('outro-id');
+  });
+});

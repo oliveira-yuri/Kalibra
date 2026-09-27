@@ -69,9 +69,9 @@ describe('cargo — no máximo um selecionado por workspace', () => {
   it('recusa dois cargos selecionados no MESMO workspace', async () => {
     const { a } = await doisUsuarios();
     const w = await criarWorkspace(a.id, 'w1');
-    await db.insert(cargo).values({ workspaceId: w.id, name: 'Analista', isSelected: true });
+    await db.insert(cargo).values({ id: `c1`, workspaceId: w.id, name: 'Analista', isSelected: true });
     await expect(
-      db.insert(cargo).values({ workspaceId: w.id, name: 'Técnico', isSelected: true }),
+      db.insert(cargo).values({ id: `c2`, workspaceId: w.id, name: 'Técnico', isSelected: true }),
     ).rejects.toThrow();
   });
 
@@ -79,18 +79,18 @@ describe('cargo — no máximo um selecionado por workspace', () => {
     const { a } = await doisUsuarios();
     const w1 = await criarWorkspace(a.id, 'w1');
     const w2 = await criarWorkspace(a.id, 'w2');
-    await db.insert(cargo).values({ workspaceId: w1.id, name: 'Analista', isSelected: true });
+    await db.insert(cargo).values({ id: `c3`, workspaceId: w1.id, name: 'Analista', isSelected: true });
     await expect(
-      db.insert(cargo).values({ workspaceId: w2.id, name: 'Analista', isSelected: true }),
+      db.insert(cargo).values({ id: `c4`, workspaceId: w2.id, name: 'Analista', isSelected: true }),
     ).resolves.toBeDefined();
   });
 
   it('aceita vários NÃO selecionados no mesmo workspace — o índice só vale onde is_selected', async () => {
     const { a } = await doisUsuarios();
     const w = await criarWorkspace(a.id, 'w1');
-    await db.insert(cargo).values({ workspaceId: w.id, name: 'Analista' });
+    await db.insert(cargo).values({ id: `c5`, workspaceId: w.id, name: 'Analista' });
     await expect(
-      db.insert(cargo).values({ workspaceId: w.id, name: 'Técnico' }),
+      db.insert(cargo).values({ id: `c6`, workspaceId: w.id, name: 'Técnico' }),
     ).resolves.toBeDefined();
   });
 });
@@ -125,7 +125,7 @@ describe('escopo composto — a FK prova que os dois lados pertencem ao mesmo es
     const { a } = await doisUsuarios();
     const w1 = await criarWorkspace(a.id, 'w1');
     const w2 = await criarWorkspace(a.id, 'w2');
-    const [cargoDeW2] = await db.insert(cargo).values({ workspaceId: w2.id, name: 'X' }).returning();
+    const [cargoDeW2] = await db.insert(cargo).values({ id: `c7`, workspaceId: w2.id, name: 'X' }).returning();
 
     await expect(db.insert(editalSourceBlock).values({
       workspaceId: w1.id, cargoId: cargoDeW2.id, text: 'conteúdo',
@@ -148,7 +148,7 @@ describe('escopo composto — a FK prova que os dois lados pertencem ao mesmo es
     const [item] = await db.insert(syllabusItem).values({
       workspaceId: w1.id, conceptId: c.id, sourceLabel: 'Item',
     }).returning();
-    const [cargoDeW2] = await db.insert(cargo).values({ workspaceId: w2.id, name: 'X' }).returning();
+    const [cargoDeW2] = await db.insert(cargo).values({ id: `c8`, workspaceId: w2.id, name: 'X' }).returning();
 
     await expect(db.insert(syllabusItemCargo).values({
       workspaceId: w1.id, syllabusItemId: item.id, cargoId: cargoDeW2.id,
@@ -162,7 +162,7 @@ describe('escopo composto — a FK prova que os dois lados pertencem ao mesmo es
     const [item] = await db.insert(syllabusItem).values({
       workspaceId: w.id, conceptId: c.id, sourceLabel: 'Item',
     }).returning();
-    const [cg] = await db.insert(cargo).values({ workspaceId: w.id, name: 'X' }).returning();
+    const [cg] = await db.insert(cargo).values({ id: `c9`, workspaceId: w.id, name: 'X' }).returning();
 
     await db.insert(syllabusItemCargo).values({ workspaceId: w.id, syllabusItemId: item.id, cargoId: cg.id });
     await expect(db.insert(syllabusItemCargo).values({
@@ -215,7 +215,7 @@ describe('cascatas — o que morre junto e o que sobrevive', () => {
     const { a } = await doisUsuarios();
     const w = await criarWorkspace(a.id, 'w1');
     const c = await criarConceito(a.id, 'c');
-    const [cg] = await db.insert(cargo).values({ workspaceId: w.id, name: 'X' }).returning();
+    const [cg] = await db.insert(cargo).values({ id: `c10`, workspaceId: w.id, name: 'X' }).returning();
     const [item] = await db.insert(syllabusItem).values({
       workspaceId: w.id, conceptId: c.id, sourceLabel: 'Item',
     }).returning();
@@ -254,8 +254,8 @@ describe('cascatas — o que morre junto e o que sobrevive', () => {
     const [item] = await db.insert(syllabusItem).values({
       workspaceId: w.id, conceptId: c.id, sourceLabel: 'Comum',
     }).returning();
-    const [c1] = await db.insert(cargo).values({ workspaceId: w.id, name: 'Analista' }).returning();
-    const [c2] = await db.insert(cargo).values({ workspaceId: w.id, name: 'Técnico' }).returning();
+    const [c1] = await db.insert(cargo).values({ id: `c11`, workspaceId: w.id, name: 'Analista' }).returning();
+    const [c2] = await db.insert(cargo).values({ id: `c12`, workspaceId: w.id, name: 'Técnico' }).returning();
     await db.insert(syllabusItemCargo).values([
       { workspaceId: w.id, syllabusItemId: item.id, cargoId: c1.id },
       { workspaceId: w.id, syllabusItemId: item.id, cargoId: c2.id },
@@ -295,7 +295,7 @@ describe('cascatas — o que morre junto e o que sobrevive', () => {
     const { a } = await doisUsuarios();
     const w = await criarWorkspace(a.id, 'w1');
     const [cg] = await db.insert(cargo).values({
-      workspaceId: w.id, name: 'Analista', isSelected: true,
+      id: 'c13', workspaceId: w.id, name: 'Analista', isSelected: true,
     }).returning();
 
     await db.delete(cargo).where(eq(cargo.id, cg.id));

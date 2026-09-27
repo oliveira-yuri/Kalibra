@@ -8,6 +8,7 @@
 
 export * from './cargo';
 export * from './cargoCreate';
+export * from './cargoId';
 export * from './cargoPatch';
 export * from './dayAvailability';
 export * from './erroInternoResponse';

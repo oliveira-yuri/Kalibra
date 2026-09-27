@@ -6,6 +6,7 @@ import { requireAuth, usuarioDaSessao } from '../middlewares/require-auth';
 import { ensureAppUser } from '../lib/ensure-app-user';
 import { responderProblema } from '../lib/problem';
 import { paraCorpoDeWorkspace } from '../lib/workspace-dto';
+import { ehViolacaoDeUnicidade } from './workspaces';
 
 /**
  * Cargos, aninhados sob o workspace.
@@ -79,10 +80,15 @@ router.post('/workspaces/:slug/cargos', async (req, res) => {
   if (!achado) { naoEncontrado(res); return; }
   const { db, linha } = achado;
 
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
     const existentes = await tx.select().from(cargo).where(eq(cargo.workspaceId, linha.id));
     await tx.insert(cargo).values({
       workspaceId: linha.id,
+      // Ver a nota em `workspaces.ts`: o id do cargo é identidade de domínio, e
+      // o cliente pode escolhê-la na criação. Sem ela, o servidor gera um rótulo
+      // livre — `c<n>` a partir de quantos já existem.
+      id: analise.data.id ?? `c${existentes.length + 1}`,
       name: analise.data.name,
       examDate: paraDia(analise.data.examDate),
       period: analise.data.period ?? null,
@@ -92,7 +98,20 @@ router.post('/workspaces/:slug/cargos', async (req, res) => {
       isSelected: existentes.length === 0,
     });
     await incrementarVersao(tx as unknown as Db, linha.id, linha.version);
-  });
+    });
+  } catch (erro) {
+    // Traduzido da violação da PK composta, não previsto por um `select` antes —
+    // que teria janela entre a consulta e a escrita.
+    if (ehViolacaoDeUnicidade(erro)) {
+      responderProblema(res, {
+        status: 409,
+        code: 'cargo_id_em_uso',
+        title: 'Este workspace já tem um cargo com esse identificador',
+      });
+      return;
+    }
+    throw erro;
+  }
 
   await responderComWorkspace(db, linha.id, res, 201);
 });

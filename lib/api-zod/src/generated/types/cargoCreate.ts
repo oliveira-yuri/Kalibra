@@ -5,8 +5,15 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CargoId } from './cargoId';
 
 export interface CargoCreate {
+  /**
+     * Opcional. Aceito SÓ na criação; depois disso o id é imutável, e `CargoPatch` não o inclui. Sem ele o servidor gera um.
+     * O id do cargo é identidade de DOMÍNIO compartilhada, não detalhe privado do banco: `syllabus_item_cargo` guarda `cargo_id`, e enquanto o módulo de syllabus for local as ligações que ele grava precisam casar com o cargo que a API conhece.
+     * É único dentro do workspace, não globalmente — dois concursos têm cada um o seu `c1`. Duplicar dentro do mesmo workspace responde 409.
+     */
+  id?: CargoId;
   /** @minLength 1 */
   name: string;
   examDate?: Date | null;

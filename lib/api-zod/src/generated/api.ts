@@ -21,6 +21,10 @@ export const HealthCheckResponse = zod.object({
  * Só os do usuário autenticado. O servidor deriva o dono da sessão validada; nenhum identificador de usuário é aceito por query, corpo ou caminho.
  * @summary Lista os workspaces do usuário da sessão
  */
+export const listWorkspacesResponseCargosItemIdMax = 64;
+
+
+export const listWorkspacesResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const listWorkspacesResponseAvailabilityDaysItemWeekdayMin = 0;
 export const listWorkspacesResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -37,13 +41,13 @@ export const ListWorkspacesResponseItem = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(listWorkspacesResponseCargosItemIdMax).regex(listWorkspacesResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(listWorkspacesResponseAvailabilityDaysItemWeekdayMin).max(listWorkspacesResponseAvailabilityDaysItemWeekdayMax),
@@ -73,6 +77,10 @@ export const createWorkspaceBodyAvailabilityDaysItemMinutesMin = 0;
 
 export const createWorkspaceBodyAvailabilityMaxSessionMinutesMin = 0;
 
+export const createWorkspaceBodyCargosItemIdOneMax = 64;
+
+
+export const createWorkspaceBodyCargosItemIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 
@@ -92,12 +100,17 @@ export const CreateWorkspaceBody = zod.object({
   "sourceMode": zod.enum(['file', 'text', 'none']).optional().describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
   "cargos": zod.array(zod.object({
+  "id": zod.string().min(1).max(createWorkspaceBodyCargosItemIdOneMax).regex(createWorkspaceBodyCargosItemIdOneRegExp).optional().describe('Opcional. Aceito SÓ na criação; depois disso o id é imutável, e `CargoPatch` não o inclui. Sem ele o servidor gera um.\nO id do cargo é identidade de DOMÍNIO compartilhada, não detalhe privado do banco: `syllabus_item_cargo` guarda `cargo_id`, e enquanto o módulo de syllabus for local as ligações que ele grava precisam casar com o cargo que a API conhece.\nÉ único dentro do workspace, não globalmente — dois concursos têm cada um o seu `c1`. Duplicar dentro do mesmo workspace responde 409.\n'),
   "name": zod.string().min(1),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish()
 })).optional()
 }).describe('Não aceita status nem nenhum derivado. O status inicial é decidido por lib\/core a partir de haver edital ou não.\n')
 
+export const createWorkspaceResponseCargosItemIdMax = 64;
+
+
+export const createWorkspaceResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const createWorkspaceResponseAvailabilityDaysItemWeekdayMin = 0;
 export const createWorkspaceResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -114,13 +127,13 @@ export const CreateWorkspaceResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(createWorkspaceResponseCargosItemIdMax).regex(createWorkspaceResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(createWorkspaceResponseAvailabilityDaysItemWeekdayMin).max(createWorkspaceResponseAvailabilityDaysItemWeekdayMax),
@@ -146,6 +159,10 @@ export const GetWorkspaceParams = zod.object({
   "slug": zod.coerce.string().describe('Slug do workspace, único por usuário')
 })
 
+export const getWorkspaceResponseCargosItemIdMax = 64;
+
+
+export const getWorkspaceResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const getWorkspaceResponseAvailabilityDaysItemWeekdayMin = 0;
 export const getWorkspaceResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -162,13 +179,13 @@ export const GetWorkspaceResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(getWorkspaceResponseCargosItemIdMax).regex(getWorkspaceResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(getWorkspaceResponseAvailabilityDaysItemWeekdayMin).max(getWorkspaceResponseAvailabilityDaysItemWeekdayMax),
@@ -226,6 +243,10 @@ export const PatchWorkspaceBody = zod.object({
   "active": zod.boolean().optional()
 }).describe('Subconjunto de campos editáveis. Derivados são recusados com 400, não ignorados — ignorar em silêncio faz o cliente acreditar que escreveu.\n')
 
+export const patchWorkspaceResponseCargosItemIdMax = 64;
+
+
+export const patchWorkspaceResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const patchWorkspaceResponseAvailabilityDaysItemWeekdayMin = 0;
 export const patchWorkspaceResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -242,13 +263,13 @@ export const PatchWorkspaceResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(patchWorkspaceResponseCargosItemIdMax).regex(patchWorkspaceResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(patchWorkspaceResponseAvailabilityDaysItemWeekdayMin).max(patchWorkspaceResponseAvailabilityDaysItemWeekdayMax),
@@ -273,15 +294,24 @@ export const CreateCargoParams = zod.object({
   "slug": zod.coerce.string().describe('Slug do workspace, único por usuário')
 })
 
+export const createCargoBodyIdOneMax = 64;
+
+
+export const createCargoBodyIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 
 export const CreateCargoBody = zod.object({
+  "id": zod.string().min(1).max(createCargoBodyIdOneMax).regex(createCargoBodyIdOneRegExp).optional().describe('Opcional. Aceito SÓ na criação; depois disso o id é imutável, e `CargoPatch` não o inclui. Sem ele o servidor gera um.\nO id do cargo é identidade de DOMÍNIO compartilhada, não detalhe privado do banco: `syllabus_item_cargo` guarda `cargo_id`, e enquanto o módulo de syllabus for local as ligações que ele grava precisam casar com o cargo que a API conhece.\nÉ único dentro do workspace, não globalmente — dois concursos têm cada um o seu `c1`. Duplicar dentro do mesmo workspace responde 409.\n'),
   "name": zod.string().min(1),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish()
 })
 
+export const createCargoResponseCargosItemIdMax = 64;
+
+
+export const createCargoResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const createCargoResponseAvailabilityDaysItemWeekdayMin = 0;
 export const createCargoResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -298,13 +328,13 @@ export const CreateCargoResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(createCargoResponseCargosItemIdMax).regex(createCargoResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(createCargoResponseAvailabilityDaysItemWeekdayMin).max(createCargoResponseAvailabilityDaysItemWeekdayMax),
@@ -326,9 +356,15 @@ export const CreateCargoResponse = zod.object({
  * Marcar `isSelected: true` desmarca os outros na mesma transação — o índice único parcial do banco recusa dois selecionados no mesmo workspace.
  * @summary Altera um cargo
  */
+export const patchCargoPathCargoIdMax = 64;
+
+
+export const patchCargoPathCargoIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
+
+
 export const PatchCargoParams = zod.object({
   "slug": zod.coerce.string().describe('Slug do workspace, único por usuário'),
-  "cargoId": zod.coerce.string().uuid()
+  "cargoId": zod.coerce.string().min(1).max(patchCargoPathCargoIdMax).regex(patchCargoPathCargoIdRegExp)
 })
 
 
@@ -342,6 +378,10 @@ export const PatchCargoBody = zod.object({
   "isSelected": zod.boolean().optional().describe('Marcar true desmarca os outros cargos do mesmo workspace')
 })
 
+export const patchCargoResponseCargosItemIdMax = 64;
+
+
+export const patchCargoResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const patchCargoResponseAvailabilityDaysItemWeekdayMin = 0;
 export const patchCargoResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -358,13 +398,13 @@ export const PatchCargoResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(patchCargoResponseCargosItemIdMax).regex(patchCargoResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(patchCargoResponseAvailabilityDaysItemWeekdayMin).max(patchCargoResponseAvailabilityDaysItemWeekdayMax),
@@ -386,11 +426,21 @@ export const PatchCargoResponse = zod.object({
  * Remover o cargo selecionado promove o de menor `position` — a interface sempre mostra um cargo. Remover o último é recusado com 409.
  * @summary Remove um cargo
  */
+export const deleteCargoPathCargoIdMax = 64;
+
+
+export const deleteCargoPathCargoIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
+
+
 export const DeleteCargoParams = zod.object({
   "slug": zod.coerce.string().describe('Slug do workspace, único por usuário'),
-  "cargoId": zod.coerce.string().uuid()
+  "cargoId": zod.coerce.string().min(1).max(deleteCargoPathCargoIdMax).regex(deleteCargoPathCargoIdRegExp)
 })
 
+export const deleteCargoResponseCargosItemIdMax = 64;
+
+
+export const deleteCargoResponseCargosItemIdRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 export const deleteCargoResponseAvailabilityDaysItemWeekdayMin = 0;
 export const deleteCargoResponseAvailabilityDaysItemWeekdayMax = 6;
 
@@ -407,13 +457,13 @@ export const DeleteCargoResponse = zod.object({
   "type": zod.string().describe('Texto livre (\"Concurso Público\"), não enumeração'),
   "examDate": zod.coerce.date().nullish(),
   "cargos": zod.array(zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(deleteCargoResponseCargosItemIdMax).regex(deleteCargoResponseCargosItemIdRegExp),
   "name": zod.string(),
   "examDate": zod.coerce.date().nullish(),
   "period": zod.string().nullish(),
   "position": zod.number().int()
 })),
-  "selectedCargoId": zod.string().uuid().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
+  "selectedCargoId": zod.string().nullish().describe('Derivado de cargo.is_selected. A seleção é propriedade do cargo, não do workspace — guardá-la aqui criaria dependência circular.\n'),
   "availability": zod.object({
   "days": zod.array(zod.object({
   "weekday": zod.number().int().min(deleteCargoResponseAvailabilityDaysItemWeekdayMin).max(deleteCargoResponseAvailabilityDaysItemWeekdayMax),

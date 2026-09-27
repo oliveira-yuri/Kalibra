@@ -231,6 +231,14 @@ router.post('/workspaces', async (req, res) => {
       const cargos = pedidos.length
         ? await tx.insert(cargo).values(pedidos.map((c, i) => ({
           workspaceId: linha.id,
+          // O id vem do cliente quando ele manda. É identidade de DOMÍNIO
+          // compartilhada — `syllabus_item_cargo` a referencia, e o módulo de
+          // syllabus só migra na Fase 8 — então trocá-la por um valor do servidor
+          // quebraria uma referência real entre módulos.
+          //
+          // Única dentro do WORKSPACE, não globalmente: a PK é o par
+          // `(workspace_id, id)`, e dois concursos têm cada um o seu `c1`.
+          id: c.id ?? `c${i + 1}`,
           name: c.name,
           examDate: paraDia(c.examDate),
           period: c.period ?? null,

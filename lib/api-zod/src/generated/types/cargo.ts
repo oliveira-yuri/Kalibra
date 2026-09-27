@@ -5,9 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CargoId } from './cargoId';
 
 export interface Cargo {
-  id: string;
+  id: CargoId;
   name: string;
   examDate?: Date | null;
   period?: string | null;

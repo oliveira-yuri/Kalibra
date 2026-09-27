@@ -80,8 +80,15 @@ export interface WeeklyAvailability {
   maxSessionMinutes: number;
 }
 
+/**
+ * @minLength 1
+ * @maxLength 64
+ * @pattern ^[A-Za-z0-9_-]+$
+ */
+export type CargoId = string;
+
 export interface Cargo {
-  id: string;
+  id: CargoId;
   name: string;
   examDate?: string | null;
   period?: string | null;
@@ -89,6 +96,12 @@ export interface Cargo {
 }
 
 export interface CargoCreate {
+  /**
+     * Opcional. Aceito SÓ na criação; depois disso o id é imutável, e `CargoPatch` não o inclui. Sem ele o servidor gera um.
+     * O id do cargo é identidade de DOMÍNIO compartilhada, não detalhe privado do banco: `syllabus_item_cargo` guarda `cargo_id`, e enquanto o módulo de syllabus for local as ligações que ele grava precisam casar com o cargo que a API conhece.
+     * É único dentro do workspace, não globalmente — dois concursos têm cada um o seu `c1`. Duplicar dentro do mesmo workspace responde 409.
+     */
+  id?: CargoId;
   /** @minLength 1 */
   name: string;
   examDate?: string | null;

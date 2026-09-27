@@ -1,4 +1,4 @@
-import { pgTable, uuid, real, integer, primaryKey, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, real, integer, primaryKey, foreignKey } from 'drizzle-orm/pg-core';
 import { workspace } from './workspace';
 import { cargo } from './cargo';
 import { syllabusItem } from './syllabus-item';
@@ -19,7 +19,7 @@ import { syllabusItem } from './syllabus-item';
 export const syllabusItemCargo = pgTable('syllabus_item_cargo', {
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
   syllabusItemId: uuid('syllabus_item_id').notNull(),
-  cargoId: uuid('cargo_id').notNull(),
+  cargoId: text('cargo_id').notNull(),
   weight: real('weight'),
   questionCount: integer('question_count'),
 }, (t) => [
