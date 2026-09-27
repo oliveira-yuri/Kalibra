@@ -37,7 +37,22 @@ export function ligarNaApi(prefixo: string): void {
   globalThis.fetch = ((entrada: RequestInfo | URL, init?: RequestInit) => {
     const cabecalhos = new Headers(init?.headers);
     if (usuarioAtual) cabecalhos.set(CABECALHO_DE_USUARIO, usuarioAtual);
-    return fetchOriginal(entrada, { ...init, headers: cabecalhos });
+
+    // **O `signal` do jsdom é descartado, e isso custou tempo para achar.**
+    //
+    // O React Query passa um `AbortSignal` criado pelo jsdom; o `fetch` do Node,
+    // que é quem de fato executa, recusa: "Expected signal to be an instance of
+    // AbortSignal". A requisição falhava, o React Query tentava de novo com recuo
+    // exponencial, e a consulta ficava PENDENTE para sempre — a tela nunca
+    // recebia o workspace e o teste dizia "não achei o filtro de cargo", que é o
+    // sintoma mais distante possível da causa.
+    //
+    // Perder o cancelamento dentro do teste é aceitável: o que se exercita aqui é
+    // o que a tela faz com a resposta, não o que ela faz ao desistir dela.
+    const { signal, ...resto } = init ?? {};
+    const sinalCompativel = signal instanceof globalThis.AbortSignal ? { signal } : {};
+
+    return fetchOriginal(entrada, { ...resto, ...sinalCompativel, headers: cabecalhos });
   }) as typeof fetch;
 }
 
