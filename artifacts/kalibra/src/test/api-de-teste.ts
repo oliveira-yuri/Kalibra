@@ -49,10 +49,17 @@ export function ligarNaApi(prefixo: string): void {
     //
     // Perder o cancelamento dentro do teste é aceitável: o que se exercita aqui é
     // o que a tela faz com a resposta, não o que ela faz ao desistir dela.
-    const { signal, ...resto } = init ?? {};
-    const sinalCompativel = signal instanceof globalThis.AbortSignal ? { signal } : {};
+    // A primeira tentativa de consertar isto usou `signal instanceof
+    // globalThis.AbortSignal`, e NÃO funcionou — sob jsdom, `globalThis.AbortSignal`
+    // É o do jsdom, então a checagem sempre passava e o sinal seguia adiante. O
+    // instrumento de fronteira foi o que mostrou: `signal: AbortSignal` saindo, e
+    // `Expected signal to be an instance of AbortSignal` voltando.
+    //
+    // Descartar sempre é o que resta, e é honesto: quem executa é o `fetch` do
+    // Node, e um sinal de outro reino nunca vai servir para ele.
+    const { signal: _descartado, ...resto } = init ?? {};
 
-    return fetchOriginal(entrada, { ...resto, ...sinalCompativel, headers: cabecalhos });
+    return fetchOriginal(entrada, { ...resto, headers: cabecalhos });
   }) as typeof fetch;
 }
 
