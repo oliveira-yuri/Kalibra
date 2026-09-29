@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import { and, eq, sql } from 'drizzle-orm';
-import { workspace, cargo, type Db } from '@workspace/db';
+import { workspace, cargo, editalSourceBlock, type Db } from '@workspace/db';
 import { initialStatus, slugify, emptyAvailability, validateAvailability } from '@workspace/core';
 import type { WeeklyAvailability, DayAvailability } from '@workspace/core';
 import {
@@ -140,7 +140,12 @@ async function lerWorkspaceComCargos(db: Db, userId: string, slug: string) {
   if (!linha) return null;
 
   const cargos = await db.select().from(cargo).where(eq(cargo.workspaceId, linha.id));
-  return { linha, cargos };
+  // Blocos lidos pela posse do WORKSPACE, que já foi filtrado por `user_id` acima.
+  const blocos = await db
+    .select()
+    .from(editalSourceBlock)
+    .where(eq(editalSourceBlock.workspaceId, linha.id));
+  return { linha, cargos, blocos };
 }
 
 function naoEncontrado(res: Response): void {
@@ -155,12 +160,15 @@ router.get('/workspaces', async (req, res) => {
   const { db, userId } = await idDoUsuario(req, res);
 
   const linhas = await db.select().from(workspace).where(eq(workspace.userId, userId));
-  const todosOsCargos = linhas.length
-    ? await db.select().from(cargo)
-    : [];
+  const todosOsCargos = linhas.length ? await db.select().from(cargo) : [];
+  const todosOsBlocos = linhas.length ? await db.select().from(editalSourceBlock) : [];
 
   const corpo = linhas.map((linha) =>
-    paraCorpoDeWorkspace(linha, todosOsCargos.filter((c) => c.workspaceId === linha.id)),
+    paraCorpoDeWorkspace(
+      linha,
+      todosOsCargos.filter((c) => c.workspaceId === linha.id),
+      todosOsBlocos.filter((b) => b.workspaceId === linha.id),
+    ),
   );
 
   // Validar a SAÍDA com o mesmo schema que o cliente usa faz divergência entre
@@ -174,7 +182,7 @@ router.get('/workspaces/:slug', async (req, res) => {
   const achado = await lerWorkspaceComCargos(db, userId, req.params.slug);
   if (!achado) { naoEncontrado(res); return; }
 
-  res.json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(achado.linha, achado.cargos)));
+  res.json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(achado.linha, achado.cargos, achado.blocos)));
 });
 
 router.post('/workspaces', async (req, res) => {
@@ -249,7 +257,8 @@ router.post('/workspaces', async (req, res) => {
         }))).returning()
         : [];
 
-      return paraCorpoDeWorkspace(linha, cargos);
+      // Workspace recém-criado não tem blocos: a escrita deles é da Fase 6.
+      return paraCorpoDeWorkspace(linha, cargos, []);
     });
 
     res.status(201).json(validarSaida(GetWorkspaceResponse, criado));
@@ -360,7 +369,8 @@ router.patch('/workspaces/:slug', async (req, res) => {
   }
 
   const cargos = await db.select().from(cargo).where(eq(cargo.workspaceId, atualizado.id));
-  res.json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(atualizado, cargos)));
+  const blocos = await db.select().from(editalSourceBlock).where(eq(editalSourceBlock.workspaceId, atualizado.id));
+  res.json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(atualizado, cargos, blocos)));
 });
 
 /**

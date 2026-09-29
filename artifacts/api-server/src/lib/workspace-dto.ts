@@ -1,8 +1,13 @@
 import { nextActionFor, importStatusFor } from '@workspace/core';
-import type { workspace as workspaceTable, cargo as cargoTable } from '@workspace/db';
+import type {
+  workspace as workspaceTable,
+  cargo as cargoTable,
+  editalSourceBlock as blocoTable,
+} from '@workspace/db';
 
 type LinhaDeWorkspace = typeof workspaceTable.$inferSelect;
 type LinhaDeCargo = typeof cargoTable.$inferSelect;
+type LinhaDeBloco = typeof blocoTable.$inferSelect;
 
 /**
  * Traduz o que está no banco para o corpo que a API devolve.
@@ -30,6 +35,7 @@ type LinhaDeCargo = typeof cargoTable.$inferSelect;
 export function paraCorpoDeWorkspace(
   linha: LinhaDeWorkspace,
   cargos: readonly LinhaDeCargo[],
+  blocos: readonly LinhaDeBloco[] = [],
 ) {
   const selecionado = cargos.find((c) => c.isSelected);
 
@@ -49,6 +55,15 @@ export function paraCorpoDeWorkspace(
     status: linha.status,
     sourceMode: linha.sourceMode,
     sourceFileName: linha.sourceFileName,
+    // **Leitura, e só.** A escrita dedicada é `PUT …/source-blocks`, da Fase 6.
+    // Vêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — sem
+    // eles, o editor de reimportação abriria vazio, que é o defeito que a Fase
+    // 1B.5 fechou.
+    sourceBlocks: [...blocos]
+      // Ordem explícita: `position` existe no schema, e o banco não promete
+      // nenhuma ordem sem `order by`.
+      .sort((a, b) => a.position - b.position)
+      .map((bloco) => ({ cargoId: bloco.cargoId, text: bloco.text })),
     active: linha.active,
     version: linha.version,
     nextAction: nextActionFor(linha.status),

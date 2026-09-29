@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { workspace, editalSourceBlock } from '@workspace/db';
 import { criarHarness, type Harness } from '../test/harness';
 
 /**
@@ -11,6 +13,7 @@ import { criarHarness, type Harness } from '../test/harness';
  */
 
 type Workspace = {
+  sourceBlocks: { cargoId: string | null; text: string }[];
   slug: string;
   title: string;
   version: number;
@@ -258,5 +261,79 @@ describe('PATCH /workspaces/{slug} — If-Match', () => {
     h.entrarComo({ clerkUserId: 'clerk_b' });
     const r = await h.pedir(`/api/workspaces/${w.slug}`, patch({ title: 'Invadido' }, String(w.version)));
     expect(r.status).toBe(404);
+  });
+});
+
+describe('sourceBlocks — leitura, e só (regressão da Fase 1B.5)', () => {
+  /**
+   * `WorkspaceDraft` carrega os blocos e `Edital.tsx` os lê para hidratar o editor
+   * de reimportação. Sem eles na resposta, o modal abriria VAZIO — exatamente o
+   * defeito que a Fase 1B.5 fechou, e que a migração parcial de workspaces
+   * reabriria sem que nenhum teste de servidor notasse.
+   *
+   * A escrita dedicada continua sendo `PUT …/source-blocks`, da Fase 6.
+   */
+  async function comBlocos() {
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const criado = await criar('Com edital', {
+      sourceMode: 'text',
+      cargos: [{ id: 'c1', name: 'Cargo A' }, { id: 'c2', name: 'Cargo B' }],
+    });
+    const [linha] = await h.db
+      .select()
+      .from(workspace)
+      .where(eq(workspace.slug, criado.corpo.slug));
+
+    // Semeados fora de ordem de propósito: a resposta tem de ordenar por `position`.
+    await h.db.insert(editalSourceBlock).values([
+      { workspaceId: linha.id, cargoId: 'c1', text: 'ESPECIFICO DO A', position: 2 },
+      { workspaceId: linha.id, cargoId: null, text: 'COMUM A TODOS', position: 0 },
+      { workspaceId: linha.id, cargoId: 'c2', text: 'ESPECIFICO DO B', position: 1 },
+    ]);
+    return criado.corpo.slug;
+  }
+
+  it('a leitura devolve os blocos, ordenados por position', async () => {
+    const slug = await comBlocos();
+    const w = (await (await h.pedir(`/api/workspaces/${slug}`)).json()) as {
+      sourceBlocks: { cargoId: string | null; text: string }[];
+    };
+
+    expect(w.sourceBlocks.map((b) => b.text)).toEqual([
+      'COMUM A TODOS', 'ESPECIFICO DO B', 'ESPECIFICO DO A',
+    ]);
+    // O bloco comum tem `cargoId` nulo — é assim que os editais são publicados.
+    expect(w.sourceBlocks[0].cargoId).toBeNull();
+  });
+
+  it('a LISTA também devolve os blocos de cada workspace', async () => {
+    // Sem isto, a tela que lista funcionaria e a que abre o modal quebraria — e só
+    // a segunda tem teste de tela.
+    const slug = await comBlocos();
+    const lista = (await (await h.pedir('/api/workspaces')).json()) as {
+      slug: string; sourceBlocks: { text: string }[];
+    }[];
+    const meu = lista.find((w) => w.slug === slug);
+    expect(meu?.sourceBlocks).toHaveLength(3);
+  });
+
+  it('workspace novo vem com lista VAZIA, não ausente', async () => {
+    // `undefined` e `[]` são coisas diferentes para quem renderiza: o primeiro
+    // quebra, o segundo mostra o estado vazio.
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const { corpo } = await criar('Sem edital');
+    expect(corpo.sourceBlocks).toEqual([]);
+  });
+
+  it('sourceBlocks é RECUSADO na criação — a escrita é da Fase 6', async () => {
+    h.entrarComo({ clerkUserId: 'clerk_a' });
+    const r = await h.pedir('/api/workspaces', json({
+      title: 'Tentando escrever blocos',
+      sourceBlocks: [{ cargoId: null, text: 'nao deveria entrar' }],
+    }));
+    // O Zod descarta chave desconhecida; o que importa é que ela NÃO seja gravada.
+    const corpo = (await r.json()) as { sourceBlocks?: unknown[] };
+    if (r.status === 201) expect(corpo.sourceBlocks).toEqual([]);
+    else expect(r.status).toBe(400);
   });
 });

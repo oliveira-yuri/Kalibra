@@ -342,6 +342,18 @@ components:
       # e aceitar qualquer texto abriria caminho para barra, ponto e espaço.
       pattern: "^[A-Za-z0-9_-]+$"
 
+    CargoTextBlock:
+      type: object
+      description: >
+        Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os
+        cargos — a forma como os editais são publicados.
+      required: [cargoId, text]
+      properties:
+        cargoId:
+          allOf: [{ $ref: "#/components/schemas/CargoId" }]
+          nullable: true
+        text: { type: string }
+
     Cargo:
       type: object
       required: [id, name, position]
@@ -395,6 +407,7 @@ components:
         - availability
         - status
         - sourceMode
+        - sourceBlocks
         - active
         - version
         - nextAction
@@ -421,6 +434,21 @@ components:
         status: { $ref: "#/components/schemas/WorkspaceStatus" }
         sourceMode: { $ref: "#/components/schemas/SourceMode" }
         sourceFileName: { type: string, nullable: true }
+        sourceBlocks:
+          type: array
+          readOnly: true
+          items: { $ref: "#/components/schemas/CargoTextBlock" }
+          description: >
+            Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem
+            em `WorkspacePatch`: a escrita dedicada é `PUT /workspaces/{slug}/source-blocks`,
+            que chega na Fase 6 com versionamento e `If-Match`.
+
+            Vêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem —
+            `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na
+            resposta, o modal abriria vazio, que é exatamente o defeito que a Fase
+            1B.5 fechou.
+
+            Ordenados por `position`, de forma estável.
         active: { type: boolean }
         version:
           type: integer

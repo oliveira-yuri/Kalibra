@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Cargo } from './cargo';
+import type { CargoTextBlock } from './cargoTextBlock';
 import type { ImportStatus } from './importStatus';
 import type { SourceMode } from './sourceMode';
 import type { WeeklyAvailability } from './weeklyAvailability';
@@ -25,6 +26,12 @@ export interface Workspace {
   status: WorkspaceStatus;
   sourceMode: SourceMode;
   sourceFileName?: string | null;
+  /**
+     * Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT /workspaces/{slug}/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.
+     * Vêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.
+     * Ordenados por `position`, de forma estável.
+     */
+  readonly sourceBlocks: readonly CargoTextBlock[];
   active: boolean;
   /** Alvo do If-Match. Por workspace, não por documento. */
   readonly version: number;

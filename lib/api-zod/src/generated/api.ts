@@ -32,6 +32,10 @@ export const listWorkspacesResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const listWorkspacesResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const listWorkspacesResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const listWorkspacesResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const ListWorkspacesResponseItem = zod.object({
@@ -58,6 +62,10 @@ export const ListWorkspacesResponseItem = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(listWorkspacesResponseSourceBlocksItemCargoIdOneMax).regex(listWorkspacesResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -118,6 +126,10 @@ export const createWorkspaceResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const createWorkspaceResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const createWorkspaceResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const createWorkspaceResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const CreateWorkspaceResponse = zod.object({
@@ -144,6 +156,10 @@ export const CreateWorkspaceResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(createWorkspaceResponseSourceBlocksItemCargoIdOneMax).regex(createWorkspaceResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -170,6 +186,10 @@ export const getWorkspaceResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const getWorkspaceResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const getWorkspaceResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const getWorkspaceResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const GetWorkspaceResponse = zod.object({
@@ -196,6 +216,10 @@ export const GetWorkspaceResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(getWorkspaceResponseSourceBlocksItemCargoIdOneMax).regex(getWorkspaceResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -254,6 +278,10 @@ export const patchWorkspaceResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const patchWorkspaceResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const patchWorkspaceResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const patchWorkspaceResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const PatchWorkspaceResponse = zod.object({
@@ -280,6 +308,10 @@ export const PatchWorkspaceResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(patchWorkspaceResponseSourceBlocksItemCargoIdOneMax).regex(patchWorkspaceResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -319,6 +351,10 @@ export const createCargoResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const createCargoResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const createCargoResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const createCargoResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const CreateCargoResponse = zod.object({
@@ -345,6 +381,10 @@ export const CreateCargoResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(createCargoResponseSourceBlocksItemCargoIdOneMax).regex(createCargoResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -389,6 +429,10 @@ export const patchCargoResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const patchCargoResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const patchCargoResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const patchCargoResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const PatchCargoResponse = zod.object({
@@ -415,6 +459,10 @@ export const PatchCargoResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(patchCargoResponseSourceBlocksItemCargoIdOneMax).regex(patchCargoResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),
@@ -448,6 +496,10 @@ export const deleteCargoResponseAvailabilityDaysItemMinutesMin = 0;
 
 export const deleteCargoResponseAvailabilityMaxSessionMinutesMin = 0;
 
+export const deleteCargoResponseSourceBlocksItemCargoIdOneMax = 64;
+
+
+export const deleteCargoResponseSourceBlocksItemCargoIdOneRegExp = new RegExp('^[A-Za-z0-9_-]+$');
 
 
 export const DeleteCargoResponse = zod.object({
@@ -474,6 +526,10 @@ export const DeleteCargoResponse = zod.object({
   "status": zod.enum(['sem_edital', 'aguardando_upload', 'extraindo_edital', 'aguardando_revisao_edital', 'diagnostico_pendente', 'diagnostico_em_andamento', 'plano_quinzenal_pendente', 'estudando', 'erro']).describe('Valores derivados de lib\/core — a fonte única da regra de domínio'),
   "sourceMode": zod.enum(['file', 'text', 'none']).describe('De onde veio o edital. `none` = ainda não importado'),
   "sourceFileName": zod.string().nullish(),
+  "sourceBlocks": zod.array(zod.object({
+  "cargoId": zod.string().min(1).max(deleteCargoResponseSourceBlocksItemCargoIdOneMax).regex(deleteCargoResponseSourceBlocksItemCargoIdOneRegExp).nullable(),
+  "text": zod.string()
+}).describe('Um bloco de texto do edital. `cargoId` nulo é conteúdo comum a todos os cargos — a forma como os editais são publicados.\n')).describe('Os blocos do edital, SÓ NA LEITURA. Não entram em `WorkspaceCreate` nem em `WorkspacePatch`: a escrita dedicada é `PUT \/workspaces\/{slug}\/source-blocks`, que chega na Fase 6 com versionamento e `If-Match`.\nVêm aqui porque `WorkspaceDraft` os carrega e as telas já os consomem — `Edital.tsx` os lê para hidratar o editor de reimportação. Sem eles na resposta, o modal abriria vazio, que é exatamente o defeito que a Fase 1B.5 fechou.\nOrdenados por `position`, de forma estável.\n'),
   "active": zod.boolean(),
   "version": zod.number().int().describe('Alvo do If-Match. Por workspace, não por documento.'),
   "nextAction": zod.string().describe('Função pura do status, computada por nextActionFor. Nunca persistido — um campo gravado seria segunda representação de um fato que o status já carrega.\n'),

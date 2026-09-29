@@ -10,6 +10,7 @@ export * from './cargo';
 export * from './cargoCreate';
 export * from './cargoId';
 export * from './cargoPatch';
+export * from './cargoTextBlock';
 export * from './dayAvailability';
 export * from './erroInternoResponse';
 export * from './healthStatus';

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import { and, eq, ne } from 'drizzle-orm';
-import { workspace, cargo, type Db } from '@workspace/db';
+import { workspace, cargo, editalSourceBlock, type Db } from '@workspace/db';
 import { CreateCargoBody, PatchCargoBody, GetWorkspaceResponse } from '@workspace/api-zod';
 import { requireAuth, usuarioDaSessao } from '../middlewares/require-auth';
 import { ensureAppUser } from '../lib/ensure-app-user';
@@ -58,7 +58,8 @@ async function doUsuario(req: Request, res: Response, slug: string) {
 async function responderComWorkspace(db: Db, workspaceId: string, res: Response, status = 200) {
   const [linha] = await db.select().from(workspace).where(eq(workspace.id, workspaceId));
   const cargos = await db.select().from(cargo).where(eq(cargo.workspaceId, workspaceId));
-  res.status(status).json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(linha, cargos)));
+  const blocos = await db.select().from(editalSourceBlock).where(eq(editalSourceBlock.workspaceId, workspaceId));
+  res.status(status).json(validarSaida(GetWorkspaceResponse, paraCorpoDeWorkspace(linha, cargos, blocos)));
 }
 
 /** Toda escrita relevante incrementa a versão do workspace, na mesma transação. */
