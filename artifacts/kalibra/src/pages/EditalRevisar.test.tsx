@@ -36,13 +36,9 @@ function seedWorkspaceWithStatus(status: WorkspaceStatus) {
     type: 'Concurso Público',
     examDate: '2027-01-17',
     cargos: [{ id: 'c1', name: 'Analista Técnico (Informática)', examDate: '2027-01-17', period: 'A' }],
-    selectedCargoId: 'c1',
     availability: { days: [], maxSessionMinutes: 50 },
     status,
     sourceMode: 'text',
-    importStatus: 'completed',
-    progress: 0,
-    nextAction: 'texto qualquer',
     active: true,
   }]));
 }
@@ -103,14 +99,10 @@ function seedWorkspaceDoisCargos(status: WorkspaceStatus = 'aguardando_revisao_e
       { id: 'c1', name: 'Analista', examDate: '2027-01-17', period: 'A' },
       { id: 'c2', name: 'Técnico', examDate: '2027-01-17', period: 'A' },
     ],
-    selectedCargoId: 'c1',
     availability: { days: [], maxSessionMinutes: 50 },
     status,
     sourceMode: 'text',
     sourceBlocks: [],
-    importStatus: 'completed',
-    progress: 0,
-    nextAction: 'texto qualquer',
     active: true,
   }]));
 }
@@ -677,8 +669,8 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
       workspace: {
         slug: 'setec-campinas', title: 'Concurso SETEC Campinas', institution: 'SETEC', type: 'Concurso Público',
         examDate: '2027-01-17', cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-01-17' }],
-        selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
-        sourceMode: 'text', sourceBlocks: [], importStatus: 'pending', progress: 0, nextAction: '', active: true,
+        sourceMode: 'text', sourceBlocks: [], active: true,
+        availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
       },
       extractionOutput: {
         entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
@@ -854,8 +846,8 @@ describe('EditalRevisar — Task 14 (aprovação da estrutura fecha o ciclo)', (
         slug: NOVO_WORKSPACE_KEY, title: 'Concurso Novo', institution: 'Banca X', type: 'Concurso Público',
         examDate: '2027-05-10',
         cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }, { id: 'c2', name: 'Técnico', examDate: '2027-05-10' }],
-        selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital',
-        sourceMode: 'text', sourceBlocks: [], importStatus: 'pending', progress: 0, nextAction: '', active: true,
+        sourceMode: 'text', sourceBlocks: [], active: true,
+        availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
       },
       extractionOutput: {
         entries: [entrada({ cargoId: 'c1', label: 'Crase' })],
@@ -1200,8 +1192,8 @@ describe('EditalRevisar — achado C1 da revisão final (uma reimportação aban
     const draftDe = (title: string) => ({
       slug: SLUG, title, institution: 'Banca', type: 'Concurso Público', examDate: '2027-05-10',
       cargos: [{ id: 'c1', name: 'Analista', examDate: '2027-05-10' }],
-      selectedCargoId: 'c1', availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
-      sourceMode: 'text' as const, sourceBlocks: [], importStatus: 'pending' as const, progress: 0, nextAction: '', active: true,
+      sourceMode: 'text' as const, sourceBlocks: [], active: true,
+      availability: { days: [], maxSessionMinutes: 50 }, status: 'aguardando_revisao_edital' as const,
     });
 
     // Primeira tentativa — mesmo título, workspace nunca chega a ser criado (só

@@ -1,9 +1,10 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   useListWorkspaces,
   getListWorkspacesQueryKey,
+  getWorkspace,
   useCreateWorkspace,
-  usePatchWorkspace,
+  patchWorkspace,
   usePatchCargo,
 } from '@workspace/api-client-react';
 import { toast } from '@/hooks/use-toast';
@@ -70,7 +71,22 @@ export function useWorkspaces() {
   });
 
   const criar = useCreateWorkspace({ mutation: otimista('O workspace', (atual) => atual) });
-  const alterar = usePatchWorkspace({ mutation: otimista('A alteração', (atual) => atual) });
+  /**
+   * `useMutation` com a FUNÇÃO gerada, em vez do hook gerado.
+   *
+   * O `If-Match` é parâmetro de cabeçalho, e o gerador do Orval não o passa pelas
+   * variáveis da mutação — só por uma opção fixa no momento de criar o hook, que
+   * não serve: a versão muda a cada escrita. A função `patchWorkspace(slug, data,
+   * options)` aceita cabeçalho por chamada.
+   *
+   * Continua sendo o cliente gerado: nenhum `fetch` à mão, nenhum tipo copiado. O
+   * que se troca é o açúcar do hook por uma chamada explícita.
+   */
+  const alterar = useMutation({
+    mutationFn: ({ slug, data, versao }: { slug: string; data: Partial<WorkspaceEscrita>; versao: number }) =>
+      patchWorkspace(slug, data as never, { headers: { 'If-Match': String(versao) } }),
+    ...otimista('A alteração', (atual) => atual),
+  });
   const trocarCargo = usePatchCargo({ mutation: otimista('A troca de cargo', (atual) => atual) });
 
   const addWorkspace = async (workspace: WorkspaceEscrita) => {
@@ -78,16 +94,17 @@ export function useWorkspaces() {
   };
 
   const updateWorkspace = async (slug: string, updates: Partial<WorkspaceEscrita>) => {
-    const atual = workspaces.find((w) => w.slug === slug);
-    if (!atual) throw new Error(`workspace "${slug}" não está carregado`);
-    await alterar.mutateAsync({
-      slug,
-      data: updates as never,
-      // A versão que ESTA aba leu. O servidor recusa com 412 se já mudou — é o
-      // caso das duas abas abertas, e sem isso a segunda escrita apagaria a
-      // primeira sem nada indicar a perda.
-      headers: { 'If-Match': String(atual.version) },
-    } as never);
+    // A versão que ESTA aba leu, quando a leitura já chegou. É ela que dá sentido
+    // ao `If-Match`: o conflito que se quer detectar é entre o que o usuário viu e
+    // o que outra aba gravou depois.
+    //
+    // Quando a lista ainda não chegou — o usuário agiu antes de a tela carregar —
+    // não há "o que o usuário viu" para defender, então buscamos a versão atual.
+    // É concorrência otimista mais fraca, e de propósito: mais fraca que nada, e
+    // honesta sobre não ter base para ser forte.
+    const emCache = workspaces.find((w) => w.slug === slug);
+    const atual = emCache ?? ((await getWorkspace(slug)) as unknown as WorkspaceDraft);
+    await alterar.mutateAsync({ slug, data: updates, versao: atual.version ?? 1 });
   };
 
   const selectCargo = async (slug: string, cargoId: string) => {

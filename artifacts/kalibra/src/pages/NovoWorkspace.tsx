@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { Activity, ArrowLeft, UploadCloud, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { useWorkspaces, defaultCargo, nextSyllabusVersionFor } from '@/domain/useWorkspaces';
-import type { WorkspaceDraft, Cargo } from '@/domain/ports';
+import type { WorkspaceEscrita, Cargo } from '@/domain/ports';
 import { stageWorkspaceImport } from '@/domain/staging';
 import { useExtraction } from '@/domain/useExtraction';
 import {
@@ -43,7 +43,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   const [isProcessing, setIsProcessing] = useState(false);
   const [createdSlug, setCreatedSlug] = useState('');
   const extraction = useExtraction(createdSlug);
-  const pendingWorkspaceRef = useRef<WorkspaceDraft | null>(null);
+  const pendingWorkspaceRef = useRef<WorkspaceEscrita | null>(null);
   const workspaceStatusRef = useRef<WorkspaceStatus>('aguardando_upload');
   // Achado C1 da revisão final: a versão de revisão não pode ser um literal (`1`) —
   // uma importação abandonada e refeita com o mesmo título (mesmo slug, já que o
@@ -64,7 +64,21 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
   // blocos — nunca duas listas que podem divergir (essa divergência entre a lista
   // passada ao componente e a lista passada à extração era a raiz dos dois achados).
   const namedCargos = cargos.filter((cargo) => cargo.name.trim());
-  const finalCargos = namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)];
+  /**
+   * String vazia não é data nem período — é ausência.
+   *
+   * O formulário nasce com `examDate: ''` e `period: ''` porque é o que um `input`
+   * não preenchido devolve. O armazenamento local aceitava; o contrato da API não,
+   * e com razão: `format: date` não casa com `''`. Normalizar aqui é dizer o que
+   * sempre se quis dizer.
+   */
+  const semVazios = (cargo: Cargo): Cargo => ({
+    ...cargo,
+    examDate: cargo.examDate?.trim() ? cargo.examDate : undefined,
+    period: cargo.period?.trim() ? cargo.period : undefined,
+  }) as Cargo;
+
+  const finalCargos = (namedCargos.length > 0 ? namedCargos : [defaultCargo(examDate)]).map(semVazios);
   const finalCargoIds = new Set(finalCargos.map((cargo) => cargo.id));
   // Poda blocos órfãos: um bloco cujo `cargoId` não é nem comum (`null`) nem um dos
   // cargos que de fato vão para a extração — sobra de um cargo que tinha conteúdo
@@ -119,7 +133,7 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     // único cargo em branco, e nada exige que o campo Nome seja preenchido — então
     // "ignorar a seção Cargos" é o caminho mais comum, não uma exceção. Sem o
     // fallback, `cargos` ficava vazio e `selectedCargoId` apontava para um id
-    // inexistente, quebrando o invariante que `parseWorkspaceDraft` garante (ao menos um
+    // inexistente, quebrando o invariante que `parseWorkspaceEscrita` garante (ao menos um
     // cargo sempre) — ver regressão I3 (fix round anterior).
     // Com edital, o workspace nasce em "aguardando_upload" — não direto em
     // "aguardando_revisao_edital" — porque agora a extração é real (Task 10):
@@ -127,22 +141,23 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     // conforme `progress.stage` avança, guiado por `assertTransition` no efeito abaixo.
     const status = sourceMode === 'none' ? 'sem_edital' : 'aguardando_upload';
 
-    const newWorkspace: WorkspaceDraft = {
+    // `WorkspaceEscrita`, e não `WorkspaceEscrita`: os derivados — `selectedCargoId`,
+    // `importStatus`, `progress`, `nextAction` — saíram daqui na Fase 5. São
+    // computados na leitura, e enviá-los é recusado com 400. A anotação importa:
+    // com `WorkspaceEscrita` o TypeScript aceitava os quatro em silêncio, porque
+    // checagem de propriedade excedente não vale para variável tipada.
+    const newWorkspace: WorkspaceEscrita = {
       slug,
       title,
       institution,
       type,
       examDate,
       cargos: finalCargos,
-      selectedCargoId: finalCargos[0].id,
       availability,
       status,
       sourceMode,
       sourceFileName: sourceMode === 'file' ? sourceFileName : undefined,
       sourceBlocks: sourceMode === 'text' ? activeSourceBlocks : [],
-      importStatus: 'pending',
-      progress: 0,
-      nextAction: nextActionFor(status),
       active: true
     };
 
@@ -183,10 +198,10 @@ export function NovoWorkspace({ theme, onToggleTheme }: { theme: 'light' | 'dark
     assertTransition(workspaceStatusRef.current, nextStatus);
     workspaceStatusRef.current = nextStatus;
 
-    const updatedWorkspace: WorkspaceDraft = {
+    // Gravar o status basta: `nextAction` deriva dele na leitura.
+    const updatedWorkspace: WorkspaceEscrita = {
       ...pendingWorkspaceRef.current,
       status: nextStatus,
-      nextAction: nextActionFor(nextStatus),
     };
     pendingWorkspaceRef.current = updatedWorkspace;
 

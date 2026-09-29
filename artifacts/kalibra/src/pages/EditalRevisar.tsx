@@ -3,7 +3,7 @@ import { useLocation, useParams } from 'wouter';
 import { AlertCircle, Info } from 'lucide-react';
 import { useUser } from '@clerk/react';
 import { parseWorkspaceDraft, useWorkspaces } from '@/domain/useWorkspaces';
-import type { WorkspaceDraft } from '@/domain/ports';
+import type { WorkspaceDraft, WorkspaceEscrita } from '@/domain/ports';
 import {
   clearPendingWorkspaceImport, getPendingWorkspaceImport, stageWorkspaceImport,
 } from '@/domain/staging';
@@ -217,7 +217,7 @@ export function EditalRevisar({ workspaceSlug }: { workspaceSlug: string }) {
     // Fix round 2 (achado A): o rascunho do workspace ainda não criado, quando esta
     // proposta é de uma importação nova — sem isto, retomar da fila confirmava a
     // estrutura para um workspace que `handleConfirm` nunca chegava a criar.
-    workspaceDraft: WorkspaceDraft | null;
+    workspaceDraft: WorkspaceEscrita | null;
   };
 
   // Busca (1) acima: só LEITURA, nunca escreve — segura de rodar durante o render, como

@@ -133,3 +133,22 @@ export async function listarWorkspaces(): Promise<Json[]> {
   });
   return (await r.json()) as Json[];
 }
+
+/**
+ * Semeia os blocos do edital pela rota de teste do servidor compartilhado.
+ *
+ * A escrita real, `PUT /workspaces/{slug}/source-blocks`, é da Fase 6. Até lá, os
+ * testes de tela precisam de um workspace COM blocos para exercitar a hidratação
+ * do editor — o defeito que a Fase 1B.5 fechou.
+ */
+export async function semearBlocos(
+  slug: string,
+  blocks: { cargoId: string | null; text: string }[],
+): Promise<void> {
+  const r = await globalThis.fetch(`${inject('apiBaseUrl')}/api/_teste/workspaces/${slug}/source-blocks`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ blocks }),
+  });
+  if (r.status >= 400) throw new Error(`semear blocos respondeu ${r.status}`);
+}

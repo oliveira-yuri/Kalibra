@@ -97,7 +97,15 @@ export interface WorkspaceDraft {
 
 export interface PendingWorkspaceImport {
   isNew: boolean;
-  workspace?: WorkspaceDraft;
+  /**
+   * O rascunho de um workspace que AINDA NÃO existe.
+   *
+   * É `WorkspaceEscrita` e não `WorkspaceDraft` porque é exatamente isso: o que se
+   * vai escrever. Os derivados só passam a existir depois que o workspace existe,
+   * e tê-los aqui significava inventá-los antes da hora — foi como `nextAction`
+   * acabava gravado.
+   */
+  workspace?: WorkspaceEscrita;
   updates?: Partial<WorkspaceDraft>;
   /**
    * A saída bruta da extração (Task 10), levada até a tela de revisão para que ela
