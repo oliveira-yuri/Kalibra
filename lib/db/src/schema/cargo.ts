@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, date, unique, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, integer, date, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { workspace } from './workspace';
 
@@ -18,7 +18,20 @@ import { workspace } from './workspace';
  * `selectedCargoId`, agora derivado.
  */
 export const cargo = pgTable('cargo', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  /**
+   * **Identidade LOCAL ao workspace, e escolhida por quem cria.**
+   *
+   * Era `uuid` com valor gerado pelo banco. A Fase 5 mostrou por que não podia
+   * ser: `syllabus_item_cargo` guarda `cargo_id`, e o módulo de syllabus migra
+   * só na Fase 8. Enquanto ele for local, as ligações que ele grava precisam
+   * casar com o cargo que a API conhece — e não casariam se o servidor trocasse
+   * o id por um UUID próprio na criação.
+   *
+   * O id do cargo, portanto, é **identidade de domínio compartilhada** entre os
+   * módulos, não detalhe privado desta tabela. `text` porque o domínio usa
+   * rótulos curtos (`c1`, `c2`) desde antes de existir banco.
+   */
+  id: text('id').notNull(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   examDate: date('exam_date'),
@@ -26,6 +39,16 @@ export const cargo = pgTable('cargo', {
   position: integer('position').notNull().default(0),
   isSelected: boolean('is_selected').notNull().default(false),
 }, (t) => [
-  unique('cargo_workspace_id').on(t.workspaceId, t.id),
+  /**
+   * A chave é o PAR, não o id sozinho.
+   *
+   * Dois workspaces podem — e na prática sempre vão — ter um cargo `c1`: é o
+   * rótulo que o domínio usa para "o primeiro cargo deste edital". Uma PK só
+   * sobre `id` tornaria o segundo workspace impossível de criar.
+   *
+   * Continua sendo o alvo das FKs compostas de `edital_source_block` e
+   * `syllabus_item_cargo`, que já apontavam para este par.
+   */
+  primaryKey({ columns: [t.workspaceId, t.id] }),
   uniqueIndex('cargo_um_selecionado_por_workspace').on(t.workspaceId).where(sql`${t.isSelected}`),
 ]);

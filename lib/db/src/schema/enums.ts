@@ -1,6 +1,7 @@
 import { pgEnum } from 'drizzle-orm/pg-core';
 import {
   WORKSPACE_STATUSES,
+  SOURCE_MODES,
   CONCEPT_STATUSES,
   CONCEPT_KINDS,
   APPROVAL_TYPES,
@@ -8,7 +9,7 @@ import {
 } from '@workspace/core';
 
 /**
- * Os cinco enums do banco, com os valores vindos de `lib/core` — a fonte única de
+ * Os seis enums do banco, com os valores vindos de `lib/core` — a fonte única de
  * regra de domínio.
  *
  * Derivar em vez de repetir torna a deriva **estruturalmente impossível**: não há
@@ -32,6 +33,14 @@ import {
 const comoTupla = <T extends string>(valores: readonly T[]) => valores as unknown as [T, ...T[]];
 
 export const workspaceStatusEnum = pgEnum('workspace_status', comoTupla(WORKSPACE_STATUSES));
+
+/**
+ * Era `text` até a Fase 5, porque `SourceMode` morava em `domain/ports` e
+ * `lib/db` não pode importar da aplicação. Com o tipo em `lib/core`, a exceção
+ * deixou de existir — e a nota que a descrevia saiu de `workspace.ts` junto, para
+ * não virar dívida fantasma.
+ */
+export const sourceModeEnum = pgEnum('source_mode', comoTupla(SOURCE_MODES));
 export const conceptStatusEnum = pgEnum('concept_status', comoTupla(CONCEPT_STATUSES));
 export const conceptKindEnum = pgEnum('concept_kind', comoTupla(CONCEPT_KINDS));
 export const approvalTypeEnum = pgEnum('approval_type', comoTupla(APPROVAL_TYPES));

@@ -22,7 +22,7 @@ function IconLabel({ icon: Icon, children }: { icon: typeof Activity; children: 
 export function Shell({ children, theme, onToggleTheme, workspaceSlug = '' }: { children: ReactNode; theme: Theme; onToggleTheme: () => void; workspaceSlug?: string }) {
   const [location] = useLocation();
   const { user } = useUser();
-  const { workspaces, updateWorkspace } = useWorkspaces(user?.id);
+  const { workspaces, selectCargo } = useWorkspaces(user?.id);
   const workspace = workspaces.find((w) => w.slug === workspaceSlug);
   const [showPractice, setShowPractice] = useState(false);
   const { toast } = useToast();
@@ -58,7 +58,7 @@ export function Shell({ children, theme, onToggleTheme, workspaceSlug = '' }: { 
               <select
                 className="w-full bg-transparent border border-transparent hover:border-[#394452] dark:hover:border-[#35404e] rounded-sm text-[11px] font-medium text-[#8e98a8] outline-none appearance-none pr-5 py-1 cursor-pointer"
                 value={workspace.selectedCargoId}
-                onChange={(e) => updateWorkspace(workspace.slug, { selectedCargoId: e.target.value })}
+                onChange={(e) => selectCargo(workspace.slug, e.target.value)}
                 disabled={workspace.cargos.length === 1}
               >
                 {workspace.cargos.map(c => <option key={c.id} value={c.id} className="bg-white dark:bg-[#131821] text-[#16232b] dark:text-[#8e98a8]">{c.name}</option>)}

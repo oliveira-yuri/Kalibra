@@ -1,4 +1,5 @@
 import { createServer, request as requisicaoHttp, type Server } from 'node:http';
+import { acharMigrations } from './migrations';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
@@ -20,7 +21,7 @@ import type { Db } from '@workspace/db';
  * ataque.
  */
 
-const MIGRATIONS = new URL('../../../../lib/db/migrations', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const MIGRATIONS = acharMigrations();
 
 /**
  * `clerkMiddleware()` CONSTRÓI sem segredo, mas LANÇA ao atender a primeira

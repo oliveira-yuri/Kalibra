@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import { emptyAvailability } from '@workspace/core';
 import type { ApprovalItem, ExtractionOutput, Syllabus } from '@workspace/core';
-import type { WorkspaceDraft } from '../ports';
+import type { WorkspaceEscrita } from '../ports';
 import type { Driver } from './driver';
 import { unico, ids, idsDeItens } from './auxiliares';
 
@@ -24,10 +24,35 @@ import { unico, ids, idsDeItens } from './auxiliares';
  * descreveriam o que o backend faz em vez de o que o domínio promete.
  */
 
-/** Um cenário: o que o usuário fez, e o que o domínio deve dizer depois. */
-export type Cenario = { nome: string; roda(d: Driver): Promise<void> };
+/**
+ * Os módulos do domínio. Um cenário declara de quais precisa, e o runner só o roda
+ * contra um driver que os tenha.
+ *
+ * Existe porque a migração é por fase: na Fase 5 a API tem workspaces e cargos, e
+ * mais nada. Rodar os vinte cenários contra ela faria quinze falharem por ausência
+ * de endpoint — ruído que esconderia a única falha que interessa.
+ *
+ * O perigo do mecanismo é óbvio: "rodar um subconjunto" é exatamente como um
+ * cenário some sem ninguém notar. Por isso `estrutura.test.ts` confere que o
+ * conjunto rodado é **exatamente** o derivável dos módulos migrados, e que nenhum
+ * cenário declara módulo que não exercita.
+ */
+export type Modulo =
+  | 'workspaces'
+  | 'cargos'
+  | 'edital'
+  | 'syllabus'
+  | 'concepts'
+  | 'approvals';
 
-export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
+/** Um cenário: o que o usuário fez, e o que o domínio deve dizer depois. */
+export type Cenario = {
+  nome: string;
+  modulos: readonly Modulo[];
+  roda(d: Driver): Promise<void>;
+};
+
+export function umWorkspace(p: Partial<WorkspaceEscrita> = {}): WorkspaceEscrita {
   return {
     slug: 'w1',
     title: 'Concurso de teste',
@@ -35,7 +60,6 @@ export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
     type: 'Concurso Público',
     examDate: '2027-03-01',
     cargos: [{ id: 'c1', name: 'Cargo A', examDate: '2027-03-01' }],
-    selectedCargoId: 'c1',
     availability: emptyAvailability(),
     // O estado inicial de um workspace sem edital importado. `WorkspaceStatus`
     // vive em `lib/core` e é exaustivo por construção — inventar um valor aqui
@@ -43,9 +67,9 @@ export function umWorkspace(p: Partial<WorkspaceDraft> = {}): WorkspaceDraft {
     status: 'sem_edital',
     sourceMode: 'none',
     sourceBlocks: [],
-    importStatus: 'pending',
-    progress: 0,
-    nextAction: '',
+    // `importStatus`, `progress`, `nextAction` e `selectedCargoId` NÃO entram: são
+    // computados na leitura, e mandá-los é o que a API recusa com 400. Foi a
+    // primeira divergência que este harness encontrou.
     active: true,
     ...p,
   };
@@ -122,7 +146,7 @@ async function umSyllabusComUmItem(
   cargoIds: string[] = ['c1'],
 ): Promise<{ slug: string; itemId: string }> {
   const slug = `w-syl-${++proximoArranjo}`;
-  await d.criarWorkspace(umWorkspace({ slug, cargos: doisCargos(), selectedCargoId: 'c1' }));
+  await d.criarWorkspace(umWorkspace({ slug, cargos: doisCargos() }));
   await d.adicionarItem(slug, null, 'Tópico base', cargoIds);
   await d.recarregar();
 
@@ -140,6 +164,7 @@ async function umSyllabusComUmItem(
 export const CENARIOS: Cenario[] = [
   {
     nome: 'workspace criado sobrevive a recarregar',
+    modulos: ['workspaces'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-dur', title: 'Título original' }));
       await d.recarregar();
@@ -158,6 +183,7 @@ export const CENARIOS: Cenario[] = [
   // ------------------------------------------------------------------
   {
     nome: 'atualizar um workspace não cria outro',
+    modulos: ['workspaces'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-upd', title: 'Antes' }));
       await d.atualizarWorkspace('w-upd', { title: 'Depois' });
@@ -167,6 +193,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'atualizar um workspace não afeta outro',
+    modulos: ['workspaces'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-a', title: 'A' }));
       await d.criarWorkspace(umWorkspace({ slug: 'w-b', title: 'B' }));
@@ -181,29 +208,29 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'trocar o cargo selecionado persiste, e os dois cargos continuam existindo',
+    modulos: ['workspaces', 'cargos'],
     async roda(d) {
-      await d.criarWorkspace(umWorkspace({
-        slug: 'w-cargo', cargos: doisCargos(), selectedCargoId: 'c1',
-      }));
-      await d.atualizarWorkspace('w-cargo', { selectedCargoId: 'c2' });
+      await d.criarWorkspace(umWorkspace({ slug: 'w-cargo', cargos: doisCargos() }));
+      await d.recarregar();
+
+      // Acha o cargo pelo NOME, não pelo id do fixture. Quem atribui id é cada
+      // adaptador — o local aceita o que o cliente mandou, a API gera o seu — e um
+      // cenário que afirmasse sobre 'c2' estaria afirmando sobre a implementação.
+      const antes = await d.lerWorkspace('w-cargo');
+      const cargoB = unico(
+        (antes?.cargos ?? []).filter((c) => c.name === 'Cargo B'),
+        'cargos chamados Cargo B',
+      );
+
+      await d.selecionarCargo('w-cargo', cargoB.id);
       await d.recarregar();
 
       const w = await d.lerWorkspace('w-cargo');
-      expect(w?.selectedCargoId).toBe('c2');
-      // Selecionar não é apagar. Conjunto, não posição: a ordem de `cargos` não é
-      // contrato, e afirmá-la quebraria contra uma leitura sem ordenação explícita.
-      expect(new Set((w?.cargos ?? []).map((c) => c.id))).toEqual(new Set(['c1', 'c2']));
-    },
-  },
-  {
-    nome: 'o cargo padrão tem a data da prova pedida',
-    async roda(d) {
-      const padrao = await d.cargoPadrao('2027-09-09');
-      expect(padrao.examDate).toBe('2027-09-09');
-      // Afirma FORMA, não o texto: "Cargo único" é escolha de produto do adaptador
-      // local, e outro adaptador poderia nomear diferente sem quebrar contrato.
-      expect(padrao.id).toBeTruthy();
-      expect(padrao.name).toBeTruthy();
+      expect(w?.selectedCargoId).toBe(cargoB.id);
+      // Selecionar não é apagar, e a seleção é EXCLUSIVA: os dois cargos continuam
+      // lá, e só um está escolhido.
+      expect(new Set((w?.cargos ?? []).map((c) => c.name)))
+        .toEqual(new Set(['Cargo A', 'Cargo B']));
     },
   },
 
@@ -212,6 +239,7 @@ export const CENARIOS: Cenario[] = [
   // ------------------------------------------------------------------
   {
     nome: 'prever a extração NÃO grava nada',
+    modulos: ['workspaces', 'edital', 'syllabus', 'concepts', 'approvals'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-prev' }));
       const antesSyllabus = await d.lerSyllabus('w-prev');
@@ -239,6 +267,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'aplicar a proposta grava o que a previsão mostrou',
+    modulos: ['workspaces', 'edital', 'syllabus', 'concepts'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-apl' }));
       const proposta = await d.preverExtracao('w-apl', umaExtracao());
@@ -254,11 +283,11 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'blocos de edital, comum e por cargo, sobrevivem a recarregar',
+    modulos: ['workspaces', 'cargos', 'edital'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({
         slug: 'w-blocos',
         cargos: doisCargos(),
-        selectedCargoId: 'c1',
         sourceMode: 'text',
         sourceBlocks: [
           { cargoId: null, text: 'Conteúdo comum a todos os cargos' },
@@ -280,9 +309,10 @@ export const CENARIOS: Cenario[] = [
   // ------------------------------------------------------------------
   {
     nome: 'o mesmo tópico em dois cargos vira UM item com DUAS ligações',
+    modulos: ['workspaces', 'cargos', 'edital', 'syllabus'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({
-        slug: 'w-dedup', cargos: doisCargos(), selectedCargoId: 'c1',
+        slug: 'w-dedup', cargos: doisCargos(),
       }));
       const proposta = await d.preverExtracao('w-dedup', umaExtracao({
         entries: [
@@ -313,6 +343,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'renomear um item preserva sua identidade e suas ligações',
+    modulos: ['workspaces', 'cargos', 'syllabus'],
     async roda(d) {
       const { slug, itemId } = await umSyllabusComUmItem(d, ['c1', 'c2']);
       const antes = cargosDe(await d.lerSyllabus(slug), itemId);
@@ -332,6 +363,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'ligar e desligar um cargo é observável depois de recarregar',
+    modulos: ['workspaces', 'cargos', 'syllabus'],
     async roda(d) {
       const { slug, itemId } = await umSyllabusComUmItem(d);
 
@@ -346,6 +378,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'separar de um cargo deixa o outro cargo intacto',
+    modulos: ['workspaces', 'cargos', 'syllabus'],
     async roda(d) {
       const { slug, itemId } = await umSyllabusComUmItem(d, ['c1', 'c2']);
       await d.separarDeCargo(slug, itemId, 'c2');
@@ -365,6 +398,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'peso e número de questões vivem na ligação, não no item',
+    modulos: ['workspaces', 'cargos', 'syllabus'],
     async roda(d) {
       const { slug, itemId } = await umSyllabusComUmItem(d, ['c1', 'c2']);
       await d.atualizarLigacao(slug, itemId, 'c1', { weight: 3, questionCount: 12 });
@@ -395,6 +429,7 @@ export const CENARIOS: Cenario[] = [
   // ------------------------------------------------------------------
   {
     nome: 'a biblioteca de conceitos é do USUÁRIO, não de um workspace',
+    modulos: ['workspaces', 'syllabus', 'concepts'],
     async roda(d) {
       // Dois workspaces, um item em cada. Cada item cria um conceito.
       await d.criarWorkspace(umWorkspace({ slug: 'w-lib-a' }));
@@ -415,6 +450,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'confirmar um conceito provisório muda seu status',
+    modulos: ['workspaces', 'syllabus', 'concepts'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-conf' }));
       await d.adicionarItem('w-conf', null, 'Concordância', ['c1']);
@@ -440,6 +476,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'renomear um conceito preserva o nome antigo como alias',
+    modulos: ['workspaces', 'syllabus', 'concepts'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-ren' }));
       await d.adicionarItem('w-ren', null, 'Nome antigo', ['c1']);
@@ -470,6 +507,7 @@ export const CENARIOS: Cenario[] = [
   // ------------------------------------------------------------------
   {
     nome: 'enfileirar deixa um item pendente',
+    modulos: ['approvals'],
     async roda(d) {
       const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
       await d.recarregar();
@@ -484,6 +522,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'aprovar decide o item e registra QUANDO, sem dizer qual instante',
+    modulos: ['approvals'],
     async roda(d) {
       const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
       await d.aprovar(id);
@@ -501,6 +540,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'rejeitar preserva o motivo',
+    modulos: ['approvals'],
     async roda(d) {
       const id = await d.enfileirar(umaProposta(), new Date('2026-03-01T12:00:00Z'));
       await d.rejeitar(id, 'fora do edital');
@@ -516,6 +556,7 @@ export const CENARIOS: Cenario[] = [
   },
   {
     nome: 'aprovar uma fusão de conceito confirma o conceito alvo',
+    modulos: ['workspaces', 'syllabus', 'concepts', 'approvals'],
     async roda(d) {
       await d.criarWorkspace(umWorkspace({ slug: 'w-fusao' }));
       await d.adicionarItem('w-fusao', null, 'Crase', ['c1']);

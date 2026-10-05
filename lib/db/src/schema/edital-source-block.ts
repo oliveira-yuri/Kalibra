@@ -19,7 +19,7 @@ import { cargo } from './cargo';
 export const editalSourceBlock = pgTable('edital_source_block', {
   id: uuid('id').defaultRandom().primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
-  cargoId: uuid('cargo_id'),
+  cargoId: text('cargo_id'),
   text: text('text').notNull(),
   position: integer('position').notNull().default(0),
 }, (t) => [

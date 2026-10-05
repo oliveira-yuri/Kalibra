@@ -1,5 +1,5 @@
 import { renderHook, act, type RenderHookResult } from '@testing-library/react';
-import { useWorkspaces, defaultCargo, nextSyllabusVersionFor } from '../adapters/local/workspaces';
+import { useWorkspaces, nextSyllabusVersionFor } from '../adapters/local/workspaces';
 import { useSyllabus } from '../adapters/local/syllabus';
 import { useConcepts } from '../adapters/local/concepts';
 import { useApprovals } from '../adapters/local/approvals';
@@ -118,7 +118,8 @@ export const criarDriverLocal = async (): Promise<MundoDeTeste> => {
       agir(() => m.workspaces.result.current.updateWorkspace(slug, updates)),
     lerWorkspace: async (slug) =>
       m.workspaces.result.current.workspaces.find((w) => w.slug === slug) ?? null,
-    cargoPadrao: async (examDate) => defaultCargo(examDate),
+    selecionarCargo: (slug, cargoId) =>
+      agir(() => m.workspaces.result.current.selectCargo(slug, cargoId)),
     proximaVersaoDeEdital: async (slug) => nextSyllabusVersionFor(slug, userId),
 
     // ---- syllabus ----

@@ -1,8 +1,11 @@
-import type {
+import type {
   WeeklyAvailability,
-  WorkspaceStatus,
-  ExtractionOutput,
-  CargoTextBlock,
+  SourceMode,
+  Cargo,
+  ImportStatus,
+  WorkspaceStatus,
+  ExtractionOutput,
+  CargoTextBlock,
 } from '@workspace/core';
 
 /**
@@ -19,15 +22,41 @@ import type {
  * As assinaturas aqui são **as de hoje**. Torná-las assíncronas é a Fase 1B.
  */
 
-export type SourceMode = 'file' | 'text' | 'none';
-export type ImportStatus = 'pending' | 'parsing' | 'completed' | 'error';
+/**
+ * `SourceMode` vive em `@workspace/core` desde a Fase 5. A porta continua
+ * exportando o nome — o que mudou é a origem: `lib/db` também precisa dele para
+ * declarar o `pgEnum`, e o banco não pode importar da aplicação.
+ */
+export type { SourceMode } from '@workspace/core';
+/**
+ * `ImportStatus` também vive em `@workspace/core` desde a Fase 5, pela mesma razão
+ * que `SourceMode`: a API o computa a partir do `status`, e duas cópias do mapa
+ * fariam a mesma tela mostrar coisas diferentes conforme o adaptador.
+ */
+export type { ImportStatus } from '@workspace/core';
 
-export interface Cargo {
-  id: string;
-  name: string;
-  examDate: string;
-  period?: string;
-}
+/**
+ * `Cargo` também veio para `@workspace/core` na Fase 5, junto com `defaultCargo`.
+ */
+export type { Cargo } from '@workspace/core';
+
+/**
+ * O que se PODE ESCREVER num workspace.
+ *
+ * Separado de `WorkspaceDraft` (que é a leitura) por causa da primeira divergência
+ * que o harness de contrato encontrou, na Fase 5: o tipo único tratava
+ * `nextAction`, `importStatus`, `progress` e `selectedCargoId` como campos
+ * graváveis, e as telas os gravavam. A API os recusa — eles são **computados**
+ * (§2.8), e um valor gravado seria segunda representação de um fato que o `status`
+ * e o cargo selecionado já carregam.
+ *
+ * O spec sustenta a API, então quem mudou foi este lado. O contrato ficou menor e
+ * mais correto: o que se lê e o que se escreve deixaram de ser a mesma coisa.
+ */
+export type WorkspaceEscrita = Omit<
+  WorkspaceDraft,
+  'nextAction' | 'importStatus' | 'progress' | 'selectedCargoId'
+>;
 
 export interface WorkspaceDraft {
   slug: string;
@@ -52,11 +81,31 @@ export interface WorkspaceDraft {
   progress: number;
   nextAction: string;
   active: boolean;
+  /**
+   * A versão que a fonte usa para concorrência otimista, quando ela tem uma.
+   *
+   * **Opcional porque a assimetria é real, e escondê-la seria pior.** A API mantém
+   * `workspace.version` e recusa uma escrita que parta de versão velha; o
+   * armazenamento local não tem nada equivalente — duas abas do navegador
+   * sobrescrevem uma à outra e sempre foi assim.
+   *
+   * Deixar o campo fora do tipo obrigaria o adaptador de API a guardá-lo por fora,
+   * e aí a diferença entre os dois sumiria da vista de quem lê o contrato.
+   */
+  version?: number;
 }
 
 export interface PendingWorkspaceImport {
   isNew: boolean;
-  workspace?: WorkspaceDraft;
+  /**
+   * O rascunho de um workspace que AINDA NÃO existe.
+   *
+   * É `WorkspaceEscrita` e não `WorkspaceDraft` porque é exatamente isso: o que se
+   * vai escrever. Os derivados só passam a existir depois que o workspace existe,
+   * e tê-los aqui significava inventá-los antes da hora — foi como `nextAction`
+   * acabava gravado.
+   */
+  workspace?: WorkspaceEscrita;
   updates?: Partial<WorkspaceDraft>;
   /**
    * A saída bruta da extração (Task 10), levada até a tela de revisão para que ela
@@ -87,8 +136,18 @@ export interface PendingWorkspaceImport {
 export interface WorkspacesPort {
   useWorkspaces(userId?: string): {
     workspaces: WorkspaceDraft[];
-    addWorkspace(workspace: WorkspaceDraft): Promise<void>;
-    updateWorkspace(slug: string, updates: Partial<WorkspaceDraft>): Promise<void>;
+    addWorkspace(workspace: WorkspaceEscrita): Promise<void>;
+    updateWorkspace(slug: string, updates: Partial<WorkspaceEscrita>): Promise<void>;
+    /**
+     * Escolhe o cargo ativo do workspace.
+     *
+     * É OPERAÇÃO, não escrita de campo, e a diferença é o achado da Fase 5: o
+     * harness de contrato mostrou que `selectedCargoId` era gravado pela tela
+     * como se fosse um dado, enquanto a API o computa a partir de qual cargo está
+     * marcado. Um campo derivado não se escreve — o que se faz é pedir a mudança
+     * que o deriva.
+     */
+    selectCargo(slug: string, cargoId: string): Promise<void>;
   };
   /**
    * Valida e normaliza um registro de workspace de origem não confiável.
@@ -96,8 +155,6 @@ export interface WorkspacesPort {
    * que pode estar corrompido ou num formato anterior.
    */
   parseWorkspaceDraft(raw: unknown): WorkspaceDraft | null;
-  /** O cargo sintético de um workspace sem cargo nomeado. */
-  defaultCargo(examDate: string): Cargo;
   /** A próxima versão de edital, apurada da fila de aprovação e do programa salvo. */
   nextSyllabusVersionFor(slug: string, userId?: string): number;
 }

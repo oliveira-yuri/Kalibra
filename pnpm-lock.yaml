@@ -177,6 +177,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/core':
+        specifier: workspace:*
+        version: link:../../lib/core
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -367,6 +370,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/api-server':
+        specifier: workspace:*
+        version: link:../api-server
       '@workspace/core':
         specifier: workspace:*
         version: link:../../lib/core

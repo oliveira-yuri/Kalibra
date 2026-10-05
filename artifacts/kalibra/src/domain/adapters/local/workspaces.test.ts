@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { hasEdital } from '@workspace/core';
+import { hasEdital, nextActionFor } from '@workspace/core';
 import {
   parseWorkspaceDraft, getWorkspaces, saveWorkspaces, useWorkspaces, type WorkspaceDraft, defaultCargo,
   nextSyllabusVersionFor,
@@ -202,9 +202,19 @@ describe('migração de workspace', () => {
     // validado. `nextAction` é renderizado direto por Portal.tsx — um objeto ali faz o
     // React lançar "Objects are not valid as a React child" fora do try/catch que isola
     // registros corrompidos em getWorkspaces.
-    it('cai no fallback quando nextAction é um objeto, não uma string', () => {
+    it('IGNORA nextAction do registro — passou a ser computado do status', () => {
+      // A regressão I5 original era sobre o helper `str`: um objeto no lugar de uma
+      // string passava direto e o React lançava "Objects are not valid as a React
+      // child" ao renderizar.
+      //
+      // Na Fase 5 a defesa ficou mais forte, não mais fraca: `nextAction` deixou de
+      // ser lido do registro e passou a ser computado do `status` por
+      // `nextActionFor`. Nada que venha gravado ali chega à tela — nem lixo, nem
+      // um valor legítimo porém desatualizado, que era o problema silencioso.
       const migrado = parseWorkspaceDraft({ ...ANTIGO, nextAction: { texto: 'não deveria estar aqui' } });
-      expect(migrado?.nextAction).toBe('');
+      expect(typeof migrado?.nextAction).toBe('string');
+      expect(migrado?.nextAction).toBe(nextActionFor(migrado!.status));
+      expect(migrado?.nextAction.length).toBeGreaterThan(0);
     });
 
     it('cai no fallback quando institution é um número', () => {
